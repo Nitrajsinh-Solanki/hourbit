@@ -1,12 +1,12 @@
 // hourbit\app\auth\login\page.tsx.
 
-
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Eye, EyeOff } from "lucide-react";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -59,15 +59,12 @@ export default function LoginPage() {
 
   return (
     <div className="flex items-center justify-center min-h-screen px-4">
-
       <div className="w-full max-w-md bg-white shadow-xl rounded-xl p-8">
-
         <h1 className="text-2xl font-bold text-center mb-6">
           Login to HourBit
         </h1>
 
         <form onSubmit={handleLogin} className="space-y-4">
-
           {/* Email */}
           <div>
             <label className="text-sm font-medium">Email</label>
@@ -96,36 +93,30 @@ export default function LoginPage() {
               <button
                 type="button"
                 className="absolute right-3 top-3 text-gray-500"
-                onClick={() =>
-                  setShowPassword(!showPassword)
-                }
+                onClick={() => setShowPassword(!showPassword)}
               >
-                {showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
 
           {/* Remember me */}
           <div className="flex items-center justify-between">
-
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={rememberMe}
-                onChange={() =>
-                  setRememberMe(!rememberMe)
-                }
+                onChange={() => setRememberMe(!rememberMe)}
               />
               Remember Me
             </label>
 
-            <a
-              href="#"
+            <Link
+              href="/auth/forgot-password"
               className="text-sm text-blue-600 hover:underline"
             >
               Forgot Password?
-            </a>
-
+            </Link>
           </div>
 
           {/* Login button */}
@@ -136,7 +127,6 @@ export default function LoginPage() {
           >
             {loading ? "Logging in..." : "Login"}
           </button>
-
         </form>
       </div>
     </div>
