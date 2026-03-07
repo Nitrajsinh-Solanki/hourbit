@@ -1,66 +1,66 @@
-
-// hourbit\app\auth\verify-account\page.tsx
-
+// app/auth/verify-account/page.tsx
 
 "use client";
 
-import { useState, useEffect } from "react";
-import toast from "react-hot-toast";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import Link from "next/link";
 
 export default function VerifyAccountPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-
+  const [email, setEmail]     = useState("");
+  const [otp, setOtp]         = useState(["", "", "", "", "", ""]);
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [timer, setTimer]     = useState(0);
+  const inputRefs             = useRef<(HTMLInputElement | null)[]>([]);
 
-  const [timer, setTimer] = useState(0);
-
-  /* Countdown Timer */
+  /* countdown */
   useEffect(() => {
-    let interval: any;
-
-    if (timer > 0) {
-      interval = setInterval(() => {
-        setTimer((prev) => prev - 1);
-      }, 1000);
-    }
-
+    if (timer <= 0) return;
+    const interval = setInterval(() => setTimer((p) => p - 1), 1000);
     return () => clearInterval(interval);
   }, [timer]);
 
-  /* Handle OTP input */
+  /* OTP box input */
   const handleOtpChange = (value: string, index: number) => {
     if (!/^\d*$/.test(value)) return;
-
     const newOtp = [...otp];
-    newOtp[index] = value;
+    newOtp[index] = value.slice(-1);
     setOtp(newOtp);
+    if (value && index < 5) inputRefs.current[index + 1]?.focus();
+  };
 
-    if (value && index < 5) {
-      const nextInput = document.getElementById(`otp-${index + 1}`);
-      nextInput?.focus();
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === "Backspace" && !otp[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
     }
   };
 
-  /* Send OTP */
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    const newOtp = [...otp];
+    pasted.split("").forEach((char, i) => { newOtp[i] = char; });
+    setOtp(newOtp);
+    inputRefs.current[Math.min(pasted.length, 5)]?.focus();
+  };
+
   const sendOTP = async () => {
     if (!email) {
-      toast.error("Enter your email");
+      toast.error("Enter your email address");
       return;
     }
 
     try {
       setLoading(true);
-
-      const res = await fetch("/api/auth/send-otp", {
+      const res  = await fetch("/api/auth/send-otp", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-
       const data = await res.json();
 
       if (!data.success) {
@@ -68,37 +68,31 @@ export default function VerifyAccountPage() {
         return;
       }
 
-      toast.success("OTP sent to your email");
-
+      toast.success("OTP sent to your email!");
       setOtpSent(true);
       setTimer(60);
-    } catch (error) {
+      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    } catch {
       toast.error("Something went wrong");
     } finally {
       setLoading(false);
     }
   };
 
-  /* Verify OTP */
   const verifyOTP = async () => {
-    const otpCode = otp.join("");
-
-    if (otpCode.length !== 6) {
-      toast.error("Enter valid OTP");
+    const code = otp.join("");
+    if (code.length !== 6) {
+      toast.error("Enter all 6 digits");
       return;
     }
 
     try {
       setLoading(true);
-
-      const res = await fetch("/api/auth/verify-otp", {
+      const res  = await fetch("/api/auth/verify-otp", {
         method: "POST",
-        body: JSON.stringify({
-          email,
-          otp: otpCode,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, otp: code }),
       });
-
       const data = await res.json();
 
       if (!data.success) {
@@ -107,95 +101,140 @@ export default function VerifyAccountPage() {
       }
 
       toast.success("Account verified!");
-
-      setTimeout(() => {
-        router.push("/login");
-      }, 1500);
-    } catch (error) {
+      setTimeout(() => router.push("/auth/login"), 1200);
+    } catch {
       toast.error("Verification failed");
     } finally {
       setLoading(false);
     }
   };
 
-  /* Resend OTP */
-  const resendOTP = async () => {
-    if (timer > 0) return;
-
-    sendOTP();
-  };
-
   return (
-    <div className="flex items-center justify-center min-h-screen px-4">
-      <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-8 space-y-6">
+    <div
+      className="relative min-h-screen flex flex-col items-center justify-center px-4 py-20 bg-[#0a0a0f]"
+      style={{ paddingTop: "calc(64px + 40px)" }}
+    >
+      {/* glow */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] rounded-full"
+        style={{ background: "rgba(124,110,243,0.10)", filter: "blur(110px)" }}
+      />
 
-        <h1 className="text-2xl font-bold text-center">
-          Verify Your Account
+      {/* header */}
+      <div className="relative z-10 text-center mb-8">
+        <div className="inline-flex items-center gap-2 bg-[#111118] border border-[#2a2a35] rounded-full px-4 py-1.5 mb-5">
+          <span className="w-2 h-2 rounded-full bg-[#fbbf24] block" />
+          <span className="font-mono text-[12px] text-[#9898b0]">Account verification</span>
+        </div>
+        <h1 className="font-syne font-extrabold text-[32px] text-[#e8e8f0] tracking-tight mb-2">
+          Verify your account
         </h1>
+        <p className="font-mono text-[14px] text-[#9898b0]">
+          {otpSent
+            ? "Enter the 6-digit code we sent to your email"
+            : "Enter your email to receive a verification code"}
+        </p>
+      </div>
 
-        {/* EMAIL INPUT */}
-        <div>
-          <label className="text-sm font-medium">Email</label>
+      {/* card */}
+      <div className="relative z-10 w-full max-w-[420px] bg-[#111118] border border-[#1e1e2e] rounded-2xl p-8">
 
+        {/* Step 1 — email input */}
+        <div className="flex flex-col gap-2 mb-5">
+          <label className="font-mono text-[12px] text-[#9898b0] tracking-wide uppercase">
+            Email Address
+          </label>
           <input
             type="email"
-            placeholder="Enter your registered email"
-            className="w-full border rounded-lg px-3 py-2 mt-1"
+            placeholder="your@email.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={otpSent}
+            className="w-full bg-[#0a0a0f] border border-[#2a2a35] rounded-xl px-4 py-3 font-mono text-[14px] text-[#e8e8f0] placeholder-[#3a3a55] focus:outline-none focus:border-[#7c6ef3] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           />
         </div>
 
-        {!otpSent && (
+        {!otpSent ? (
+          /* Send OTP button */
           <button
             onClick={sendOTP}
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+            className="w-full font-mono font-medium text-[14px] text-white py-3.5 rounded-xl bg-[#7c6ef3] hover:bg-[#6c5ee3] disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5 shadow-[0_0_24px_rgba(124,110,243,0.35)] hover:shadow-[0_0_36px_rgba(124,110,243,0.5)] transition-all"
           >
-            {loading ? "Sending..." : "Send OTP"}
+            {loading ? "Sending OTP..." : "Send Verification OTP →"}
           </button>
-        )}
+        ) : (
+          <div className="flex flex-col gap-5">
 
-        {/* OTP INPUT */}
-        {otpSent && (
-          <>
-            <div className="flex justify-between gap-2">
-              {otp.map((digit, index) => (
-                <input
-                  key={index}
-                  id={`otp-${index}`}
-                  type="text"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(e) =>
-                    handleOtpChange(e.target.value, index)
-                  }
-                  className="w-12 h-12 text-center text-lg border rounded-lg"
-                />
-              ))}
+            {/* 6 OTP boxes */}
+            <div>
+              <label className="font-mono text-[12px] text-[#9898b0] tracking-wide uppercase mb-4 block text-center">
+                Enter 6-digit code
+              </label>
+              <div className="flex items-center justify-between gap-2" onPaste={handlePaste}>
+                {otp.map((digit, i) => (
+                  <input
+                    key={i}
+                    id={`otp-${i}`}
+                    ref={(el) => { inputRefs.current[i] = el; }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(e.target.value, i)}
+                    onKeyDown={(e) => handleKeyDown(e, i)}
+                    className={`w-12 h-14 text-center font-syne font-bold text-[20px] rounded-xl border transition-all focus:outline-none ${
+                      digit
+                        ? "bg-[#7c6ef3]/10 border-[#7c6ef3] text-[#a78bfa]"
+                        : "bg-[#0a0a0f] border-[#2a2a35] text-[#e8e8f0] focus:border-[#7c6ef3]"
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
 
-            {/* VERIFY BUTTON */}
+            {/* verify button */}
             <button
               onClick={verifyOTP}
-              disabled={loading}
-              className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700"
+              disabled={loading || otp.join("").length !== 6}
+              className="w-full font-mono font-medium text-[14px] text-white py-3.5 rounded-xl bg-[#22d3a0]/90 hover:bg-[#22d3a0] disabled:opacity-40 disabled:cursor-not-allowed hover:-translate-y-0.5 shadow-[0_0_24px_rgba(34,211,160,0.25)] hover:shadow-[0_0_36px_rgba(34,211,160,0.4)] transition-all"
             >
-              {loading ? "Verifying..." : "Verify OTP"}
+              {loading ? "Verifying..." : "Verify Account →"}
             </button>
 
-            {/* RESEND BUTTON */}
-            <button
-              onClick={resendOTP}
-              disabled={timer > 0}
-              className="w-full text-blue-600 text-sm"
-            >
-              {timer > 0
-                ? `Resend OTP in ${timer}s`
-                : "Resend OTP"}
-            </button>
-          </>
+            {/* resend */}
+            <div className="text-center">
+              <button
+                onClick={sendOTP}
+                disabled={timer > 0 || loading}
+                className={`font-mono text-[13px] font-medium bg-transparent border-none cursor-pointer transition-colors ${
+                  timer > 0 ? "text-[#3a3a55] cursor-not-allowed" : "text-[#a78bfa] hover:text-[#7c6ef3]"
+                }`}
+              >
+                {timer > 0 ? `Resend OTP in ${timer}s` : "Resend OTP"}
+              </button>
+            </div>
+          </div>
         )}
+
+        {/* bottom links */}
+        <div className="flex items-center gap-3 my-6">
+          <div className="flex-1 h-px bg-[#1e1e2e]" />
+          <span className="font-mono text-[11px] text-[#3a3a55]">links</span>
+          <div className="flex-1 h-px bg-[#1e1e2e]" />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Link href="/auth/login"
+            className="font-mono text-[13px] text-[#9898b0] hover:text-[#a78bfa] transition-colors no-underline">
+            ← Sign in
+          </Link>
+          <Link href="/auth/register"
+            className="font-mono text-[13px] text-[#9898b0] hover:text-[#a78bfa] transition-colors no-underline">
+            Create account →
+          </Link>
+        </div>
       </div>
     </div>
   );
