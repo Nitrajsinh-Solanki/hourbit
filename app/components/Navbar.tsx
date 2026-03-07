@@ -72,7 +72,7 @@ export default function Navbar() {
 
             {/* Verify Account */}
             <Link
-              href="/auth/verify"
+              href="/auth/verify-account"
               className="text-[#9898b0] hover:text-white px-4 py-2 rounded-lg border border-[#2a2a35] hover:border-[#22d3a0]/40 transition-colors text-sm font-medium"
             >
               Verify Account
@@ -138,7 +138,7 @@ export default function Navbar() {
             </Link>
 
             <Link
-              href="/auth/verify"
+              href="/auth/verify-account"
               className="text-[#9898b0] hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
               onClick={() => setMenuOpen(false)}
             >

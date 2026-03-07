@@ -5,6 +5,8 @@ import "./globals.css";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import { ReactNode } from "react";
+import { Toaster } from "react-hot-toast";
+
 
 export const viewport: Viewport = {
   themeColor: "#0a0a0f",
@@ -34,6 +36,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <Navbar />
         <main className="grow">{children}</main>
         <Footer />
+        <Toaster position="top-right" />
       </body>
     </html>
   );
