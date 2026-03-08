@@ -2,13 +2,15 @@
 
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 
-export default function ResetPasswordPage() {
+// ── Inner component that uses useSearchParams ──────────────────
+// Must be separated so Suspense can wrap it properly.
+function ResetPasswordForm() {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -247,5 +249,21 @@ export default function ResetPasswordPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Page export — wraps the form in Suspense ───────────────────
+// REQUIRED by Next.js whenever useSearchParams() is used in a page.
+export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f]">
+          <div className="w-6 h-6 rounded-full border-2 border-[#7c6ef3] border-t-transparent animate-spin" />
+        </div>
+      }
+    >
+      <ResetPasswordForm />
+    </Suspense>
   );
 }
