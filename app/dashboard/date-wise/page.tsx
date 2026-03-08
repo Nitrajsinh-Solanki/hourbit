@@ -6,11 +6,13 @@ import {
   useEffect, useMemo, useState, useCallback, useRef, useImperativeHandle, forwardRef,
 } from "react";
 import toast from "react-hot-toast";
+import Link from "next/link";
 import {
   Clock, LogIn, LogOut, Coffee, Zap, Timer,
   Plus, Save, RefreshCw, CalendarDays,
   ChevronLeft, ChevronRight, UtensilsCrossed,
   X, CheckCircle2, PencilLine, FilePlus2,
+  Palmtree,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────
@@ -109,7 +111,7 @@ const MONTHS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────
-// CALENDAR PICKER — with logged / missing day dots
+// CALENDAR PICKER — with logged / missing / holiday day dots
 // ─────────────────────────────────────────────────────────────────
 const CalendarPicker = forwardRef<CalendarHandle, {
   value:    string;
@@ -122,25 +124,27 @@ const CalendarPicker = forwardRef<CalendarHandle, {
   const [viewY, setViewY]  = useState(selY);
   const [viewM, setViewM]  = useState(selM - 1); // 0-indexed
 
-  // Logged days in the currently-viewed month
   const [loggedDays,  setLoggedDays]  = useState<Set<number>>(new Set());
+  const [holidayDays, setHolidayDays] = useState<Set<number>>(new Set());
   const [dotsLoading, setDotsLoading] = useState(false);
 
   const fetchDots = useCallback(async (year: number, month0: number) => {
     setDotsLoading(true);
     try {
-      const res  = await fetch(`/api/work/logged-dates?year=${year}&month=${month0 + 1}`);
-      const data = await res.json();
-      if (data.success) setLoggedDays(new Set<number>(data.days));
+      const [logsRes, holRes] = await Promise.all([
+        fetch(`/api/work/logged-dates?year=${year}&month=${month0 + 1}`),
+        fetch(`/api/work/holidays?year=${year}&month=${month0 + 1}`),
+      ]);
+      const [logsData, holData] = await Promise.all([logsRes.json(), holRes.json()]);
+      if (logsData.success) setLoggedDays(new Set<number>(logsData.days));
+      if (holData.success)  setHolidayDays(new Set<number>(holData.holidays.map((h: any) => h.day as number)));
     } catch { /* non-critical */ } finally {
       setDotsLoading(false);
     }
   }, []);
 
-  // Fetch on mount + whenever the viewed month changes
   useEffect(() => { fetchDots(viewY, viewM); }, [viewY, viewM, fetchDots]);
 
-  // Allow parent to trigger a refresh (called after save so dot appears immediately)
   useImperativeHandle(ref, () => ({
     refreshDots: () => fetchDots(viewY, viewM),
   }), [viewY, viewM, fetchDots]);
@@ -171,7 +175,7 @@ const CalendarPicker = forwardRef<CalendarHandle, {
       style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#22d3a0" }} />
           <span className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>Logged</span>
@@ -179,6 +183,10 @@ const CalendarPicker = forwardRef<CalendarHandle, {
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f87171" }} />
           <span className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>Missing</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#f59e0b" }} />
+          <span className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>Holiday</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--border2)" }} />
@@ -230,23 +238,22 @@ const CalendarPicker = forwardRef<CalendarHandle, {
         {cells.map((day, i) => {
           if (day === null) return <div key={`e${i}`} />;
 
-          const ymd      = `${viewY}-${pad2(viewM + 1)}-${pad2(day)}`;
-          const isToday  = ymd === today;
-          const isSel    = selY === viewY && selM - 1 === viewM && selD === day;
-          const isFuture = ymd > today;
-          const isLogged = !isFuture && loggedDays.has(day);
-
-          // Weekend check (Sun=0, Sat=6)
+          const ymd       = `${viewY}-${pad2(viewM + 1)}-${pad2(day)}`;
+          const isToday   = ymd === today;
+          const isSel     = selY === viewY && selM - 1 === viewM && selD === day;
+          const isFuture  = ymd > today;
+          const isHol     = !isFuture && holidayDays.has(day);
+          const isLogged  = !isFuture && loggedDays.has(day) && !isHol;
           const dow       = new Date(viewY, viewM, day).getDay();
           const isWeekend = dow === 0 || dow === 6;
-          // Missing = past weekday with no entry (excludes today since user might still log it)
-          const isMissing = !isFuture && !isToday && !isLogged && !isWeekend;
+          const isMissing = !isFuture && !isToday && !isLogged && !isWeekend && !isHol;
 
-          // Dot color
-          const dotColor = isLogged  ? "#22d3a0"
+          // Dot priority: holiday > logged > missing > weekend > none
+          const dotColor = isHol     ? "#f59e0b"
+                         : isLogged  ? "#22d3a0"
                          : isMissing ? "#f87171"
                          : isWeekend ? "var(--border2)"
-                         : "transparent"; // today / future — no dot
+                         : "transparent";
 
           return (
             <button
@@ -258,11 +265,13 @@ const CalendarPicker = forwardRef<CalendarHandle, {
                 minHeight:  "38px",
                 cursor:     isFuture ? "not-allowed" : "pointer",
                 opacity:    isFuture ? 0.22 : 1,
-                background: isSel    ? "var(--accent)"
+                background: isSel    ? (isHol ? "#f59e0b" : "var(--accent)")
                            : isToday ? "rgba(124,110,243,0.12)"
+                           : isHol   ? "rgba(245,158,11,0.10)"
                            : "transparent",
                 color:      isSel    ? "#fff"
                            : isToday ? "var(--accent)"
+                           : isHol   ? "#f59e0b"
                            : "var(--text2)",
                 border:     isToday && !isSel
                            ? "1px solid rgba(124,110,243,0.35)"
@@ -271,30 +280,23 @@ const CalendarPicker = forwardRef<CalendarHandle, {
               }}
               onMouseEnter={e => {
                 if (!isFuture && !isSel)
-                  (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.08)";
+                  (e.currentTarget as HTMLElement).style.background =
+                    isHol ? "rgba(245,158,11,0.18)" : "rgba(124,110,243,0.08)";
               }}
               onMouseLeave={e => {
                 if (!isSel)
                   (e.currentTarget as HTMLElement).style.background =
-                    isToday ? "rgba(124,110,243,0.12)" : "transparent";
+                    isToday ? "rgba(124,110,243,0.12)"
+                    : isHol ? "rgba(245,158,11,0.10)"
+                    : "transparent";
               }}
             >
-              {/* Day number */}
               <span style={{ lineHeight: 1 }}>{day}</span>
-
-              {/* Status dot */}
-              <span
-                style={{
-                  display:    "block",
-                  width:      "4px",
-                  height:     "4px",
-                  borderRadius: "50%",
-                  background: dotColor,
-                  flexShrink: 0,
-                  // When selected, always show the dot colour on top of accent bg
-                  opacity: isSel && !isLogged ? 0.6 : 1,
-                }}
-              />
+              <span style={{
+                display: "block", width: "4px", height: "4px", borderRadius: "50%",
+                background: dotColor, flexShrink: 0,
+                opacity: isSel ? 0.7 : 1,
+              }} />
             </button>
           );
         })}
@@ -412,9 +414,9 @@ function ClockPicker({ value, onChange, onClose }: {
           <div className="flex flex-col gap-1">
             {(["AM","PM"] as const).map(ap => (
               <button key={ap} onClick={() => toggleAP(ap)}
-                className="font-mono text-[12px] font-medium px-3 py-1 rounded-lg cursor-pointer"
+                className="font-mono text-[12px] font-medium px-3 py-1 rounded-lg cursor-pointer border-none"
                 style={ampm === ap
-                  ? { background: "var(--accent)", border: "1px solid var(--accent)", color: "#fff" }
+                  ? { background: "var(--accent)", color: "#fff" }
                   : { background: "transparent", border: "1px solid var(--border2)", color: "var(--text3)" }}>
                 {ap}
               </button>
@@ -549,7 +551,7 @@ function BreakChip({ br, onRemove }: { br: BreakEntry; onRemove: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// CARD
+// CARD HELPERS
 // ─────────────────────────────────────────────────────────────────
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -573,30 +575,73 @@ function CardHeader({ icon: Icon, iconColor, title, right }: {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LOG FORM
+// HOLIDAY BANNER — replaces LogForm when selected date is a holiday
+// ─────────────────────────────────────────────────────────────────
+function HolidayBanner({ date, notes }: { date: string; notes: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-5 py-16 rounded-2xl"
+      style={{
+        background: "var(--surface)",
+        border:     "1px solid rgba(245,158,11,0.30)",
+      }}>
+      <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+        style={{ background: "rgba(245,158,11,0.12)" }}>
+        <Palmtree size={28} style={{ color: "#f59e0b" }} />
+      </div>
+      <div className="text-center space-y-2 px-6">
+        <h2 className="font-syne font-bold text-[20px]" style={{ color: "#f59e0b" }}>
+          Holiday 🌴
+        </h2>
+        <p className="font-mono text-[13px]" style={{ color: "var(--text2)" }}>
+          {prettyDate(date)}
+        </p>
+        {notes && (
+          <p className="font-mono text-[12px] px-4 py-2 rounded-xl"
+            style={{
+              color:      "var(--text2)",
+              background: "rgba(245,158,11,0.08)",
+              border:     "1px solid rgba(245,158,11,0.18)",
+            }}>
+            {notes}
+          </p>
+        )}
+        <p className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+          Work logging is disabled for this date.<br />
+          This day is excluded from all weekly &amp; monthly averages.
+        </p>
+      </div>
+      <Link href="/dashboard/holiday"
+        className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[13px] font-medium transition-all no-underline"
+        style={{
+          background: "rgba(245,158,11,0.12)",
+          border:     "1px solid rgba(245,158,11,0.30)",
+          color:      "#f59e0b",
+        }}
+        onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) =>
+          (e.currentTarget.style.background = "rgba(245,158,11,0.22)")}
+        onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>) =>
+          (e.currentTarget.style.background = "rgba(245,158,11,0.12)")}>
+        <Palmtree size={14} /> Manage Holidays
+      </Link>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// LOG FORM  (only shown for non-holiday dates)
 // ─────────────────────────────────────────────────────────────────
 function LogForm({
-  selectedDate,
-  hasExisting,
-  entryTime,  setEntryTime,
-  exitTime,   setExitTime,
-  breaks,     setBreaks,
-  notes,      setNotes,
-  isDirty,
-  everSaved,
-  saving,
-  onSave,
+  selectedDate, hasExisting,
+  entryTime, setEntryTime, exitTime, setExitTime,
+  breaks, setBreaks, notes, setNotes,
+  isDirty, everSaved, saving, onSave,
 }: {
-  selectedDate: string;
-  hasExisting:  boolean;
-  entryTime:    string;  setEntryTime: (v: string) => void;
-  exitTime:     string;  setExitTime:  (v: string) => void;
-  breaks:       BreakEntry[]; setBreaks: React.Dispatch<React.SetStateAction<BreakEntry[]>>;
-  notes:        string;  setNotes:     (v: string) => void;
-  isDirty:      boolean;
-  everSaved:    boolean;
-  saving:       boolean;
-  onSave:       () => void;
+  selectedDate: string; hasExisting: boolean;
+  entryTime: string; setEntryTime: (v: string) => void;
+  exitTime:  string; setExitTime:  (v: string) => void;
+  breaks:    BreakEntry[]; setBreaks: React.Dispatch<React.SetStateAction<BreakEntry[]>>;
+  notes:     string; setNotes:  (v: string) => void;
+  isDirty: boolean; everSaved: boolean; saving: boolean; onSave: () => void;
 }) {
   const [activePicker, setActivePicker] = useState<"entry"|"exit"|null>(null);
   const [showCustom,   setShowCustom]   = useState(false);
@@ -679,7 +724,6 @@ function LogForm({
             <Coffee size={13} /> Tea / Coffee
             <span style={{ color: "var(--text3)", fontSize: "10px" }}>15m</span>
           </button>
-
           <button onClick={() => addQuickBreak("lunch", "Lunch Break", 30)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
             style={{ background: "rgba(34,211,160,0.10)", border: "1px solid rgba(34,211,160,0.25)", color: "var(--green)" }}
@@ -688,7 +732,6 @@ function LogForm({
             <UtensilsCrossed size={13} /> Lunch Break
             <span style={{ color: "var(--text3)", fontSize: "10px" }}>30m</span>
           </button>
-
           <button onClick={() => setShowCustom(!showCustom)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
             style={{ background: "rgba(167,139,250,0.10)", border: "1px solid rgba(167,139,250,0.25)", color: "var(--accent2)" }}
@@ -751,7 +794,7 @@ function LogForm({
           { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",  icon: Coffee, bg: "rgba(251,191,36,0.12)"  },
           { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)", icon: Zap,    bg: "rgba(124,110,243,0.12)" },
           { label: calc.pct >= 100 ? "Completed!" : "Remaining",
-            value: calc.pct >= 100 ? "Done ✓"     : fmtDuration(calc.remaining),
+            value: calc.pct >= 100 ? "Done ✓" : fmtDuration(calc.remaining),
             color: calc.pct >= 100 ? "var(--green)" : "var(--text2)",
             icon:  calc.pct >= 100 ? Zap : Clock,
             bg:    calc.pct >= 100 ? "rgba(34,211,160,0.12)" : "var(--border)" },
@@ -817,7 +860,6 @@ function LogForm({
             </span>
           </div>
         )}
-
         <button
           onClick={onSave}
           disabled={saving || !isDirty}
@@ -862,7 +904,10 @@ export default function DateWisePage() {
   const [savedSnapshot, setSavedSnapshot] = useState<SavedSnapshot>(EMPTY_SNAPSHOT);
   const [everSaved,     setEverSaved]     = useState(false);
 
-  // Ref to CalendarPicker so we can call refreshDots() after a successful save
+  // ── Holiday state ──────────────────────────────────────────────
+  const [isHoliday,    setIsHoliday]    = useState(false);
+  const [holidayNotes, setHolidayNotes] = useState("");
+
   const calRef = useRef<CalendarHandle>(null);
 
   const isDirty = useMemo(() => {
@@ -877,13 +922,26 @@ export default function DateWisePage() {
 
   const fetchLog = useCallback(async (date: string) => {
     setFetching(true);
+    // Reset everything on every date switch
     setEntryTime(""); setExitTime(""); setBreaks([]); setNotes("");
     setSavedSnapshot(EMPTY_SNAPSHOT); setEverSaved(false); setHasExisting(false);
+    setIsHoliday(false); setHolidayNotes("");
+
     try {
       const res  = await fetch(`/api/work/date?date=${date}`);
       const data = await res.json();
       if (data.success && data.data) {
-        const d            = data.data;
+        const d = data.data;
+
+        // ── Holiday check ──────────────────────────────────────
+        if (d.isHoliday) {
+          setIsHoliday(true);
+          setHolidayNotes(d.notes || "");
+          setHasExisting(true); // record exists in DB — needed for badge
+          return;
+        }
+        // ──────────────────────────────────────────────────────
+
         const loadedEntry  = isoToHHMM(d.entryTime);
         const loadedExit   = isoToHHMM(d.exitTime);
         const loadedNotes  = d.notes || "";
@@ -932,7 +990,6 @@ export default function DateWisePage() {
         toast.success(hasExisting ? "Log updated ✓" : "Log saved! 🎉");
         setSavedSnapshot({ entryTime, exitTime, notes: notes.trim(), breaksKey: breaksToKey(breaks) });
         setEverSaved(true); setHasExisting(true);
-        // ← refresh calendar dots so the green dot appears immediately
         calRef.current?.refreshDots();
       } else {
         toast.error(data.message || "Save failed");
@@ -983,6 +1040,13 @@ export default function DateWisePage() {
                   <RefreshCw size={11} className="animate-spin" style={{ color: "var(--text3)" }} />
                   <span className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>Loading…</span>
                 </div>
+              ) : isHoliday ? (
+                // ── Holiday badge ──────────────────────────────
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                  <Palmtree size={10} style={{ color: "#f59e0b" }} />
+                  <span className="font-mono text-[10px]" style={{ color: "#f59e0b" }}>Holiday</span>
+                </div>
               ) : hasExisting ? (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
                   style={{ background: "rgba(124,110,243,0.10)", border: "1px solid rgba(124,110,243,0.25)" }}>
@@ -1025,6 +1089,8 @@ export default function DateWisePage() {
 
         {/* RIGHT — form panel */}
         <div className="flex-1 min-w-0 space-y-5">
+
+          {/* Loading skeleton */}
           {fetching && (
             <div className="flex items-center justify-center py-24 rounded-2xl"
               style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
@@ -1038,7 +1104,12 @@ export default function DateWisePage() {
             </div>
           )}
 
-          {!fetching && (
+          {/* ── Holiday banner or Log form ────────────────── */}
+          {!fetching && isHoliday && (
+            <HolidayBanner date={selectedDate} notes={holidayNotes} />
+          )}
+
+          {!fetching && !isHoliday && (
             <LogForm
               selectedDate={selectedDate}
               hasExisting={hasExisting}
