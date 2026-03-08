@@ -5,6 +5,7 @@
 // SVG DOM is mutated directly via refs (setAttribute / style).
 // Particles are SVG elements created natively — no React reconciler overhead.
 // Tick marks computed once at module level — never recalculated.
+// THEME: Fully adaptive — works in both light and dark mode via CSS variables.
 
 "use client";
 
@@ -124,13 +125,62 @@ export default function Logo() {
   return (
     <>
       <style>{`
-        @keyframes hb-pf{0%{opacity:.85;transform:scale(1)}100%{opacity:0;transform:scale(.05)}}
-        @keyframes hb-glow{0%,100%{filter:drop-shadow(0 0 4px rgba(124,110,243,.3))}50%{filter:drop-shadow(0 0 11px rgba(124,110,243,.6))}}
+        @keyframes hb-pf {
+          0%   { opacity: .85; transform: scale(1); }
+          100% { opacity: 0;   transform: scale(.05); }
+        }
+
+        /* Dark mode (default): rich purple glow */
+        @keyframes hb-glow {
+          0%,100% { filter: drop-shadow(0 0 4px rgba(124,110,243,.30)) drop-shadow(0 0 2px rgba(34,211,160,.15)); }
+          50%     { filter: drop-shadow(0 0 11px rgba(124,110,243,.60)) drop-shadow(0 0 5px rgba(34,211,160,.25)); }
+        }
+
+        /* Light mode: softer, more visible on white */
+        @media (prefers-color-scheme: light) {
+          .hb-svg { animation: hb-glow-light 3s ease-in-out infinite !important; }
+        }
+        @keyframes hb-glow-light {
+          0%,100% { filter: drop-shadow(0 0 4px rgba(91,79,224,.35)) drop-shadow(0 0 2px rgba(22,185,137,.20)); }
+          50%     { filter: drop-shadow(0 0 12px rgba(91,79,224,.55)) drop-shadow(0 0 6px rgba(22,185,137,.35)); }
+        }
+
+        /* Class-based theme support (for Tailwind dark:, next-themes, etc.) */
+        .dark .hb-svg {
+          animation: hb-glow 3s ease-in-out infinite;
+        }
+        .light .hb-svg {
+          animation: hb-glow-light 3s ease-in-out infinite;
+        }
+
+        /* Logo text — adapts colour to theme */
+        .hb-label {
+          font-family: var(--font-manrope, 'Manrope', system-ui, sans-serif);
+          font-size: 1.125rem;
+          font-weight: 700;
+          letter-spacing: -0.025em;
+          color: #22d3a0 !important;
+        }
+        @media (prefers-color-scheme: light) {
+          .hb-label { color: #16b989 !important; }
+        }
+        .light .hb-label  { color: #16b989 !important; }
+        .dark  .hb-label  { color: #22d3a0 !important; }
+
+        .hb-accent {
+          color: #7c6ef3;
+        }
+        @media (prefers-color-scheme: light) {
+          .hb-accent { color: #5b4fe0; }
+        }
+        .light .hb-accent { color: #5b4fe0; }
+        .dark  .hb-accent { color: #7c6ef3; }
       `}</style>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
         <svg
           ref={svgRef}
+          className="hb-svg"
           width="34"
           height="34"
           viewBox="0 0 34 34"
@@ -139,25 +189,81 @@ export default function Logo() {
           style={{ animation: "hb-glow 3s ease-in-out infinite" }}
         >
           <defs>
+            {/* ── Ring gradient — consistent across themes ── */}
             <linearGradient id="hb-ring" x1="0" y1="0" x2="34" y2="34" gradientUnits="userSpaceOnUse">
               <stop offset="0%"   stopColor="#7c6ef3" />
               <stop offset="100%" stopColor="#5b4fe0" />
             </linearGradient>
+
+            {/* ── Hand gradient ── */}
             <linearGradient id="hb-hand" x1="17" y1="9" x2="17" y2="17" gradientUnits="userSpaceOnUse">
               <stop offset="0%"   stopColor="#22d3a0" />
               <stop offset="100%" stopColor="#16b989" />
             </linearGradient>
-            <radialGradient id="hb-inner" cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="#7c6ef3" stopOpacity="0.18" />
+
+            {/* ── Inner radial glow — dark mode ── */}
+            <radialGradient id="hb-inner-dark" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#7c6ef3" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#7c6ef3" stopOpacity="0"    />
+            </radialGradient>
+
+            {/* ── Inner radial glow — light mode (more visible) ── */}
+            <radialGradient id="hb-inner-light" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#7c6ef3" stopOpacity="0.30" />
               <stop offset="100%" stopColor="#7c6ef3" stopOpacity="0"    />
             </radialGradient>
           </defs>
 
-          {/* background */}
-          <rect x="1" y="1" width="32" height="32" rx="9" fill="#0f0f17" stroke="#2a2a35" />
+          {/*
+            ── BACKGROUND RECT ──────────────────────────────────────
+            Dark theme  : deep navy  #0f0f17 bg, #2a2a35 border
+            Light theme : white bg,  soft purple-tinted border
+            ──────────────────────────────────────────────────────── */}
+          <rect
+            x="1" y="1" width="32" height="32" rx="9"
+            className="hb-bg"
+          />
 
-          {/* inner glow — mutated by RAF */}
-          <circle ref={glowCircleRef} cx="17" cy="17" r="5" fill="url(#hb-inner)" opacity="0.18" />
+          {/* Inline <style> inside SVG for the rect — SVG presentational attrs
+              can't respond to CSS media queries, but a <style> block inside SVG can. */}
+          <style>{`
+            .hb-bg {
+              fill: #0f0f17;
+              stroke: #2a2a35;
+              stroke-width: 1;
+            }
+            @media (prefers-color-scheme: light) {
+              .hb-bg { fill: #ffffff; stroke: #d4d0f5; }
+            }
+            .light .hb-bg { fill: #ffffff; stroke: #d4d0f5; }
+            .dark  .hb-bg { fill: #0f0f17; stroke: #2a2a35; }
+
+            /* Minor tick marks adapt too */
+            .hb-tick-minor {
+              stroke: #3a3a55;
+            }
+            @media (prefers-color-scheme: light) {
+              .hb-tick-minor { stroke: #c5c2e8; }
+            }
+            .light .hb-tick-minor { stroke: #c5c2e8; }
+            .dark  .hb-tick-minor { stroke: #3a3a55; }
+          `}</style>
+
+          {/* inner glow — mutated by RAF; pick gradient based on theme via CSS class */}
+          <circle
+            ref={glowCircleRef}
+            cx="17" cy="17" r="5"
+            fill="url(#hb-inner-dark)"
+            opacity="0.18"
+            className="hb-glow-circle"
+          />
+          <style>{`
+            @media (prefers-color-scheme: light) {
+              .hb-glow-circle { fill: url(#hb-inner-light); opacity: 0.28; }
+            }
+            .light .hb-glow-circle { fill: url(#hb-inner-light); opacity: 0.28; }
+            .dark  .hb-glow-circle { fill: url(#hb-inner-dark);  opacity: 0.18; }
+          `}</style>
 
           {/* clock ring */}
           <circle cx="17" cy="17" r="8" stroke="url(#hb-ring)" strokeWidth="1.5" fill="none" />
@@ -167,9 +273,10 @@ export default function Logo() {
             <line
               key={i}
               x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
-              stroke={t.major ? "#7c6ef3" : "#3a3a55"}
+              stroke={t.major ? "#7c6ef3" : undefined}
               strokeWidth={t.major ? 1.2 : 0.65}
               strokeLinecap="round"
+              className={t.major ? undefined : "hb-tick-minor"}
             />
           ))}
 
@@ -201,8 +308,8 @@ export default function Logo() {
           <circle cx="17" cy="17" r="2" fill="#22d3a0" />
         </svg>
 
-        <span className="font-manrope text-lg font-bold tracking-tight text-white">
-          Hour<span className="text-[#7c6ef3]">Bit</span>
+        <span className="hb-label" style={{ color: "#22d3a0" }}>
+          Hour<span className="hb-accent" style={{ color: "#7c6ef3" }}>Bit</span>
         </span>
       </div>
     </>
