@@ -2,12 +2,14 @@
 
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
-export default function VerifyPage() {
+// ── Inner component uses useSearchParams — must be inside <Suspense> ──
+function VerifyContent() {
   const searchParams = useSearchParams();
   const router       = useRouter();
 
@@ -29,11 +31,9 @@ export default function VerifyPage() {
   /* OTP box change handler */
   const handleOtpChange = (value: string, index: number) => {
     if (!/^\d*$/.test(value)) return;
-
     const newOtp = [...otp];
-    newOtp[index] = value.slice(-1); // only last char
+    newOtp[index] = value.slice(-1);
     setOtp(newOtp);
-
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
@@ -58,23 +58,16 @@ export default function VerifyPage() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-
     const code = otp.join("");
-    if (code.length !== 6) {
-      toast.error("Enter all 6 digits");
-      return;
-    }
-
+    if (code.length !== 6) { toast.error("Enter all 6 digits"); return; }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/verify-otp", {
-        method: "POST",
+      const res  = await fetch("/api/auth/verify-otp", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp: code }),
+        body:    JSON.stringify({ email, otp: code }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         toast.success("Account verified successfully!");
         setTimeout(() => router.push("/auth/login"), 1200);
@@ -90,16 +83,13 @@ export default function VerifyPage() {
 
   const resendOTP = async () => {
     if (timer > 0) return;
-
     try {
-      const res = await fetch("/api/auth/send-otp", {
-        method: "POST",
+      const res  = await fetch("/api/auth/send-otp", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body:    JSON.stringify({ email }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         toast.success("OTP sent again!");
         setTimer(60);
@@ -146,7 +136,6 @@ export default function VerifyPage() {
       <div className="relative z-10 w-full max-w-[420px] bg-[#111118] border border-[#1e1e2e] rounded-2xl p-8">
 
         <form onSubmit={handleVerify} className="flex flex-col gap-6">
-
           {/* 6 OTP boxes */}
           <div>
             <label className="font-mono text-[12px] text-[#9898b0] tracking-wide uppercase mb-4 block text-center">
@@ -182,7 +171,6 @@ export default function VerifyPage() {
           >
             {loading ? "Verifying..." : "Verify Account →"}
           </button>
-
         </form>
 
         {/* resend */}
@@ -221,5 +209,18 @@ export default function VerifyPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+// ── Default export wraps everything in Suspense — fixes the build error ──
+export default function VerifyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-[#7c6ef3] border-t-transparent animate-spin" />
+      </div>
+    }>
+      <VerifyContent />
+    </Suspense>
   );
 }
