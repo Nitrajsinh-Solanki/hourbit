@@ -186,10 +186,17 @@ function Navbar({
 
       {/* RIGHT — contact + toggle */}
       <div className="flex items-center gap-4">
-        <span className="hidden sm:block text-[#5a5a7a] text-sm">
+        <a
+          href="https://my-portfolio-xi-ochre-28.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hidden sm:block text-[#5a5a7a] text-sm hover:text-[#7c6ef3] transition-colors"
+        >
           Developer Contact —{" "}
-          <span className="text-[#9898b0] font-medium">Nitrajsinh Solanki</span>
-        </span>
+          <span className="text-[#9898b0] font-medium hover:text-white">
+            Nitrajsinh Solanki
+          </span>
+        </a>
 
         {/* Dark / Light toggle */}
         <button
