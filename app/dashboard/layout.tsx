@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -24,12 +24,12 @@ import {
 
 // ── Nav items ──────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { label: "Dashboard",      href: "/dashboard",            icon: LayoutDashboard },
-  { label: "Today's Track",  href: "/dashboard/today",      icon: Clock           },
-  { label: "Go Date Wise",   href: "/dashboard/date-wise",  icon: CalendarDays    },
-  { label: "Mark Holiday",   href: "/dashboard/holiday",    icon: Palmtree        },
-  { label: "See Analysis",   href: "/dashboard/analysis",   icon: BarChart2       },
-  { label: "Profile",        href: "/dashboard/profile",    icon: User            },
+  { label: "Dashboard",     href: "/dashboard",           icon: LayoutDashboard },
+  { label: "Today's Track", href: "/dashboard/today",     icon: Clock           },
+  { label: "Go Date Wise",  href: "/dashboard/date-wise", icon: CalendarDays    },
+  { label: "Mark Holiday",  href: "/dashboard/holiday",   icon: Palmtree        },
+  { label: "See Analysis",  href: "/dashboard/analysis",  icon: BarChart2       },
+  { label: "Profile",       href: "/dashboard/profile",   icon: User            },
 ];
 
 // ── Theme hook ─────────────────────────────────────────────────
@@ -64,7 +64,7 @@ function Sidebar({
   onClose: () => void;
 }) {
   const pathname = usePathname();
-  const router   = useRouter();
+  const router = useRouter();
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -73,7 +73,6 @@ function Sidebar({
 
   return (
     <>
-      {/* Mobile overlay */}
       {open && (
         <div
           className="fixed inset-0 bg-black/60 z-30 md:hidden"
@@ -153,7 +152,7 @@ function Sidebar({
 }
 
 // ── Top Navbar ─────────────────────────────────────────────────
-function Navbar({
+function DashboardNavbar({
   dark,
   onThemeToggle,
   onMenuToggle,
@@ -169,7 +168,6 @@ function Navbar({
         border-b border-[#2a2a35]
         flex items-center justify-between px-5"
     >
-      {/* LEFT — hamburger (mobile) + brand */}
       <div className="flex items-center gap-3">
         <button
           onClick={onMenuToggle}
@@ -184,14 +182,19 @@ function Navbar({
         </Link>
       </div>
 
-      {/* RIGHT — contact + toggle */}
       <div className="flex items-center gap-4">
         <span className="hidden sm:block text-[#5a5a7a] text-sm">
           Developer Contact —{" "}
-          <span className="text-[#9898b0] font-medium">Nitrajsinh Solanki</span>
+          <a
+            href="https://my-portfolio-xi-ochre-28.vercel.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#9898b0] font-medium hover:text-[#7c6ef3] transition-colors duration-200 underline underline-offset-2 decoration-[#7c6ef3]/40"
+          >
+            Nitrajsinh Solanki
+          </a>
         </span>
 
-        {/* Dark / Light toggle */}
         <button
           onClick={onThemeToggle}
           aria-label="Toggle theme"
@@ -209,56 +212,10 @@ function Navbar({
   );
 }
 
-// ── Footer ─────────────────────────────────────────────────────
-function Footer() {
-  return (
-    <footer
-      className="fixed bottom-0 left-0 right-0 h-11 z-50
-        bg-[#0a0a0f]/90 backdrop-blur-md
-        border-t border-[#2a2a35]
-        flex items-center justify-between px-5"
-    >
-      <p className="text-[#5a5a7a] text-xs whitespace-nowrap">
-        Made with{" "}
-        <span className="text-[#e05252]">♥</span>{" "}
-        —{" "}
-        <span className="text-[#9898b0]">Nitrajsinh (Nikul) Solanki</span>
-      </p>
-
-      <div className="flex items-center gap-4">
-        <a
-          href="https://linkedin.com/in/nitrajsinh-solanki"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-[#5a5a7a] hover:text-[#7c6ef3] text-xs transition-colors duration-200"
-        >
-          <Linkedin size={13} />
-          <span className="hidden sm:inline">LinkedIn</span>
-        </a>
-        <a
-          href="https://github.com/nitrajsinh-solanki"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-[#5a5a7a] hover:text-[#7c6ef3] text-xs transition-colors duration-200"
-        >
-          <Github size={13} />
-          <span className="hidden sm:inline">GitHub</span>
-        </a>
-        <a
-          href="https://nitrajsinh.dev"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-[#5a5a7a] hover:text-[#7c6ef3] text-xs transition-colors duration-200"
-        >
-          <Globe size={13} />
-          <span className="hidden sm:inline">Portfolio</span>
-        </a>
-      </div>
-    </footer>
-  );
-}
-
-// ── Root Layout ────────────────────────────────────────────────
+// ── Root Dashboard Layout ──────────────────────────────────────
+// NOTE: No <Footer /> here — the global Footer in app/layout.tsx
+// handles it. When token cookie exists, Footer auto-switches to
+// the minimal dashboard variant. Zero duplication.
 export default function DashboardLayout({
   children,
 }: {
@@ -266,10 +223,9 @@ export default function DashboardLayout({
 }) {
   const { dark, toggle } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [fullName, setFullName]       = useState("");
+  const [fullName, setFullName] = useState("");
   const router = useRouter();
 
-  // Fetch logged-in user
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
@@ -285,35 +241,22 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-[#e8e8f0]">
-      {/* Navbar */}
-      <Navbar
+      <DashboardNavbar
         dark={dark}
         onThemeToggle={toggle}
         onMenuToggle={() => setSidebarOpen((p) => !p)}
       />
 
-      {/* Sidebar */}
       <Sidebar
         fullName={fullName}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Main content */}
-      <main
-        className="
-          min-h-screen
-          md:ml-60
-          pt-20
-          pb-16
-          px-6 md:px-8
-        "
-      >
+      {/* pb-11 to avoid content hiding behind the fixed footer */}
+      <main className="min-h-screen md:ml-60 pt-20 pb-11 px-6 md:px-8">
         {children}
       </main>
-
-      {/* Footer */}
-      <Footer />
     </div>
   );
 }
