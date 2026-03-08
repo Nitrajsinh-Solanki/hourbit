@@ -2,12 +2,8 @@
 
 import type { Metadata } from "next";
 import HomePage from "./components/HomePage";
+import AutoRedirect from "./components/AutoRedirect";
 
-/* ─────────────────────────────────────────────────────────────
-   SEO METADATA
-   Primary keywords: work hours tracker, employee time tracking,
-   flexible timing, clock in clock out, leave time calculator
-───────────────────────────────────────────────────────────── */
 export const metadata: Metadata = {
   title: "Hour Bit — Free Work Hours Tracker & Leave Time Calculator",
   description:
@@ -156,6 +152,9 @@ const structuredData = {
 export default function Page() {
   return (
     <>
+      {/* Silently redirects to /dashboard if a valid JWT token exists */}
+      <AutoRedirect />
+
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}

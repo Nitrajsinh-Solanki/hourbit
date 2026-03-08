@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Eye, EyeOff } from "lucide-react";
@@ -16,6 +16,21 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe]     = useState(false);
   const [loading, setLoading]           = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [checking, setChecking]         = useState(true);
+
+  // ── Auto-login: if valid token exists, go straight to dashboard ──
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          router.replace("/dashboard");
+        } else {
+          setChecking(false);
+        }
+      })
+      .catch(() => setChecking(false));
+  }, [router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +67,18 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // Show nothing while checking token — prevents flash of login form
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 rounded-full border-2 border-[#7c6ef3] border-t-transparent animate-spin" />
+          <p className="font-mono text-[13px] text-[#5a5a72]">Checking session...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

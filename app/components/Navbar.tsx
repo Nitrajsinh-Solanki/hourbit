@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { Menu, X } from "lucide-react";
+import Logo from "./Logo";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -25,15 +26,9 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[#7c6ef3]/10 border border-[#7c6ef3]/20 flex items-center justify-center">
-              <span className="w-2 h-2 rounded-full bg-[#22d3a0] animate-pulse" />
-            </div>
-            <span className="font-manrope text-lg font-bold text-white">
-              Hour<span className="text-[#7c6ef3]">Bit</span>
-            </span>
+          <Link href="/">
+            <Logo />
           </Link>
 
           {/* Desktop Navigation */}
@@ -62,7 +57,6 @@ export default function Navbar() {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center space-x-4">
-
             <Link
               href="/auth/login"
               className="text-[#9898b0] hover:text-white px-4 py-2 rounded-lg border border-[#2a2a35] hover:border-[#7c6ef3]/40 transition-colors text-sm font-medium"
@@ -84,7 +78,6 @@ export default function Navbar() {
             >
               Register
             </Link>
-
           </div>
 
           {/* Mobile Menu Button */}
@@ -94,7 +87,6 @@ export default function Navbar() {
           >
             {menuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
-
         </div>
       </div>
 
@@ -102,7 +94,6 @@ export default function Navbar() {
       {menuOpen && (
         <div className="md:hidden bg-[#0a0a0f]/95 backdrop-blur-md border-b border-[#2a2a35] px-4 pt-2 pb-4">
           <div className="flex flex-col space-y-2">
-
             <Link
               href="/#features"
               className="text-[#9898b0] hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors"
@@ -152,7 +143,6 @@ export default function Navbar() {
             >
               Register
             </Link>
-
           </div>
         </div>
       )}
