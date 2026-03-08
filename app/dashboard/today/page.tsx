@@ -9,7 +9,7 @@ import toast from "react-hot-toast";
 import {
   Clock, LogIn, LogOut, Coffee, Zap, Timer,
   Plus, Save, RefreshCw, CalendarDays,
-  ChevronLeft, UtensilsCrossed, X,
+  ChevronLeft, UtensilsCrossed, X, CheckCircle2,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────
@@ -22,11 +22,34 @@ interface BreakEntry {
   type:    "tea" | "lunch" | "custom";
 }
 
+// Snapshot of what was last saved / loaded from server
+// Used to detect "dirty" (unsaved changes)
+interface SavedSnapshot {
+  entryTime: string;
+  exitTime:  string;
+  notes:     string;
+  // Breaks compared by their serialised form
+  breaksKey: string;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const uid  = () => Math.random().toString(36).slice(2, 9);
+
+/** Stable string key for a break array — used for dirty comparison */
+function breaksToKey(breaks: BreakEntry[]): string {
+  return breaks.map(b => `${b.type}:${b.minutes}:${b.label}`).join("|");
+}
+
+/** Empty snapshot — means nothing has ever been saved */
+const EMPTY_SNAPSHOT: SavedSnapshot = {
+  entryTime: "",
+  exitTime:  "",
+  notes:     "",
+  breaksKey: "",
+};
 
 function fmtDuration(mins: number): string {
   if (mins <= 0) return "—";
@@ -72,10 +95,8 @@ function todayLabel(): string {
 function addMinsToTime(hhmm: string, mins: number): string {
   if (!hhmm) return "";
   const [h, m] = hhmm.split(":").map(Number);
-  const total  = h * 60 + m + mins;
-  const newH   = Math.floor(total / 60) % 24;
-  const newM   = total % 60;
-  return `${pad2(newH)}:${pad2(newM)}`;
+  const total = h * 60 + m + mins;
+  return `${pad2(Math.floor(total / 60) % 24)}:${pad2(total % 60)}`;
 }
 
 function toMins(hhmm: string): number {
@@ -85,13 +106,11 @@ function toMins(hhmm: string): number {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// CLOCK PICKER — fully dark/light theme aware via CSS vars
+// CLOCK PICKER
 // ─────────────────────────────────────────────────────────────────
 type ClockMode = "hour" | "minute";
 
-function ClockPicker({
-  value, onChange, onClose,
-}: {
+function ClockPicker({ value, onChange, onClose }: {
   value: string;
   onChange: (val: string) => void;
   onClose: () => void;
@@ -104,9 +123,9 @@ function ClockPicker({
   const clockRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handle(e: MouseEvent) {
+    const handle = (e: MouseEvent) => {
       if (clockRef.current && !clockRef.current.contains(e.target as Node)) onClose();
-    }
+    };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [onClose]);
@@ -137,39 +156,34 @@ function ClockPicker({
     if (ap === "PM" && hour < 12)  setHour(h => h + 12);
   }
 
-  function clockPos(index: number, total: number, r = 38) {
-    const angle = ((index / total) * 360 - 90) * (Math.PI / 180);
+  function clockPos(i: number, total: number, r = 38) {
+    const angle = ((i / total) * 360 - 90) * (Math.PI / 180);
     return { left: `${50 + r * Math.cos(angle)}%`, top: `${50 + r * Math.sin(angle)}%` };
   }
 
   const hours   = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   const minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-
-  const handAngle =
-    mode === "hour"
-      ? ((display12h % 12) / 12) * 360 - 90
-      : (minute / 60) * 360 - 90;
+  const handAngle = mode === "hour"
+    ? ((display12h % 12) / 12) * 360 - 90
+    : (minute / 60) * 360 - 90;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}>
-      <div
-        ref={clockRef}
-        className="relative rounded-3xl p-6 w-[300px]"
+      <div ref={clockRef} className="relative rounded-3xl p-6 w-[300px]"
         style={{
-          background:  "var(--surface)",
-          border:      "1px solid var(--border2)",
-          boxShadow:   "0 0 60px rgba(124,110,243,0.20)",
-          animation:   "fadeUp 0.18s ease",
-        }}
-      >
+          background: "var(--surface)",
+          border:     "1px solid var(--border2)",
+          boxShadow:  "0 0 60px rgba(124,110,243,0.20)",
+          animation:  "fadeUp 0.18s ease",
+        }}>
+
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
             {mode === "hour" ? "Select hour" : "Select minute"}
           </span>
-          <button onClick={onClose}
-            className="transition-colors bg-transparent border-none cursor-pointer p-0"
+          <button onClick={onClose} className="bg-transparent border-none cursor-pointer p-0 transition-colors"
             style={{ color: "var(--text3)" }}
             onMouseEnter={e => (e.currentTarget.style.color = "var(--text)")}
             onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
@@ -177,25 +191,19 @@ function ClockPicker({
           </button>
         </div>
 
-        {/* Time display + AM/PM toggle */}
+        {/* Time display + AM/PM */}
         <div className="flex items-center justify-center gap-3 mb-5">
-          <div
-            className="flex items-center rounded-2xl px-4 py-2 gap-1.5"
-            style={{ background: "var(--bg)", border: "1px solid var(--border)" }}
-          >
-            <button
-              onClick={() => setMode("hour")}
-              className="font-syne font-bold text-[28px] transition-colors bg-transparent border-none cursor-pointer p-0"
-              style={{ color: mode === "hour" ? "var(--accent)" : "var(--text2)" }}
-            >
+          <div className="flex items-center rounded-2xl px-4 py-2 gap-1.5"
+            style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
+            <button onClick={() => setMode("hour")}
+              className="font-syne font-bold text-[28px] bg-transparent border-none cursor-pointer p-0 transition-colors"
+              style={{ color: mode === "hour" ? "var(--accent)" : "var(--text2)" }}>
               {pad2(display12h)}
             </button>
             <span className="font-syne font-bold text-[28px]" style={{ color: "var(--text4)" }}>:</span>
-            <button
-              onClick={() => setMode("minute")}
-              className="font-syne font-bold text-[28px] transition-colors bg-transparent border-none cursor-pointer p-0"
-              style={{ color: mode === "minute" ? "var(--accent)" : "var(--text2)" }}
-            >
+            <button onClick={() => setMode("minute")}
+              className="font-syne font-bold text-[28px] bg-transparent border-none cursor-pointer p-0 transition-colors"
+              style={{ color: mode === "minute" ? "var(--accent)" : "var(--text2)" }}>
               {pad2(minute)}
             </button>
           </div>
@@ -203,12 +211,10 @@ function ClockPicker({
           <div className="flex flex-col gap-1">
             {(["AM", "PM"] as const).map(ap => (
               <button key={ap} onClick={() => toggleAmPm(ap)}
-                className="font-mono text-[12px] font-medium px-3 py-1 rounded-lg transition-all cursor-pointer"
-                style={
-                  ampm === ap
-                    ? { background: "var(--accent)", border: "1px solid var(--accent)", color: "#fff" }
-                    : { background: "transparent", border: "1px solid var(--border2)", color: "var(--text3)" }
-                }>
+                className="font-mono text-[12px] font-medium px-3 py-1 rounded-lg cursor-pointer transition-all"
+                style={ampm === ap
+                  ? { background: "var(--accent)", border: "1px solid var(--accent)", color: "#fff" }
+                  : { background: "transparent", border: "1px solid var(--border2)", color: "var(--text3)" }}>
                 {ap}
               </button>
             ))}
@@ -217,42 +223,35 @@ function ClockPicker({
 
         {/* Clock face */}
         <div className="relative mx-auto mb-5" style={{ width: "200px", height: "200px" }}>
-          <div
-            className="absolute inset-0 rounded-full"
-            style={{ background: "var(--bg)", border: "2px solid var(--border)" }}
-          />
+          <div className="absolute inset-0 rounded-full"
+            style={{ background: "var(--bg)", border: "2px solid var(--border)" }} />
           {/* Hand */}
-          <div
-            className="absolute rounded-full"
+          <div className="absolute rounded-full"
             style={{
               width: "2px", height: "38%",
               left: "calc(50% - 1px)", top: "12%",
               transformOrigin: "bottom center",
               transform: `rotate(${handAngle + 90}deg)`,
               transition: "transform 0.2s ease",
-              background: "rgba(124,110,243,0.4)",
-            }}
-          />
+              background: "rgba(124,110,243,0.45)",
+            }} />
           {/* Center dot */}
           <div className="absolute w-3 h-3 rounded-full"
             style={{ top: "calc(50% - 6px)", left: "calc(50% - 6px)", background: "var(--accent)" }} />
 
-          {/* Numbers */}
           {(mode === "hour" ? hours : minutes).map((num, i) => {
-            const pos = clockPos(i, 12);
+            const pos        = clockPos(i, 12);
             const isSelected = mode === "hour" ? display12h === num : minute === num;
             return (
               <button key={num}
                 onClick={() => mode === "hour" ? pickHour(num) : pickMinute(num)}
                 className="absolute w-9 h-9 -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center font-mono text-[12px] font-medium transition-all cursor-pointer border-none"
                 style={{
-                  left:       pos.left,
-                  top:        pos.top,
+                  left:       pos.left, top:  pos.top,
                   background: isSelected ? "var(--accent)" : "transparent",
                   color:      isSelected ? "#fff"          : "var(--text2)",
                   boxShadow:  isSelected ? "0 0 12px rgba(124,110,243,0.5)" : "none",
-                }}
-              >
+                }}>
                 {mode === "minute" ? pad2(num) : num}
               </button>
             );
@@ -264,11 +263,7 @@ function ClockPicker({
           {mode === "minute" && (
             <button onClick={() => setMode("hour")}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-mono text-[12px] transition-all cursor-pointer"
-              style={{
-                background: "var(--bg)",
-                border:     "1px solid var(--border2)",
-                color:      "var(--text2)",
-              }}>
+              style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--text2)" }}>
               <ChevronLeft size={13} /> Hours
             </button>
           )}
@@ -284,7 +279,7 @@ function ClockPicker({
 }
 
 // ─────────────────────────────────────────────────────────────────
-// TIME BUTTON — theme aware
+// TIME BUTTON
 // ─────────────────────────────────────────────────────────────────
 function TimeButton({ label, icon: Icon, value, accentColor, onClick }: {
   label: string; icon: React.ElementType; value: string;
@@ -293,13 +288,9 @@ function TimeButton({ label, icon: Icon, value, accentColor, onClick }: {
   return (
     <button onClick={onClick}
       className="w-full group flex flex-col gap-3 rounded-2xl p-5 text-left transition-all hover:-translate-y-0.5 cursor-pointer"
-      style={{
-        background: "var(--surface2)",
-        border:     "1px solid var(--border)",
-      }}
+      style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}
       onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--border2)")}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
-    >
+      onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}>
       <div className="flex items-center justify-between">
         <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
           {label}
@@ -309,7 +300,6 @@ function TimeButton({ label, icon: Icon, value, accentColor, onClick }: {
           <Icon size={15} style={{ color: accentColor }} />
         </div>
       </div>
-
       {value ? (
         <div>
           <p className="font-syne font-extrabold text-[30px] leading-none tracking-tight"
@@ -330,7 +320,6 @@ function TimeButton({ label, icon: Icon, value, accentColor, onClick }: {
           </p>
         </div>
       )}
-
       <div className="h-px w-full opacity-0 group-hover:opacity-100 transition-opacity rounded-full"
         style={{ background: `linear-gradient(to right, transparent, ${accentColor}60, transparent)` }} />
     </button>
@@ -338,7 +327,7 @@ function TimeButton({ label, icon: Icon, value, accentColor, onClick }: {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LIVE TIMER — theme aware
+// LIVE TIMER
 // ─────────────────────────────────────────────────────────────────
 function LiveTimer({ entryHHMM, breakMinutes }: { entryHHMM: string; breakMinutes: number }) {
   const [elapsed, setElapsed] = useState(0);
@@ -347,8 +336,8 @@ function LiveTimer({ entryHHMM, breakMinutes }: { entryHHMM: string; breakMinute
     function tick() {
       if (!entryHHMM) { setElapsed(0); return; }
       const [h, m] = entryHHMM.split(":").map(Number);
-      const entryMs   = new Date().setHours(h, m, 0, 0);
-      const diffSecs  = Math.max(0, Math.floor((Date.now() - entryMs) / 1000));
+      const entryMs  = new Date().setHours(h, m, 0, 0);
+      const diffSecs = Math.max(0, Math.floor((Date.now() - entryMs) / 1000));
       setElapsed(Math.max(0, diffSecs - breakMinutes * 60));
     }
     tick();
@@ -356,8 +345,7 @@ function LiveTimer({ entryHHMM, breakMinutes }: { entryHHMM: string; breakMinute
     return () => clearInterval(id);
   }, [entryHHMM, breakMinutes]);
 
-  const pct   = Math.min(100, (elapsed / (8.5 * 3600)) * 100);
-  const color = pct >= 100 ? "var(--green)" : pct >= 70 ? "var(--accent)" : pct >= 40 ? "var(--accent2)" : "var(--amber)";
+  const pct      = Math.min(100, (elapsed / (8.5 * 3600)) * 100);
   const rawColor = pct >= 100 ? "#22d3a0" : pct >= 70 ? "#7c6ef3" : pct >= 40 ? "#a78bfa" : "#fbbf24";
 
   return (
@@ -369,7 +357,7 @@ function LiveTimer({ entryHHMM, breakMinutes }: { entryHHMM: string; breakMinute
           Live productive time
         </span>
       </div>
-      <p className="font-syne font-extrabold text-[36px] tracking-tight leading-none" style={{ color }}>
+      <p className="font-syne font-extrabold text-[36px] tracking-tight leading-none" style={{ color: rawColor }}>
         {fmtSecs(elapsed)}
       </p>
       <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
@@ -384,10 +372,9 @@ function LiveTimer({ entryHHMM, breakMinutes }: { entryHHMM: string; breakMinute
 }
 
 // ─────────────────────────────────────────────────────────────────
-// BREAK CHIP — theme aware
+// BREAK CHIP
 // ─────────────────────────────────────────────────────────────────
 function BreakChip({ br, onRemove }: { br: BreakEntry; onRemove: () => void }) {
-  // accent colors are bold enough to work in both themes
   const colors = {
     tea:    { bg: "#fbbf2415", border: "#fbbf2445", text: "#d97706" },
     lunch:  { bg: "#22d3a015", border: "#22d3a045", text: "#10b981" },
@@ -401,7 +388,7 @@ function BreakChip({ br, onRemove }: { br: BreakEntry; onRemove: () => void }) {
       <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>·</span>
       <span className="font-mono text-[12px]" style={{ color: "var(--text2)" }}>{br.minutes}m</span>
       <button onClick={onRemove}
-        className="ml-1 transition-colors bg-transparent border-none cursor-pointer p-0"
+        className="ml-1 bg-transparent border-none cursor-pointer p-0 transition-colors"
         style={{ color: "var(--text4)" }}
         onMouseEnter={e => (e.currentTarget.style.color = "var(--danger)")}
         onMouseLeave={e => (e.currentTarget.style.color = "var(--text4)")}
@@ -413,14 +400,12 @@ function BreakChip({ br, onRemove }: { br: BreakEntry; onRemove: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SECTION CARD — reusable card wrapper
+// CARD HELPERS
 // ─────────────────────────────────────────────────────────────────
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div
-      className={`rounded-2xl p-5 ${className}`}
-      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
-    >
+    <div className={`rounded-2xl p-5 ${className}`}
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
       {children}
     </div>
   );
@@ -430,7 +415,8 @@ function CardHeader({ icon: Icon, iconColor, title, right }: {
   icon: React.ElementType; iconColor: string; title: string; right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 pb-3 mb-4" style={{ borderBottom: "1px solid var(--border)" }}>
+    <div className="flex items-center gap-2 pb-3 mb-4"
+      style={{ borderBottom: "1px solid var(--border)" }}>
       <Icon size={14} style={{ color: iconColor }} />
       <h2 className="font-syne font-semibold text-[14px]" style={{ color: "var(--text)" }}>{title}</h2>
       {right && <div className="ml-auto">{right}</div>}
@@ -453,24 +439,63 @@ export default function TodayTrackPage() {
   const [customMins,   setCustomMins]   = useState(10);
   const [customLabel,  setCustomLabel]  = useState("");
 
+  // ── Dirty tracking ───────────────────────────────────────────
+  // Stores what was last fetched from / saved to the server.
+  // Save button is only enabled when current state differs from this.
+  const [savedSnapshot, setSavedSnapshot] = useState<SavedSnapshot>(EMPTY_SNAPSHOT);
+  const [everSaved,     setEverSaved]     = useState(false); // true if server had existing data
+
+  // Derive isDirty every render — no extra state needed
+  const isDirty = useMemo(() => {
+    if (!everSaved) {
+      // Nothing was loaded from server → enable save only if user entered something
+      return !!(entryTime || exitTime || breaks.length || notes.trim());
+    }
+    return (
+      entryTime                !== savedSnapshot.entryTime ||
+      exitTime                 !== savedSnapshot.exitTime  ||
+      notes.trim()             !== savedSnapshot.notes     ||
+      breaksToKey(breaks)      !== savedSnapshot.breaksKey
+    );
+  }, [entryTime, exitTime, breaks, notes, savedSnapshot, everSaved]);
+
+  // ── Load today's log ─────────────────────────────────────────
   const loadTodayLog = useCallback(async () => {
     setLoading(true);
     try {
       const res  = await fetch("/api/work/today");
       const data = await res.json();
+
       if (data.success && data.data) {
         const d = data.data;
-        setEntryTime(isoToHHMM(d.entryTime));
-        setExitTime(isoToHHMM(d.exitTime));
-        setNotes(d.notes || "");
-        setBreaks(
-          (d.breaks || []).map((b: any) => ({
-            id:      uid(),
-            label:   b.type === "tea" ? "Tea Break" : b.type === "lunch" ? "Lunch Break" : "Custom Break",
-            minutes: Math.round(b.duration / 60),
-            type:    b.type || "custom",
-          }))
-        );
+
+        const loadedEntry  = isoToHHMM(d.entryTime);
+        const loadedExit   = isoToHHMM(d.exitTime);
+        const loadedNotes  = d.notes || "";
+        const loadedBreaks = (d.breaks || []).map((b: any) => ({
+          id:      uid(),
+          label:   b.type === "tea" ? "Tea Break" : b.type === "lunch" ? "Lunch Break" : "Custom Break",
+          minutes: Math.round(b.duration / 60),
+          type:    b.type || "custom",
+        })) as BreakEntry[];
+
+        setEntryTime(loadedEntry);
+        setExitTime(loadedExit);
+        setNotes(loadedNotes);
+        setBreaks(loadedBreaks);
+
+        // Record the snapshot of what the server returned
+        setSavedSnapshot({
+          entryTime: loadedEntry,
+          exitTime:  loadedExit,
+          notes:     loadedNotes.trim(),
+          breaksKey: breaksToKey(loadedBreaks),
+        });
+        setEverSaved(true);   // server had data
+      } else {
+        // No data from server — fresh day
+        setSavedSnapshot(EMPTY_SNAPSHOT);
+        setEverSaved(false);
       }
     } catch { /* silently fail */ } finally {
       setLoading(false);
@@ -479,6 +504,7 @@ export default function TodayTrackPage() {
 
   useEffect(() => { loadTodayLog(); }, [loadTodayLog]);
 
+  // ── Calculations ─────────────────────────────────────────────
   const calc = useMemo(() => {
     const entryMins  = toMins(entryTime);
     const exitMins   = toMins(exitTime);
@@ -489,11 +515,11 @@ export default function TodayTrackPage() {
     const remaining  = Math.max(0, required - productive);
     const pct        = (productive / required) * 100;
     const predictedLeave = entryTime && !exitTime
-      ? addMinsToTime(entryTime, required + totalBreak)
-      : "";
+      ? addMinsToTime(entryTime, required + totalBreak) : "";
     return { totalBreak, officeMins, productive, remaining, pct, predictedLeave };
   }, [entryTime, exitTime, breaks]);
 
+  // ── Break helpers ────────────────────────────────────────────
   function addQuickBreak(type: "tea" | "lunch", label: string, mins: number) {
     setBreaks(p => [...p, { id: uid(), label, minutes: mins, type }]);
   }
@@ -507,8 +533,11 @@ export default function TodayTrackPage() {
     setCustomLabel("");
   }
 
+  // ── Save ─────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!entryTime) { toast.error("Entry time is required"); return; }
+    if (!isDirty)   return; // guard — should never happen (button is disabled)
+
     setSaving(true);
     try {
       let cursor = entryTime;
@@ -518,14 +547,27 @@ export default function TodayTrackPage() {
         cursor      = end;
         return { start, end, type: b.type };
       });
+
       const res  = await fetch("/api/work/save", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entryTime, exitTime: exitTime || null, breaks: apiBreaks, notes }),
+        body:    JSON.stringify({ entryTime, exitTime: exitTime || null, breaks: apiBreaks, notes }),
       });
       const data = await res.json();
-      if (data.success) toast.success("Work log saved! 🎉");
-      else toast.error(data.message || "Save failed");
+
+      if (data.success) {
+        toast.success("Work log saved! 🎉");
+        // Update snapshot to reflect what we just saved → button goes disabled again
+        setSavedSnapshot({
+          entryTime,
+          exitTime,
+          notes:     notes.trim(),
+          breaksKey: breaksToKey(breaks),
+        });
+        setEverSaved(true);
+      } else {
+        toast.error(data.message || "Save failed");
+      }
     } catch {
       toast.error("Network error — try again");
     } finally {
@@ -533,7 +575,7 @@ export default function TodayTrackPage() {
     }
   };
 
-  // ── Loading ──────────────────────────────────────────────────
+  // ── Loading state ────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -564,7 +606,7 @@ export default function TodayTrackPage() {
 
       <div className="max-w-3xl mx-auto pb-6 space-y-5">
 
-        {/* ── PAGE HEADER ─────────────────────────────────── */}
+        {/* ── HEADER ──────────────────────────────────────── */}
         <div className="flex items-start justify-between">
           <div>
             <h1 className="font-syne font-extrabold text-[22px] tracking-tight" style={{ color: "var(--text)" }}>
@@ -595,7 +637,7 @@ export default function TodayTrackPage() {
           <LiveTimer entryHHMM={entryTime} breakMinutes={calc.totalBreak} />
         )}
 
-        {/* ── PREDICTED LEAVE BANNER ──────────────────────── */}
+        {/* ── PREDICTED LEAVE ─────────────────────────────── */}
         {calc.predictedLeave && (
           <div className="flex items-center justify-between px-5 py-4 rounded-2xl"
             style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.25)" }}>
@@ -633,19 +675,16 @@ export default function TodayTrackPage() {
           </div>
         )}
 
-        {/* ── TIME ENTRY CARD ──────────────────────────────── */}
+        {/* ── TIME ENTRY ──────────────────────────────────── */}
         <Card>
           <CardHeader
-            icon={Clock}
-            iconColor="var(--accent)"
-            title="Work Hours"
+            icon={Clock} iconColor="var(--accent)" title="Work Hours"
             right={
               <span className="font-mono text-[10px]" style={{ color: "var(--text4)" }}>
                 tap to change time
               </span>
             }
           />
-
           <div className="grid grid-cols-2 gap-3">
             <TimeButton label="Entry Time" icon={LogIn}  value={entryTime} accentColor="#7c6ef3" onClick={() => setActivePicker("entry")} />
             <TimeButton label="Exit Time"  icon={LogOut} value={exitTime}  accentColor="#22d3a0" onClick={() => setActivePicker("exit")}  />
@@ -653,8 +692,10 @@ export default function TodayTrackPage() {
 
           {!entryTime && (
             <button onClick={() => setEntryTime(nowHHMM())}
-              className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] hover:bg-[#7c6ef3]/5 transition-all cursor-pointer mt-3"
-              style={{ borderColor: "rgba(124,110,243,0.35)", color: "var(--accent)", background: "transparent" }}>
+              className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
+              style={{ borderColor: "rgba(124,110,243,0.35)", color: "var(--accent)", background: "transparent" }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.05)")}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
               ⚡ Clock in now — {to12h(nowHHMM())}
             </button>
           )}
@@ -669,16 +710,18 @@ export default function TodayTrackPage() {
           )}
         </Card>
 
-        {/* ── BREAKS CARD ──────────────────────────────────── */}
+        {/* ── BREAKS ──────────────────────────────────────── */}
         <Card>
           <CardHeader
-            icon={Coffee}
-            iconColor="var(--amber)"
-            title="Breaks"
+            icon={Coffee} iconColor="var(--amber)" title="Breaks"
             right={
               calc.totalBreak > 0 ? (
                 <span className="font-mono text-[11px] px-2 py-0.5 rounded-md"
-                  style={{ color: "var(--amber)", background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)" }}>
+                  style={{
+                    color:      "var(--amber)",
+                    background: "rgba(251,191,36,0.10)",
+                    border:     "1px solid rgba(251,191,36,0.25)",
+                  }}>
                   Total: {fmtDuration(calc.totalBreak)}
                 </span>
               ) : undefined
@@ -692,8 +735,7 @@ export default function TodayTrackPage() {
               style={{ background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.25)", color: "var(--amber)" }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(251,191,36,0.20)")}
               onMouseLeave={e => (e.currentTarget.style.background = "rgba(251,191,36,0.10)")}>
-              <Coffee size={13} />
-              Tea / Coffee
+              <Coffee size={13} />Tea / Coffee
               <span style={{ color: "var(--text3)", fontSize: "10px" }}>15m</span>
             </button>
 
@@ -702,8 +744,7 @@ export default function TodayTrackPage() {
               style={{ background: "rgba(34,211,160,0.10)", border: "1px solid rgba(34,211,160,0.25)", color: "var(--green)" }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.20)")}
               onMouseLeave={e => (e.currentTarget.style.background = "rgba(34,211,160,0.10)")}>
-              <UtensilsCrossed size={13} />
-              Lunch Break
+              <UtensilsCrossed size={13} />Lunch Break
               <span style={{ color: "var(--text3)", fontSize: "10px" }}>30m</span>
             </button>
 
@@ -712,8 +753,7 @@ export default function TodayTrackPage() {
               style={{ background: "rgba(167,139,250,0.10)", border: "1px solid rgba(167,139,250,0.25)", color: "var(--accent2)" }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(167,139,250,0.20)")}
               onMouseLeave={e => (e.currentTarget.style.background = "rgba(167,139,250,0.10)")}>
-              <Plus size={13} />
-              Custom
+              <Plus size={13} />Custom
             </button>
           </div>
 
@@ -727,27 +767,17 @@ export default function TodayTrackPage() {
                 onChange={e => setCustomLabel(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomBreak()}
                 className="flex-1 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none transition-colors"
-                style={{
-                  background:   "var(--surface)",
-                  border:       "1px solid var(--border2)",
-                  color:        "var(--text)",
-                }}
+                style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
                 onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")}
-              />
+                onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
               <div className="flex items-center gap-2">
                 <input
                   type="number" min="1" max="120" value={customMins}
                   onChange={e => setCustomMins(Number(e.target.value))}
                   className="w-20 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none transition-colors text-center"
-                  style={{
-                    background: "var(--surface)",
-                    border:     "1px solid var(--border2)",
-                    color:      "var(--text)",
-                  }}
+                  style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
                   onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
-                  onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")}
-                />
+                  onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
                 <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>min</span>
                 <button onClick={addCustomBreak}
                   className="px-4 py-2 rounded-xl text-white font-mono text-[12px] transition-all hover:-translate-y-0.5 cursor-pointer border-none"
@@ -755,7 +785,7 @@ export default function TodayTrackPage() {
                   Add
                 </button>
                 <button onClick={() => setShowCustom(false)}
-                  className="transition-colors bg-transparent border-none cursor-pointer p-0"
+                  className="bg-transparent border-none cursor-pointer p-0 transition-colors"
                   style={{ color: "var(--text3)" }}
                   onMouseEnter={e => (e.currentTarget.style.color = "var(--text)")}
                   onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
@@ -769,7 +799,8 @@ export default function TodayTrackPage() {
           {breaks.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {breaks.map(br => (
-                <BreakChip key={br.id} br={br} onRemove={() => setBreaks(p => p.filter(b => b.id !== br.id))} />
+                <BreakChip key={br.id} br={br}
+                  onRemove={() => setBreaks(p => p.filter(b => b.id !== br.id))} />
               ))}
             </div>
           ) : (
@@ -782,9 +813,9 @@ export default function TodayTrackPage() {
         {/* ── SUMMARY STATS ────────────────────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "Office Time",  value: fmtDuration(calc.officeMins), color: "var(--text)",   icon: Timer,  bg: "var(--border)"    },
-            { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",  icon: Coffee, bg: "rgba(251,191,36,0.12)" },
-            { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)", icon: Zap,    bg: "rgba(124,110,243,0.12)" },
+            { label: "Office Time",  value: fmtDuration(calc.officeMins), color: "var(--text)",   icon: Timer,  bg: "var(--border)"            },
+            { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",  icon: Coffee, bg: "rgba(251,191,36,0.12)"     },
+            { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)", icon: Zap,    bg: "rgba(124,110,243,0.12)"    },
             {
               label: calc.pct >= 100 ? "Completed!" : "Remaining",
               value: calc.pct >= 100 ? "Done ✓"     : fmtDuration(calc.remaining),
@@ -839,21 +870,44 @@ export default function TodayTrackPage() {
           <textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)}
             placeholder="What did you work on today?"
             className="w-full rounded-xl px-4 py-3 font-mono text-[13px] resize-none focus:outline-none transition-colors"
-            style={{
-              background:   "var(--bg)",
-              border:       "1px solid var(--border2)",
-              color:        "var(--text)",
-            }}
+            style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--text)" }}
             onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
-            onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")}
-          />
+            onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
         </Card>
 
-        {/* ── SAVE ─────────────────────────────────────────── */}
-        <div className="flex justify-end">
-          <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-mono font-medium text-[14px] text-white transition-all cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5"
-            style={{ background: "var(--accent)", boxShadow: "0 0 24px rgba(124,110,243,0.35)" }}>
+        {/* ── SAVE BUTTON — disabled when nothing has changed ── */}
+        <div className="flex items-center justify-end gap-3">
+
+          {/* "All saved" indicator — shown when data exists but nothing changed */}
+          {everSaved && !isDirty && (
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
+              <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+                All changes saved
+              </span>
+            </div>
+          )}
+
+          <button
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            title={!isDirty ? "No changes to save" : "Save today's work log"}
+            className="flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-mono font-medium text-[14px] text-white transition-all border-none"
+            style={{
+              background:  isDirty ? "var(--accent)" : "var(--border2)",
+              boxShadow:   isDirty ? "0 0 24px rgba(124,110,243,0.35)" : "none",
+              cursor:      isDirty ? "pointer" : "not-allowed",
+              opacity:     isDirty ? 1 : 0.55,
+              color:       isDirty ? "#fff" : "var(--text3)",
+              transform:   "none",
+            }}
+            onMouseEnter={e => {
+              if (isDirty) (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.transform = "none";
+            }}
+          >
             {saving
               ? <><RefreshCw size={15} className="animate-spin" /> Saving...</>
               : <><Save size={15} /> Save Today&apos;s Log</>
