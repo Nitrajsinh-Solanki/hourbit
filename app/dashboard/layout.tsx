@@ -18,6 +18,7 @@ import {
   Github,
   Linkedin,
   Globe,
+  BookOpen,
   X,
 } from "lucide-react";
 import Logo from "../components/Logo";
@@ -29,7 +30,9 @@ const NAV_ITEMS = [
   { label: "Today's Track", href: "/dashboard/today",    icon: Clock        },
   { label: "Go Date Wise",  href: "/dashboard/date-wise",icon: CalendarDays },
   { label: "Mark Holiday",  href: "/dashboard/holiday",  icon: Palmtree     },
+  
   { label: "See Analysis",  href: "/dashboard/analysis", icon: BarChart2    },
+  { label: "Diary",        href: "/dashboard/diary",    icon: BookOpen     },
   { label: "Profile",       href: "/dashboard/profile",  icon: User         },
 ];
 
