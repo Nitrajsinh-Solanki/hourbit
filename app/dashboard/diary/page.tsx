@@ -36,8 +36,6 @@ const INK_COLORS = [
   { hex: "#4b5563", label: "Gray" },
 ];
 const MAX_CHARS = 1500;
-// FIX #3: editCount only increments on MANUAL save, not auto-save
-// Auto-save uses a "dirty" flag approach — only one DB write per session per page
 const NAV_COOLDOWN_MS = 5000;
 const CACHE_WINDOW = 2;
 
@@ -122,9 +120,9 @@ export default function DiaryPage() {
   const [saveMsg, setSaveMsg]           = useState("");
 
   // FIX #3: separate dirty tracking so auto-save doesn't increment editCount
-  const isDirtyRef     = useRef(false);   // content changed since last save
-  const isNewEntryRef  = useRef(true);    // whether entry exists in DB yet
-  const lastSavedHtml  = useRef("");      // last HTML actually sent to DB
+  const isDirtyRef     = useRef(false);
+  const isNewEntryRef  = useRef(true);
+  const lastSavedHtml  = useRef("");
 
   // Navigation
   const [navCooldown, setNavCooldown]   = useState(false);
@@ -141,19 +139,19 @@ export default function DiaryPage() {
   const [showCal, setShowCal]           = useState(false);
   const [calView, setCalView]           = useState({ year: new Date().getFullYear(), month: new Date().getMonth() });
 
-  // Headings — FIX #4: fetched once, applied globally as default
+  // Headings
   const [headings, setHeadings]         = useState<DiaryHeading[]>([]);
   const [showHeadingPicker, setShowHPicker] = useState(false);
   const [showSettingsModal, setShowSettings] = useState(false);
   const [newHeadingText, setNewHText]   = useState("");
 
-  // Search — FIX #5
+  // Search
   const [searchQuery, setSearchQuery]   = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showSearch, setShowSearch]     = useState(false);
   const searchTimerRef                  = useRef<ReturnType<typeof setTimeout>|null>(null);
 
-  // Recent entries for quick-nav cards — FIX #6
+  // Recent entries
   const [recentEntries, setRecentEntries] = useState<DiaryEntry[]>([]);
 
   // Refs
@@ -199,7 +197,6 @@ export default function DiaryPage() {
         const { settings } = await sr.json();
         const hs: DiaryHeading[] = settings?.headings ?? [];
         setHeadings(hs);
-        // FIX #4: apply default heading immediately
         const def = hs.find((h: DiaryHeading) => h.isDefault);
         if (def) setHeading(def.text);
       }
@@ -225,7 +222,6 @@ export default function DiaryPage() {
     setEntry(e);
     setMood(e?.mood ?? null);
 
-    // FIX #4: use saved heading OR default heading
     if (e?.heading) {
       setHeading(e.heading);
     } else {
@@ -261,11 +257,7 @@ export default function DiaryPage() {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // FIX #3: SAVE LOGIC
-  // editCount only increments on MANUAL save.
-  // Auto-save: if entry doesn't exist yet → POST (editCount=0). 
-  //            if entry exists → only PATCH if content actually changed, and does NOT increment editCount.
-  //            Manual save → always PATCH and increments editCount.
+  // SAVE LOGIC
   // ─────────────────────────────────────────────────────────────
   const performSave = useCallback(async (date: string, isManual: boolean) => {
     if (!editorRef.current) return;
@@ -273,11 +265,9 @@ export default function DiaryPage() {
     const currentHeading = heading;
     const currentMood = mood;
 
-    // Skip if nothing to save
     if (!html.trim() && !currentMood && !currentHeading) return;
     if (entry?.isLocked) return;
 
-    // For auto-save: skip if content hasn't changed since last save
     if (!isManual && html === lastSavedHtml.current && !isNewEntryRef.current) return;
 
     setSaving(true);
@@ -285,7 +275,6 @@ export default function DiaryPage() {
     const cached = pageCache.get(date);
 
     if (!cached) {
-      // Create new — editCount starts at 0, never incremented by auto-save
       saved = await apiCreate({ date, content: html, heading: currentHeading, textColor: "black", mood: currentMood });
       if (saved) {
         pageCache.set(date, saved);
@@ -294,11 +283,9 @@ export default function DiaryPage() {
         setTotalPages(p => p + 1);
       }
     } else {
-      // Update existing entry
-      // FIX #3: only increment editCount on manual save
       const payload: Record<string, unknown> = {
         date, content: html, heading: currentHeading, mood: currentMood,
-        incrementEdit: isManual, // API must respect this flag
+        incrementEdit: isManual,
       };
       saved = await apiPatch(payload);
     }
@@ -337,8 +324,6 @@ export default function DiaryPage() {
   function fmt(cmd: string, val?: string) {
     editorRef.current?.focus();
     document.execCommand(cmd, false, val);
-    // Re-focus and re-apply to keep selection — fixes the align bug
-    // where execCommand would deselect everything
   }
   function applyInk(hex: string) {
     editorRef.current?.focus();
@@ -383,7 +368,7 @@ export default function DiaryPage() {
     if (!isFuture(d)) { setCurrentDate(d); setJumpInput(""); }
   }
 
-  // ── FIX #5: Search ───────────────────────────────────────────
+  // ── Search ───────────────────────────────────────────────────
   function handleSearch(q: string) {
     setSearchQuery(q);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -442,12 +427,14 @@ export default function DiaryPage() {
   // ─────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Styles ── */}
+      {/* ── Google Fonts: Handwritten + Beautiful serif ── */}
       <style>{`
-        /* FIX #7: diary bg adapts to theme, outer bg uses theme variable */
+        @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=Homemade+Apple&family=Playfair+Display:ital,wght@0,700;1,400&display=swap');
+
+        /* ── Outer background ── */
         .diary-outer { background: var(--background); }
 
-        /* Diary book texture */
+        /* ── Diary book ── */
         .diary-book {
           background: #f5ead6;
           box-shadow:
@@ -465,13 +452,13 @@ export default function DiaryPage() {
             inset 0 1px 0 rgba(255,255,255,.05);
         }
 
-        /* Binding spine */
+        /* ── Binding spine ── */
         .diary-spine {
           background: linear-gradient(180deg, #7a4a20 0%, #5c3414 40%, #7a4a20 70%, #4a2810 100%);
           box-shadow: inset -2px 0 4px rgba(0,0,0,.3), inset 2px 0 2px rgba(255,255,255,.1);
         }
 
-        /* Lined paper */
+        /* ── Lined paper ── */
         .diary-lines {
           background-image: repeating-linear-gradient(
             transparent 0px, transparent 29px,
@@ -486,26 +473,44 @@ export default function DiaryPage() {
           );
         }
 
-        /* Editor */
+        /* ── HANDWRITTEN EDITOR FONT ── */
         .diary-editor {
-          font-family: 'Georgia', 'Times New Roman', serif;
-          font-size: 15px;
+          font-family: 'Kalam', 'Caveat', cursive;
+          font-size: 16.5px;
+          font-weight: 400;
           line-height: 30px;
           color: #1c0f00;
-          caret-color: #1c0f00;
+          caret-color: #8b5e3c;
           outline: none;
           background: transparent;
           word-break: break-word;
           white-space: pre-wrap;
           padding: 4px 0 0 0;
+          letter-spacing: 0.01em;
+          min-height: 600px;
         }
-        .dark .diary-editor { color: #e8d5b0; caret-color: #e8d5b0; }
+        .dark .diary-editor { color: #e8d5b0; caret-color: #c4a882; }
         .diary-editor:empty::before {
           content: attr(data-placeholder);
-          color: #b8997a; font-style: italic; pointer-events: none;
+          color: #b8997a;
+          font-style: italic;
+          pointer-events: none;
+          font-family: 'Kalam', cursive;
         }
 
-        /* Toolbar buttons */
+        /* ── Heading uses Playfair Display — elegant serif ── */
+        .diary-heading-font {
+          font-family: 'Playfair Display', 'Georgia', serif;
+          font-style: italic;
+        }
+
+        /* ── Date watermark style ── */
+        .diary-date-stamp {
+          font-family: 'Kalam', cursive;
+          font-size: 11px;
+        }
+
+        /* ── Toolbar buttons ── */
         .tbtn {
           display:inline-flex; align-items:center; justify-content:center;
           width:28px; height:28px; border-radius:5px;
@@ -519,7 +524,7 @@ export default function DiaryPage() {
         .dark .tbtn { background:#3a2a18; border-color:#6b4c2a; color:#e8d5b0; }
         .dark .tbtn:hover { background:#4a3520; border-color:#a07040; }
 
-        /* Page flip */
+        /* ── Page flip ── */
         .flip-right { animation: flipR .28s ease both; transform-origin: left center; }
         .flip-left  { animation: flipL .28s ease both; transform-origin: right center; }
         @keyframes flipR {
@@ -533,7 +538,7 @@ export default function DiaryPage() {
           100%{ transform: perspective(1200px) rotateY(0); opacity:1; }
         }
 
-        /* Recent entry cards */
+        /* ── Recent entry cards ── */
         .entry-card {
           background: #fdf5e6; border: 1px solid #c4a882;
           border-radius: 8px; padding: 10px 12px; cursor: pointer;
@@ -542,7 +547,7 @@ export default function DiaryPage() {
         .dark .entry-card { background: #2a1f12; border-color: #6b4c2a; }
         .entry-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.12); }
 
-        /* Search results */
+        /* ── Search results ── */
         .search-result {
           padding: 8px 12px; border-bottom: 1px solid #e8d5b0;
           cursor: pointer; transition: background .1s;
@@ -551,6 +556,7 @@ export default function DiaryPage() {
         .search-result:hover { background: #f0d9b5; }
         .dark .search-result:hover { background: #3a2a18; }
         .search-result:last-child { border-bottom: none; }
+
       `}</style>
 
       {/* ── Heading settings modal ── */}
@@ -589,17 +595,18 @@ export default function DiaryPage() {
         </div>
       )}
 
-      {/* ── Page layout — FIX #7: outer uses theme bg, no amber ── */}
+      {/* ── Page layout ── */}
       <div className="diary-outer min-h-screen py-4 px-3 sm:px-6">
         <div className="max-w-5xl mx-auto flex flex-col gap-3">
 
           {/* ── Top bar ── */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h1 className="text-xl font-bold text-[#3a1f00] dark:text-[#e8d5b0] flex items-center gap-2">
-              <span className="text-2xl">📔</span> Diary
+              <span className="text-2xl">📔</span>
+              <span className="diary-heading-font">Diary</span>
             </h1>
 
-            {/* FIX #5: Search bar */}
+            {/* Search bar */}
             <div className="relative flex-1 max-w-xs">
               <input
                 value={searchQuery}
@@ -628,11 +635,10 @@ export default function DiaryPage() {
 
           {/* ── Calendar + page nav bar ── */}
           <div className="flex flex-wrap items-center gap-2 bg-[#fdf5e6] dark:bg-[#2a1f12] rounded-2xl border border-[#c4a882] dark:border-[#6b4c2a] px-4 py-2.5">
-            {/* Calendar toggle */}
             <div className="relative" ref={calRef}>
               <button onClick={() => setShowCal(v => !v)}
                 className="flex items-center gap-2 text-sm font-semibold text-[#3a1f00] dark:text-[#e8d5b0] hover:text-[#8b5e3c] transition-colors">
-                📅 <span>{fmtShort(currentDate)}</span> <span className="text-[#b8997a] text-xs">{showCal?"▴":"▾"}</span>
+                📅 <span className="diary-date-stamp">{fmtShort(currentDate)}</span> <span className="text-[#b8997a] text-xs">{showCal?"▴":"▾"}</span>
               </button>
               {showCal && (
                 <div className="absolute top-full left-0 mt-2 z-40 bg-[#fdf5e6] dark:bg-[#1a1208] rounded-2xl shadow-xl border border-[#c4a882] dark:border-[#6b4c2a] p-3 w-64">
@@ -657,7 +663,6 @@ export default function DiaryPage() {
 
             <div className="flex-1" />
 
-            {/* Page X of Y + jump */}
             <div className="flex items-center gap-2">
               <span className="text-xs text-[#8b6a40] dark:text-[#a07040]">
                 Page <strong className="text-[#5c3414] dark:text-[#c4a882]">{currentPageIndex+1}</strong> of <strong className="text-[#5c3414] dark:text-[#c4a882]">{displayTotal}</strong>
@@ -670,7 +675,7 @@ export default function DiaryPage() {
             </div>
           </div>
 
-          {/* ── DIARY BOOK — FIX #8: looks like a real physical diary ── */}
+          {/* ── DIARY BOOK ── */}
           <div className={["relative rounded-2xl overflow-hidden diary-book",
             isFlipping ? (flipDir==="right"?"flip-right":"flip-left") : ""].join(" ")}>
 
@@ -688,25 +693,23 @@ export default function DiaryPage() {
               {/* ── Page content ── */}
               <div className="flex-1 px-4 sm:px-6 pt-4 pb-3">
 
-                {/* ── Page header: heading left, date right ── */}
+                {/* ── Page header ── */}
                 <div className="flex items-start justify-between gap-3 mb-3 pb-2 border-b border-[#d4b896] dark:border-[#4a3520]">
-                  {/* FIX #4: heading applied globally */}
                   <div className="relative flex-1">
                     {canEdit ? (
                       <button onClick={() => setShowHPicker(v => !v)}
                         className={[
-                          "text-left font-bold tracking-wide transition-all leading-tight",
-                          "text-lg sm:text-xl",
+                          "text-left tracking-wide transition-all leading-tight diary-heading-font",
+                          "text-lg sm:text-xl font-bold",
                           heading
                             ? "text-[#8b2500] dark:text-[#d4845a]"
-                            : "text-[#b8997a] dark:text-[#6b5030] italic font-normal text-base",
-                        ].join(" ")}
-                        style={{fontFamily:"Georgia, 'Times New Roman', serif"}}>
+                            : "text-[#b8997a] dark:text-[#6b5030] font-normal text-base",
+                        ].join(" ")}>
                         {heading || "Add heading…"}
                         <span className="ml-1 text-sm text-[#b8997a] not-italic font-normal">▾</span>
                       </button>
                     ) : (
-                      heading ? <p className="text-lg font-bold text-[#8b2500] dark:text-[#d4845a]" style={{fontFamily:"Georgia,'Times New Roman',serif"}}>{heading}</p> : null
+                      heading ? <p className="text-lg font-bold text-[#8b2500] dark:text-[#d4845a] diary-heading-font">{heading}</p> : null
                     )}
                     {showHeadingPicker && canEdit && (
                       <div className="absolute top-full left-0 mt-1 z-30 bg-[#fdf5e6] dark:bg-[#1a1208] rounded-xl shadow-xl border border-[#c4a882] dark:border-[#6b4c2a] py-1 w-56 max-h-52 overflow-y-auto">
@@ -715,18 +718,18 @@ export default function DiaryPage() {
                         {headings.length === 0 && <p className="px-4 py-2 text-xs text-[#b8997a]">Add headings in ⚙ settings</p>}
                         {headings.map((h, i) => (
                           <button key={i} onClick={() => { setHeading(h.text); setShowHPicker(false); triggerAutoSave(); }}
-                            className={`w-full text-left px-4 py-2.5 text-sm font-bold hover:bg-[#f0d9b5] dark:hover:bg-[#2a1f12] text-[#8b2500] dark:text-[#d4845a] transition-colors ${heading===h.text?"bg-[#f0d9b5] dark:bg-[#2a1f12]":""}`}>
+                            className={`w-full text-left px-4 py-2.5 text-sm font-bold hover:bg-[#f0d9b5] dark:hover:bg-[#2a1f12] text-[#8b2500] dark:text-[#d4845a] transition-colors diary-heading-font ${heading===h.text?"bg-[#f0d9b5] dark:bg-[#2a1f12]":""}`}>
                             {h.text}
-                            {h.isDefault && <span className="ml-2 text-xs text-[#b8997a] font-normal">default</span>}
+                            {h.isDefault && <span className="ml-2 text-xs text-[#b8997a] font-normal not-italic">default</span>}
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Date + status — top right */}
+                  {/* Date + status */}
                   <div className="text-right shrink-0">
-                    <div className="text-xs font-semibold text-[#5c3414] dark:text-[#c4a882] bg-[#eedfc0] dark:bg-[#3a2a18] px-2.5 py-1.5 rounded-lg leading-tight border border-[#c4a882] dark:border-[#6b4c2a]">
+                    <div className="diary-date-stamp font-semibold text-[#5c3414] dark:text-[#c4a882] bg-[#eedfc0] dark:bg-[#3a2a18] px-2.5 py-1.5 rounded-lg leading-tight border border-[#c4a882] dark:border-[#6b4c2a]">
                       {fmtLong(currentDate)}
                     </div>
                     {isLocked && <p className="text-xs text-red-500 font-bold mt-1">🔒 Locked</p>}
@@ -738,14 +741,12 @@ export default function DiaryPage() {
                 {canEdit && (
                   <div className="flex flex-wrap items-center gap-1.5 mb-2 pb-2 border-b border-[#d4b896] dark:border-[#4a3520]"
                     onMouseDown={e => e.preventDefault()}>
-                    {/* B I U */}
                     <button className="tbtn font-bold text-[13px]" title="Bold (Ctrl+B)" onClick={() => fmt("bold")}>B</button>
                     <button className="tbtn italic text-[13px]" title="Italic (Ctrl+I)" onClick={() => fmt("italic")}>I</button>
                     <button className="tbtn underline text-[13px]" title="Underline (Ctrl+U)" onClick={() => fmt("underline")}>U</button>
 
                     <div className="w-px h-5 bg-[#c4a882] dark:bg-[#6b4c2a] mx-0.5" />
 
-                    {/* Alignment — proper SVG icons */}
                     <button className="tbtn" title="Align Left" onClick={() => fmt("justifyLeft")}>
                       <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
                         <rect x="0" y="0" width="13" height="1.5" rx=".75"/>
@@ -773,7 +774,6 @@ export default function DiaryPage() {
 
                     <div className="w-px h-5 bg-[#c4a882] dark:bg-[#6b4c2a] mx-0.5" />
 
-                    {/* Ink colors */}
                     <div className="flex items-center gap-1 bg-[#eedfc0] dark:bg-[#3a2a18] border border-[#c4a882] dark:border-[#6b4c2a] rounded-lg px-2 py-1">
                       <span className="text-[11px] text-[#8b6a40] dark:text-[#a07040] mr-1 font-medium select-none">Ink</span>
                       {INK_COLORS.map(c => (
@@ -789,20 +789,23 @@ export default function DiaryPage() {
                   </div>
                 )}
 
-                {/* ── FIX #2: Writing area — 20 lines tall ── */}
+                {/* ── Writing area ── */}
                 <div className="relative diary-lines" style={{minHeight:"600px"}}>
                   {loading ? (
                     <div className="flex items-center justify-center h-40">
                       <div className="w-5 h-5 rounded-full border-2 border-[#8b5e3c] border-t-transparent animate-spin" />
                     </div>
                   ) : (
-                    <div ref={editorRef}
+                    <div
+                      ref={editorRef}
                       contentEditable={canEdit}
                       suppressContentEditableWarning
                       className="diary-editor"
                       data-placeholder={canEdit ? "Start writing…" : "No entry for this date."}
                       onInput={handleInput}
-                      style={{minHeight:"600px", padding:"4px 4px 20px"}}
+                      onFocus={() => {}}
+                      onBlur={() => {}}
+                      style={{padding:"4px 4px 20px"}}
                     />
                   )}
                 </div>
@@ -896,7 +899,7 @@ export default function DiaryPage() {
             </button>
           </div>
 
-          {/* ── FIX #6: Recent 5 diary entries as quick-nav cards ── */}
+          {/* ── Recent 5 diary entries ── */}
           {recentEntries.length > 0 && (
             <div>
               <h3 className="text-xs font-bold text-[#8b6a40] dark:text-[#a07040] uppercase tracking-wider mb-2">Recent Entries</h3>
@@ -907,12 +910,12 @@ export default function DiaryPage() {
                   return (
                     <div key={i} onClick={() => setCurrentDate(rDate)}
                       className={`entry-card shrink-0 w-44 ${isCurrent ? "ring-2 ring-[#8b5e3c]" : ""}`}>
-                      <div className="text-[11px] font-bold text-[#8b5e3c] dark:text-[#c4a882] mb-1">{fmtShort(rDate)}</div>
+                      <div className="text-[11px] font-bold text-[#8b5e3c] dark:text-[#c4a882] mb-1 diary-date-stamp">{fmtShort(rDate)}</div>
                       {re.mood && <div className="text-base mb-1">{MOODS.find(m=>m.key===re.mood)?.emoji}</div>}
                       <p className="text-[11px] text-[#5c3414] dark:text-[#a07040] line-clamp-3 leading-relaxed"
+                        style={{fontFamily:"'Kalam', cursive"}}
                         dangerouslySetInnerHTML={{__html: re.content?.replace(/<[^>]+>/g," ").slice(0,80)+"…"}} />
                       <div className="mt-2 flex gap-1 flex-wrap">
-                        {/* FIX #6: show ±2 nearby pages */}
                         {[-2,-1,1,2].map(offset => {
                           const neighborDate = addDays(rDate, offset);
                           const neighborIdx  = allDates.indexOf(neighborDate);
