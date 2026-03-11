@@ -12,7 +12,7 @@ import {
   Plus, Save, RefreshCw, CalendarDays,
   ChevronLeft, ChevronRight, UtensilsCrossed,
   X, CheckCircle2, PencilLine, FilePlus2,
-  Palmtree,
+  Palmtree, TrendingUp,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────
@@ -65,10 +65,22 @@ function to12h(hhmm: string): string {
   return `${pad2(h % 12 || 12)}:${pad2(m)} ${h >= 12 ? "PM" : "AM"}`;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// THE FIX: isoToHHMM must use UTC getters, NOT local getters.
+//
+// The save API stores times using Date.UTC(), meaning the hour:minute
+// stored in MongoDB as UTC exactly matches what the user typed.
+// e.g. user typed "8:40 AM" → stored as "2025-03-11T08:40:00.000Z"
+//
+// Using d.getHours() would apply the local timezone offset:
+//   IST (+5:30): getHours() on "08:40Z" returns 14 → shows "2:10 PM" ❌
+//
+// Using d.getUTCHours() returns exactly 8 → shows "8:40 AM" ✅
+// ─────────────────────────────────────────────────────────────────
 function isoToHHMM(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
 function addMinsToTime(hhmm: string, mins: number): string {
@@ -111,7 +123,7 @@ const MONTHS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────
-// CALENDAR PICKER — with logged / missing / holiday day dots
+// CALENDAR PICKER
 // ─────────────────────────────────────────────────────────────────
 const CalendarPicker = forwardRef<CalendarHandle, {
   value:    string;
@@ -248,7 +260,6 @@ const CalendarPicker = forwardRef<CalendarHandle, {
           const isWeekend = dow === 0 || dow === 6;
           const isMissing = !isFuture && !isToday && !isLogged && !isWeekend && !isHol;
 
-          // Dot priority: holiday > logged > missing > weekend > none
           const dotColor = isHol     ? "#f59e0b"
                          : isLogged  ? "#22d3a0"
                          : isMissing ? "#f87171"
@@ -575,7 +586,7 @@ function CardHeader({ icon: Icon, iconColor, title, right }: {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HOLIDAY BANNER — replaces LogForm when selected date is a holiday
+// HOLIDAY BANNER
 // ─────────────────────────────────────────────────────────────────
 function HolidayBanner({ date, notes }: { date: string; notes: string }) {
   return (
@@ -628,15 +639,15 @@ function HolidayBanner({ date, notes }: { date: string; notes: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LOG FORM  (only shown for non-holiday dates)
+// LOG FORM
 // ─────────────────────────────────────────────────────────────────
 function LogForm({
-  selectedDate, hasExisting,
+  selectedDate, hasExisting, requiredWorkHours,
   entryTime, setEntryTime, exitTime, setExitTime,
   breaks, setBreaks, notes, setNotes,
   isDirty, everSaved, saving, onSave,
 }: {
-  selectedDate: string; hasExisting: boolean;
+  selectedDate: string; hasExisting: boolean; requiredWorkHours: number;
   entryTime: string; setEntryTime: (v: string) => void;
   exitTime:  string; setExitTime:  (v: string) => void;
   breaks:    BreakEntry[]; setBreaks: React.Dispatch<React.SetStateAction<BreakEntry[]>>;
@@ -654,11 +665,13 @@ function LogForm({
     const totalBreak = breaks.reduce((a, b) => a + b.minutes, 0);
     const officeMins = exitMins > entryMins && entryMins > 0 ? exitMins - entryMins : 0;
     const productive = Math.max(0, officeMins - totalBreak);
-    const required   = 8.5 * 60;
+    const required   = requiredWorkHours * 60;
     const remaining  = Math.max(0, required - productive);
-    const pct        = (productive / required) * 100;
-    return { totalBreak, officeMins, productive, remaining, pct };
-  }, [entryTime, exitTime, breaks]);
+    const pct        = required > 0 ? (productive / required) * 100 : 0;
+    // ── OVERTIME CALCULATION ─────────────────────────────────────
+    const overtime   = Math.max(0, productive - required);
+    return { totalBreak, officeMins, productive, remaining, pct, overtime };
+  }, [entryTime, exitTime, breaks, requiredWorkHours]);
 
   function addQuickBreak(type: "tea"|"lunch", label: string, mins: number) {
     setBreaks(p => [...p, { id: uid(), label, minutes: mins, type }]);
@@ -689,7 +702,7 @@ function LogForm({
             <Zap size={15} style={{ color: "var(--green)" }} />
           </div>
           <p className="font-syne font-bold text-[18px]" style={{ color: "var(--green)" }}>
-            {fmtDuration(8.5 * 60)} productive hours completed ✓
+            {fmtDuration(requiredWorkHours * 60)} productive hours completed ✓
           </p>
         </div>
       )}
@@ -787,17 +800,19 @@ function LogForm({
         )}
       </Card>
 
-      {/* Summary stats */}
+      {/* ── SUMMARY STATS — includes Overtime ──────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Office Time",  value: fmtDuration(calc.officeMins), color: "var(--text)",   icon: Timer,  bg: "var(--border)"         },
-          { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",  icon: Coffee, bg: "rgba(251,191,36,0.12)"  },
-          { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)", icon: Zap,    bg: "rgba(124,110,243,0.12)" },
-          { label: calc.pct >= 100 ? "Completed!" : "Remaining",
+          { label: "Office Time",  value: fmtDuration(calc.officeMins), color: "var(--text2)",   icon: Timer,       bg: "var(--border)"           },
+          { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",   icon: Coffee,      bg: "rgba(251,191,36,0.12)"   },
+          { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)",  icon: Zap,         bg: "rgba(124,110,243,0.12)"  },
+          {
+            label: calc.pct >= 100 ? "Completed!" : "Remaining",
             value: calc.pct >= 100 ? "Done ✓" : fmtDuration(calc.remaining),
             color: calc.pct >= 100 ? "var(--green)" : "var(--text2)",
             icon:  calc.pct >= 100 ? Zap : Clock,
-            bg:    calc.pct >= 100 ? "rgba(34,211,160,0.12)" : "var(--border)" },
+            bg:    calc.pct >= 100 ? "rgba(34,211,160,0.12)" : "var(--border)",
+          },
         ].map(({ label, value, color, icon: Icon, bg }) => (
           <div key={label} className="rounded-2xl p-4 flex flex-col gap-2"
             style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
@@ -814,13 +829,61 @@ function LogForm({
         ))}
       </div>
 
+      {/* ── OVERTIME BANNER — shown when exit time is set and overtime > 0 ── */}
+      {exitTime && calc.overtime > 0 && (
+        <div className="flex items-center justify-between px-5 py-4 rounded-2xl"
+          style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ background: "rgba(34,211,160,0.15)" }}>
+              <TrendingUp size={15} style={{ color: "#22d3a0" }} />
+            </div>
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "#22d3a0" }}>
+                Overtime
+              </p>
+              <p className="font-syne font-bold text-[18px]" style={{ color: "var(--text)" }}>
+                Extra {fmtDuration(calc.overtime)} worked today 🎉
+              </p>
+            </div>
+          </div>
+          <p className="font-syne font-extrabold text-[22px]" style={{ color: "#22d3a0" }}>
+            +{fmtDuration(calc.overtime)}
+          </p>
+        </div>
+      )}
+
+      {/* ── UNDERWORK BANNER — shown when exit time is set and under target ── */}
+      {exitTime && calc.pct < 100 && calc.productive > 0 && (
+        <div className="flex items-center justify-between px-5 py-4 rounded-2xl"
+          style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ background: "rgba(248,113,113,0.15)" }}>
+              <Clock size={15} style={{ color: "#f87171" }} />
+            </div>
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "#f87171" }}>
+                Short of Target
+              </p>
+              <p className="font-syne font-bold text-[18px]" style={{ color: "var(--text)" }}>
+                {fmtDuration(calc.remaining)} below {fmtDuration(requiredWorkHours * 60)} target
+              </p>
+            </div>
+          </div>
+          <p className="font-syne font-extrabold text-[22px]" style={{ color: "#f87171" }}>
+            -{fmtDuration(calc.remaining)}
+          </p>
+        </div>
+      )}
+
       {/* Progress bar */}
       {(entryTime || exitTime) && (
         <div className="rounded-2xl px-5 py-4 space-y-2"
           style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
           <div className="flex items-center justify-between">
             <span className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>
-              Daily progress — 8.5h target
+              Daily progress — {fmtDuration(requiredWorkHours * 60)} target
             </span>
             <span className="font-mono text-[11px]" style={{ color: "var(--text2)" }}>
               {Math.min(100, Math.round(calc.pct))}%
@@ -859,6 +922,11 @@ function LogForm({
               {hasExisting ? "All changes saved" : "Log saved"}
             </span>
           </div>
+        )}
+        {isDirty && (
+          <span className="font-mono text-[11px]" style={{ color: "var(--amber)" }}>
+            ● Unsaved changes
+          </span>
         )}
         <button
           onClick={onSave}
@@ -900,11 +968,11 @@ export default function DateWisePage() {
   const [saving,       setSaving]       = useState(false);
   const [fetching,     setFetching]     = useState(false);
 
-  const [hasExisting,   setHasExisting]   = useState(false);
-  const [savedSnapshot, setSavedSnapshot] = useState<SavedSnapshot>(EMPTY_SNAPSHOT);
-  const [everSaved,     setEverSaved]     = useState(false);
+  const [hasExisting,      setHasExisting]      = useState(false);
+  const [savedSnapshot,    setSavedSnapshot]    = useState<SavedSnapshot>(EMPTY_SNAPSHOT);
+  const [everSaved,        setEverSaved]        = useState(false);
+  const [requiredWorkHours,setRequiredWorkHours]= useState(8.5);
 
-  // ── Holiday state ──────────────────────────────────────────────
   const [isHoliday,    setIsHoliday]    = useState(false);
   const [holidayNotes, setHolidayNotes] = useState("");
 
@@ -922,10 +990,9 @@ export default function DateWisePage() {
 
   const fetchLog = useCallback(async (date: string) => {
     setFetching(true);
-    // Reset everything on every date switch
     setEntryTime(""); setExitTime(""); setBreaks([]); setNotes("");
     setSavedSnapshot(EMPTY_SNAPSHOT); setEverSaved(false); setHasExisting(false);
-    setIsHoliday(false); setHolidayNotes("");
+    setIsHoliday(false); setHolidayNotes(""); setRequiredWorkHours(8.5);
 
     try {
       const res  = await fetch(`/api/work/date?date=${date}`);
@@ -933,15 +1000,16 @@ export default function DateWisePage() {
       if (data.success && data.data) {
         const d = data.data;
 
-        // ── Holiday check ──────────────────────────────────────
         if (d.isHoliday) {
           setIsHoliday(true);
           setHolidayNotes(d.notes || "");
-          setHasExisting(true); // record exists in DB — needed for badge
+          setHasExisting(true);
           return;
         }
-        // ──────────────────────────────────────────────────────
 
+        setRequiredWorkHours(d.requiredWorkHours ?? 8.5);
+
+        // ── THE FIX: isoToHHMM now uses getUTCHours() ──────────
         const loadedEntry  = isoToHHMM(d.entryTime);
         const loadedExit   = isoToHHMM(d.exitTime);
         const loadedNotes  = d.notes || "";
@@ -1041,7 +1109,6 @@ export default function DateWisePage() {
                   <span className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>Loading…</span>
                 </div>
               ) : isHoliday ? (
-                // ── Holiday badge ──────────────────────────────
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
                   style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
                   <Palmtree size={10} style={{ color: "#f59e0b" }} />
@@ -1090,7 +1157,6 @@ export default function DateWisePage() {
         {/* RIGHT — form panel */}
         <div className="flex-1 min-w-0 space-y-5">
 
-          {/* Loading skeleton */}
           {fetching && (
             <div className="flex items-center justify-center py-24 rounded-2xl"
               style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
@@ -1104,7 +1170,6 @@ export default function DateWisePage() {
             </div>
           )}
 
-          {/* ── Holiday banner or Log form ────────────────── */}
           {!fetching && isHoliday && (
             <HolidayBanner date={selectedDate} notes={holidayNotes} />
           )}
@@ -1113,6 +1178,7 @@ export default function DateWisePage() {
             <LogForm
               selectedDate={selectedDate}
               hasExisting={hasExisting}
+              requiredWorkHours={requiredWorkHours}
               entryTime={entryTime}   setEntryTime={setEntryTime}
               exitTime={exitTime}     setExitTime={setExitTime}
               breaks={breaks}         setBreaks={setBreaks}
