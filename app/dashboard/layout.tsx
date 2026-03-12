@@ -19,20 +19,19 @@ import {
   Linkedin,
   Globe,
   BookOpen,
+  Keyboard,
   X,
 } from "lucide-react";
 import Logo from "../components/Logo";
 
 // ── Nav items ──────────────────────────────────────────────────
-// Dashboard root now redirects to /dashboard/today, so
-// "Today's Track" is effectively the homepage of the dashboard.
 const NAV_ITEMS = [
   { label: "Today's Track", href: "/dashboard/today",    icon: Clock        },
   { label: "Go Date Wise",  href: "/dashboard/date-wise",icon: CalendarDays },
   { label: "Mark Holiday",  href: "/dashboard/holiday",  icon: Palmtree     },
-  
   { label: "See Analysis",  href: "/dashboard/analysis", icon: BarChart2    },
-  { label: "Diary",        href: "/dashboard/diary",    icon: BookOpen     },
+  { label: "Diary",         href: "/dashboard/diary",    icon: BookOpen     },
+  { label: "Typing Test",   href: "/dashboard/typing",   icon: Keyboard     },
   { label: "Profile",       href: "/dashboard/profile",  icon: User         },
 ];
 
@@ -124,7 +123,10 @@ function Sidebar({ fullName, open, onClose }: {
   return (
     <>
       {open && (
-        <div className="fixed inset-0 bg-black/60 z-30 md:hidden" onClick={onClose} />
+        <div
+          className="fixed inset-0 bg-black/60 z-30 md:hidden"
+          onClick={onClose}
+        />
       )}
 
       <aside
@@ -155,19 +157,25 @@ function Sidebar({ fullName, open, onClose }: {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
           {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
-            // Today's Track is also active when user is at /dashboard root
             const active =
               pathname === href ||
               (href === "/dashboard/today" && pathname === "/dashboard");
             return (
-              <Link key={href} href={href} onClick={onClose}
+              <Link
+                key={href}
+                href={href}
+                onClick={onClose}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 no-underline"
                 style={{
                   background: active ? "rgba(124,110,243,0.15)" : "transparent",
                   border:     active ? "1px solid rgba(124,110,243,0.25)" : "1px solid transparent",
                   color:      active ? "var(--text)" : "var(--text2)",
-                }}>
-                <Icon size={16} style={{ color: active ? "#7c6ef3" : "var(--text3)" }} />
+                }}
+              >
+                <Icon
+                  size={16}
+                  style={{ color: active ? "#7c6ef3" : "var(--text3)" }}
+                />
                 {label}
               </Link>
             );
@@ -176,7 +184,8 @@ function Sidebar({ fullName, open, onClose }: {
 
         {/* Logout */}
         <div className="px-3 py-3" style={{ borderTop: "1px solid var(--border)" }}>
-          <button onClick={handleLogout}
+          <button
+            onClick={handleLogout}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 cursor-pointer border-none"
             style={{ color: "var(--text2)", background: "transparent" }}
             onMouseEnter={e => {
@@ -186,7 +195,8 @@ function Sidebar({ fullName, open, onClose }: {
             onMouseLeave={e => {
               (e.currentTarget as HTMLElement).style.color      = "var(--text2)";
               (e.currentTarget as HTMLElement).style.background = "transparent";
-            }}>
+            }}
+          >
             <LogOut size={16} style={{ color: "var(--text3)" }} />
             Logout
           </button>
@@ -213,10 +223,12 @@ function DashNavbar({ dark, onThemeToggle, onMenuToggle, sidebarOpen }: {
       }}
     >
       <div className="flex items-center gap-3">
-        <button onClick={onMenuToggle}
+        <button
+          onClick={onMenuToggle}
           className="md:hidden p-1.5 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
           style={{ color: "var(--text2)" }}
-          aria-label="Toggle menu">
+          aria-label="Toggle menu"
+        >
           {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
         <Link href="/dashboard/today" className="flex items-center">
@@ -225,16 +237,24 @@ function DashNavbar({ dark, onThemeToggle, onMenuToggle, sidebarOpen }: {
       </div>
 
       <div className="flex items-center gap-3">
-        <a href="https://my-portfolio-xi-ochre-28.vercel.app/" target="_blank" rel="noopener noreferrer"
+        <a
+          href="https://my-portfolio-xi-ochre-28.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
           className="hidden sm:block text-[13px] transition-colors no-underline"
           style={{ color: "var(--text3)" }}
           onMouseEnter={e => (e.currentTarget.style.color = "#7c6ef3")}
-          onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
+          onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}
+        >
           Developer —{" "}
-          <span style={{ color: "var(--text2)", fontWeight: 500 }}>Nitrajsinh Solanki</span>
+          <span style={{ color: "var(--text2)", fontWeight: 500 }}>
+            Nitrajsinh Solanki
+          </span>
         </a>
 
-        <button onClick={onThemeToggle} aria-label="Toggle theme"
+        <button
+          onClick={onThemeToggle}
+          aria-label="Toggle theme"
           className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer"
           style={{
             background: "var(--surface)",
@@ -248,7 +268,8 @@ function DashNavbar({ dark, onThemeToggle, onMenuToggle, sidebarOpen }: {
           onMouseLeave={e => {
             (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)";
             (e.currentTarget as HTMLElement).style.color       = "var(--text2)";
-          }}>
+          }}
+        >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
       </div>
@@ -274,15 +295,20 @@ function DashFooter() {
 
       <div className="flex items-center gap-4">
         {[
-          { href: "https://www.linkedin.com/in/nitrajsinh-solanki-647b11293", icon: Linkedin, label: "LinkedIn" },
-          { href: "https://github.com/Nitrajsinh-Solanki",                    icon: Github,   label: "GitHub"   },
-          { href: "https://my-portfolio-xi-ochre-28.vercel.app/",             icon: Globe,    label: "Portfolio"},
+          { href: "https://www.linkedin.com/in/nitrajsinh-solanki-647b11293", icon: Linkedin, label: "LinkedIn"  },
+          { href: "https://github.com/Nitrajsinh-Solanki",                    icon: Github,   label: "GitHub"    },
+          { href: "https://my-portfolio-xi-ochre-28.vercel.app/",             icon: Globe,    label: "Portfolio" },
         ].map(({ href, icon: Icon, label }) => (
-          <a key={label} href={href} target="_blank" rel="noopener noreferrer"
+          <a
+            key={label}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-[12px] transition-colors no-underline"
             style={{ color: "var(--text3)" }}
             onMouseEnter={e => (e.currentTarget.style.color = "#7c6ef3")}
-            onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
+            onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}
+          >
             <Icon size={13} />
             <span className="hidden sm:inline">{label}</span>
           </a>
@@ -321,7 +347,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         sidebarOpen={sidebarOpen}
       />
 
-      <Sidebar fullName={fullName} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        fullName={fullName}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <div
         className="fixed left-0 right-0 overflow-y-auto md:left-60"
