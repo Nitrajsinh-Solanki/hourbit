@@ -1,5 +1,5 @@
 // app/models/DiaryEntry.ts
-// NEW schema — does NOT modify existing User or WorkLog schemas
+// UPDATED: Added deleteCount field (max 3 deletes per date, persists forever)
 
 import mongoose, { Schema, Document, Model } from "mongoose";
 
@@ -27,6 +27,9 @@ export interface IDiaryEntry extends Document {
   mood: string | null;  // emoji key e.g. "happy", "sad" etc.
   editCount: number;    // max 5 edits
   isLocked: boolean;    // true when editCount >= 5
+  // NEW: deleteCount tracks how many times content has been deleted for this date
+  // This persists even after content is deleted — the doc stays so we can track the limit
+  deleteCount: number;  // max 3 deletes per date (date-wise, permanent limit)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -115,6 +118,14 @@ const DiaryEntrySchema = new Schema<IDiaryEntry>(
     isLocked: {
       type: Boolean,
       default: false,
+    },
+
+    // NEW: how many times the user has deleted content on this date (permanent, date-wise)
+    deleteCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 3,
     },
   },
   { timestamps: true }

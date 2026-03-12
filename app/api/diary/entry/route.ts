@@ -2,6 +2,10 @@
 // KEY FIX #3: PATCH only increments editCount when body.incrementEdit === true
 // Auto-save passes incrementEdit: false → content saved, editCount unchanged
 // Manual Save button passes incrementEdit: true → editCount +1
+//
+// NEW: DELETE handler — clears content/heading/mood/editCount/isLocked for a date
+//      but keeps the doc alive to preserve deleteCount.
+//      deleteCount is per-date and permanent: max 3 deletes per date ever.
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
@@ -52,11 +56,24 @@ export async function POST(req: NextRequest) {
   if (!isWithin90Days(date)) return NextResponse.json({ error:"Outside 90-day window" }, { status:403 });
   if (content.length > 1500) return NextResponse.json({ error:"Too long" }, { status:400 });
   await connectDB();
+
+  // Check if a "ghost" doc exists (after a delete) — if so, use it instead of creating a new one
   const existing = await DiaryEntry.findOne({ userId, entryDate: toMidnightUTC(date) });
-  if (existing) return NextResponse.json({ error:"Exists — use PATCH" }, { status:409 });
+  if (existing) {
+    // Doc exists — this is a re-write after delete. Treat as a PATCH with no editCount increment.
+    existing.content   = content;
+    existing.heading   = heading;
+    existing.textColor = textColor as "black"|"blue"|"red"|"darkgreen";
+    existing.mood      = mood;
+    // Do NOT reset deleteCount — it is permanent
+    // Do NOT reset editCount or isLocked — they carry over
+    await existing.save();
+    return NextResponse.json({ entry: existing }, { status:200 });
+  }
+
   const entry = await DiaryEntry.create({
     userId, entryDate: toMidnightUTC(date),
-    content, heading, textColor, mood, editCount: 0,
+    content, heading, textColor, mood, editCount: 0, deleteCount: 0,
   });
   return NextResponse.json({ entry }, { status:201 });
 }
@@ -93,4 +110,59 @@ export async function PATCH(req: NextRequest) {
 
   await entry.save();
   return NextResponse.json({ entry });
+}
+
+// ── DELETE: wipe content but keep doc alive to track deleteCount ──
+// Body: { date: "YYYY-MM-DD" }
+// Rules:
+//   • Max 3 deletes per date (permanent, date-wise)
+//   • Clears: content, heading, mood, editCount → 0, isLocked → false
+//   • Preserves: deleteCount (incremented), entryDate, userId
+export async function DELETE(req: NextRequest) {
+  const userId = await getUserId();
+  if (!userId) return NextResponse.json({ error:"Unauthorized" }, { status:401 });
+
+  const body = await req.json();
+  const { date } = body;
+  if (!date) return NextResponse.json({ error:"date required" }, { status:400 });
+  if (isFutureDate(date)) return NextResponse.json({ error:"Future not allowed" }, { status:403 });
+
+  await connectDB();
+
+  const MAX_DELETES = 3;
+  const entry = await DiaryEntry.findOne({ userId, entryDate: toMidnightUTC(date) });
+
+  if (!entry) {
+    return NextResponse.json({ error:"No entry found for this date" }, { status:404 });
+  }
+
+  const currentDeleteCount = entry.deleteCount ?? 0;
+
+  if (currentDeleteCount >= MAX_DELETES) {
+    return NextResponse.json(
+      {
+        error: `Delete limit reached. You can only delete content ${MAX_DELETES} times per page.`,
+        deleteCount: currentDeleteCount,
+        maxDeletes: MAX_DELETES,
+      },
+      { status: 403 }
+    );
+  }
+
+  // Wipe content — reset to blank slate, but preserve deleteCount history
+  entry.content    = "";
+  entry.heading    = "";
+  entry.mood       = null;
+  entry.editCount  = 0;
+  entry.isLocked   = false;
+  entry.deleteCount = currentDeleteCount + 1;
+
+  await entry.save();
+
+  return NextResponse.json({
+    entry,
+    deleteCount: entry.deleteCount,
+    deletesLeft: MAX_DELETES - entry.deleteCount,
+    message: `Page content deleted. ${MAX_DELETES - entry.deleteCount} delete${MAX_DELETES - entry.deleteCount !== 1 ? "s" : ""} remaining for this date.`,
+  });
 }

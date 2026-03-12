@@ -15,6 +15,7 @@ interface DiaryEntry {
   mood: string | null;
   editCount: number;
   isLocked: boolean;
+  deleteCount: number; // NEW: tracks how many times content was deleted for this date
 }
 interface DiaryHeading { text: string; isDefault: boolean; }
 interface SearchResult { date: string; snippet: string; pageNum: number; }
@@ -36,6 +37,7 @@ const INK_COLORS = [
   { hex: "#4b5563", label: "Gray" },
 ];
 const MAX_CHARS = 1500;
+const MAX_DELETES = 3;
 const NAV_COOLDOWN_MS = 5000;
 const CACHE_WINDOW = 2;
 
@@ -101,6 +103,14 @@ async function apiPatch(p: object): Promise<DiaryEntry | null> {
   if (!r.ok) return null;
   return (await r.json()).entry ?? null;
 }
+async function apiDelete(date: string): Promise<{ entry: DiaryEntry; deleteCount: number; deletesLeft: number; message: string } | { error: string; deleteCount?: number } | null> {
+  const r = await fetch("/api/diary/entry", {
+    method:"DELETE", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ date })
+  });
+  const data = await r.json();
+  if (!r.ok) return data; // return error object
+  return data;
+}
 
 // ─────────────────────────────────────────────────────────────
 // COMPONENT
@@ -154,6 +164,11 @@ export default function DiaryPage() {
   // Recent entries
   const [recentEntries, setRecentEntries] = useState<DiaryEntry[]>([]);
 
+  // ── NEW: Delete state ──────────────────────────────────────────
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting]               = useState(false);
+  const [deleteMsg, setDeleteMsg]                 = useState("");
+
   // Refs
   const editorRef    = useRef<HTMLDivElement>(null);
   const cooldownRef  = useRef<ReturnType<typeof setInterval>|null>(null);
@@ -161,10 +176,19 @@ export default function DiaryPage() {
   const calRef       = useRef<HTMLDivElement>(null);
 
   // Derived
-  const isLocked  = entry?.isLocked ?? false;
-  const editsLeft = 5 - (entry?.editCount ?? 0);
-  const canEdit   = !isFuture(currentDate) && currentDate >= NINETY_AGO && !isLocked;
-  const canGoNext = !isFuture(addDays(currentDate, 1));
+  const isLocked     = entry?.isLocked ?? false;
+  const editsLeft    = 5 - (entry?.editCount ?? 0);
+  const canEdit      = !isFuture(currentDate) && currentDate >= NINETY_AGO && !isLocked;
+  const canGoNext    = !isFuture(addDays(currentDate, 1));
+
+  // ── NEW: delete-related derived values ────────────────────────
+  const deleteCount  = entry?.deleteCount ?? 0;
+  const deletesLeft  = MAX_DELETES - deleteCount;
+  // canDeleteBase: date must be valid (not future, within 90 days) — intentionally IGNORES isLocked
+  // so the delete button stays visible and usable even after the page is locked via 5 manual saves
+  const canDeleteBase = !isFuture(currentDate) && currentDate >= NINETY_AGO;
+  const canDelete    = canDeleteBase && !!entry && !!(entry.content?.trim() || entry.heading?.trim() || entry.mood) && deletesLeft > 0;
+  const deleteMaxed  = deleteCount >= MAX_DELETES;
 
   const currentPageIndex = useMemo(() => {
     const i = allDates.indexOf(currentDate);
@@ -213,6 +237,9 @@ export default function DiaryPage() {
     prefetch(currentDate);
     setShowCal(false);
     setShowHPicker(false);
+    // Close delete confirm when switching pages
+    setShowDeleteConfirm(false);
+    setDeleteMsg("");
   }, [currentDate]);
 
   async function loadPage(date: string) {
@@ -390,6 +417,62 @@ export default function DiaryPage() {
     });
   }
 
+  // ── NEW: Delete content handler ───────────────────────────────
+  async function handleDeleteContent() {
+    if (!canDelete || isDeleting) return;
+
+    setIsDeleting(true);
+    setShowDeleteConfirm(false);
+
+    // Cancel any pending auto-save
+    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+
+    const result = await apiDelete(currentDate);
+
+    setIsDeleting(false);
+
+    if (!result) {
+      setDeleteMsg("❌ Delete failed. Try again.");
+      setTimeout(() => setDeleteMsg(""), 3000);
+      return;
+    }
+
+    if ("error" in result && result.error) {
+      // Hit the limit or another error
+      if (result.deleteCount !== undefined && result.deleteCount >= MAX_DELETES) {
+        setDeleteMsg(`🚫 Delete limit reached for this date.`);
+      } else {
+        setDeleteMsg(`❌ ${result.error}`);
+      }
+      setTimeout(() => setDeleteMsg(""), 4000);
+      return;
+    }
+
+    // Success — reset ALL page state (just like loading a blank page)
+    const updatedEntry = (result as { entry: DiaryEntry }).entry;
+
+    // Clear the editor
+    if (editorRef.current) {
+      editorRef.current.innerHTML = "";
+      setCharCount(0);
+    }
+
+    // Reset all page-level state
+    setEntry(updatedEntry);
+    setHeading("");
+    setMood(null);
+    lastSavedHtml.current = "";
+    isDirtyRef.current    = false;
+    isNewEntryRef.current = false; // doc still exists (ghost), just emptied
+
+    // Invalidate cache for this date so next load fetches fresh
+    pageCache.set(currentDate, updatedEntry);
+
+    const left = (result as { deletesLeft: number }).deletesLeft;
+    setDeleteMsg(`🗑️ Deleted! ${left} delete${left !== 1 ? "s" : ""} left for this date.`);
+    setTimeout(() => setDeleteMsg(""), 4000);
+  }
+
   // ── Calendar cells ────────────────────────────────────────────
   function renderCal(): React.ReactElement[] {
     const { year, month } = calView;
@@ -557,6 +640,28 @@ export default function DiaryPage() {
         .dark .search-result:hover { background: #3a2a18; }
         .search-result:last-child { border-bottom: none; }
 
+        /* ── Delete confirm modal ── */
+        .delete-modal-overlay {
+          position: fixed; inset: 0; z-index: 60;
+          background: rgba(0,0,0,0.55);
+          display: flex; align-items: center; justify-content: center;
+          padding: 16px;
+        }
+        .delete-modal {
+          background: #fdf5e6;
+          border: 2px solid #c4a882;
+          border-radius: 18px;
+          padding: 28px 24px;
+          max-width: 360px;
+          width: 100%;
+          box-shadow: 0 20px 60px rgba(80,40,10,.35);
+        }
+        .dark .delete-modal {
+          background: #1e1508;
+          border-color: #6b4c2a;
+          box-shadow: 0 20px 60px rgba(0,0,0,.6);
+        }
+
       `}</style>
 
       {/* ── Heading settings modal ── */}
@@ -591,6 +696,44 @@ export default function DiaryPage() {
             </div>
             <button onClick={() => setShowSettings(false)}
               className="w-full py-2 rounded-xl bg-[#f0d9b5] dark:bg-[#3a2a18] text-[#5c3414] dark:text-[#e8d5b0] text-sm font-medium transition-colors hover:bg-[#e0c090]">Done</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── NEW: Delete confirmation modal ── */}
+      {showDeleteConfirm && (
+        <div className="delete-modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="delete-modal" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-5">
+              <div className="text-4xl mb-3">🗑️</div>
+              <h2 className="text-base font-bold text-[#3a1f00] dark:text-[#e8d5b0] mb-2 diary-heading-font">
+                Delete Page Content?
+              </h2>
+              <p className="text-sm text-[#5c3414] dark:text-[#c4a882] leading-relaxed">
+                This will <strong>permanently erase</strong> all text, heading, and mood on this page.
+                The edit count and lock will also reset — giving you a fresh page to write again.
+              </p>
+              <div className="mt-3 px-3 py-2 rounded-xl bg-[#fff3e0] dark:bg-[#2a1a0a] border border-[#e8c87a] dark:border-[#6b4c2a]">
+                <p className="text-xs font-bold text-[#8b5e3c] dark:text-[#c4a882]">
+                  ⚠️ You have used {deleteCount} of {MAX_DELETES} deletes for{" "}
+                  <span className="underline">{fmtShort(currentDate)}</span>.
+                  After {MAX_DELETES} deletes, this date is permanently locked from deletion.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#f0d9b5] dark:bg-[#3a2a18] text-[#5c3414] dark:text-[#c4a882] hover:bg-[#e0c090] transition-colors border border-[#c4a882] dark:border-[#6b4c2a]">
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteContent}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-colors shadow-sm">
+                {isDeleting ? "Deleting…" : `Yes, Delete (${deletesLeft} left)`}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -734,6 +877,12 @@ export default function DiaryPage() {
                     </div>
                     {isLocked && <p className="text-xs text-red-500 font-bold mt-1">🔒 Locked</p>}
                     {!isLocked && entry && <p className="text-xs text-[#b8997a] mt-1">{editsLeft} edit{editsLeft!==1?"s":""} left</p>}
+                    {/* NEW: show delete count badge if any deletes have been used */}
+                    {entry && deleteCount > 0 && (
+                      <p className={`text-xs font-bold mt-1 ${deleteMaxed ? "text-red-500" : "text-[#a07040]"}`}>
+                        {deleteMaxed ? "🚫 No deletes left" : `🗑️ ${deletesLeft} delete${deletesLeft!==1?"s":""} left`}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -838,15 +987,51 @@ export default function DiaryPage() {
                   </div>
                 </div>
 
-                {/* ── Bottom bar: save ── */}
-                <div className="mt-3 pt-2.5 border-t border-[#d4b896] dark:border-[#4a3520] flex items-center justify-between gap-3">
-                  <span className="text-xs text-[#b8997a]">
-                    {isLocked ? "🔒 Locked — no more edits" : entry ? `Manual saves: ${entry.editCount} / 5` : "New entry"}
-                  </span>
-                  <div className="flex items-center gap-2">
+                {/* ── Bottom bar: save + delete ── */}
+                <div className="mt-3 pt-2.5 border-t border-[#d4b896] dark:border-[#4a3520] flex items-center justify-between gap-3 flex-wrap">
+                  {/* Left: status info */}
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs text-[#b8997a]">
+                      {isLocked ? "🔒 Locked — no more edits" : entry ? `Manual saves: ${entry.editCount} / 5` : "New entry"}
+                    </span>
+                    {/* NEW: delete message feedback */}
+                    {deleteMsg && (
+                      <span className={`text-xs font-semibold transition-all ${deleteMsg.startsWith("🚫") || deleteMsg.startsWith("❌") ? "text-red-500" : "text-[#8b5e3c] dark:text-[#c4a882]"}`}>
+                        {deleteMsg}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Right: action buttons */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-xs font-medium transition-opacity min-w-[52px] text-right ${saveMsg?"text-green-600 opacity-100":saving?"text-[#8b5e3c] opacity-100":"opacity-0"}`}>
                       {saving?"Saving…":saveMsg}
                     </span>
+
+                    {/* ── Delete Content button — shown even when page is edit-locked (5 saves reached) ── */}
+                    {canDeleteBase && entry && (
+                      deleteMaxed ? (
+                        /* Maxed out — show disabled state */
+                        <button
+                          disabled
+                          title={`Delete limit reached for ${fmtShort(currentDate)} — 3/3 deletes used`}
+                          className="flex items-center gap-1.5 opacity-40 cursor-not-allowed text-xs font-semibold px-3 py-2 rounded-xl border border-[#c4a882] dark:border-[#6b4c2a] text-[#8b5e3c] dark:text-[#c4a882] bg-transparent">
+                          🚫 No Deletes Left
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setShowDeleteConfirm(true)}
+                          disabled={isDeleting || !canDelete}
+                          title={`Delete page content (${deletesLeft} of ${MAX_DELETES} deletes remaining for this date)`}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                          🗑️ Delete Content
+                          <span className="ml-0.5 px-1.5 py-0.5 text-[10px] rounded-full bg-red-100 dark:bg-red-900/50 text-red-500 dark:text-red-400 font-bold">
+                            {deletesLeft}/{MAX_DELETES}
+                          </span>
+                        </button>
+                      )
+                    )}
+
                     {canEdit && (
                       <button onClick={handleManualSave} disabled={saving||isLocked}
                         className="flex items-center gap-1.5 bg-[#8b5e3c] hover:bg-[#6b4a2e] disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm">
@@ -881,12 +1066,6 @@ export default function DiaryPage() {
                 ? <span className="font-bold text-[#8b5e3c] dark:text-[#c4a882]">✦ Today</span>
                 : <span className="text-[#8b6a40] dark:text-[#a07040]">{Math.abs(Math.round((strToDate(currentDate).getTime()-strToDate(TODAY).getTime())/86400000))} days ago</span>
               }
-              {navCooldown && (
-                <div className="mt-1.5 h-1 w-20 mx-auto bg-[#e8d5b0] dark:bg-[#3a2a18] rounded-full overflow-hidden">
-                  <div className="h-full bg-[#8b5e3c] rounded-full transition-all ease-linear"
-                    style={{width:`${((NAV_COOLDOWN_MS/1000-navSecs)/(NAV_COOLDOWN_MS/1000))*100}%`, transitionDuration:"1s"}} />
-                </div>
-              )}
             </div>
 
             <button onClick={goNext} disabled={navCooldown || !canGoNext}
@@ -895,38 +1074,33 @@ export default function DiaryPage() {
                   ? "bg-[#f0e0c0] dark:bg-[#2a1f12] text-[#c4a882] border-[#e8d5b0] dark:border-[#4a3520] cursor-not-allowed"
                   : "bg-[#fdf5e6] dark:bg-[#2a1f12] text-[#5c3414] dark:text-[#c4a882] border-[#c4a882] dark:border-[#6b4c2a] hover:bg-[#f0d9b5] hover:border-[#8b5e3c] shadow-sm active:scale-95",
               ].join(" ")}>
-              Next ▶ {!canGoNext && <span className="text-[#c4a882] text-xs">🚫</span>}
+              Next ▶ {navCooldown && <span className="font-mono text-xs">{navSecs}s</span>}
             </button>
           </div>
 
-          {/* ── Recent 5 diary entries ── */}
+          {/* ── Recent entries ── */}
           {recentEntries.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold text-[#8b6a40] dark:text-[#a07040] uppercase tracking-wider mb-2">Recent Entries</h3>
+            <div className="mt-2">
+              <p className="text-xs font-bold text-[#8b6a40] dark:text-[#a07040] mb-2 diary-heading-font">Recent Entries</p>
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {recentEntries.map((re, i) => {
-                  const rDate = dateToStr(new Date(re.entryDate));
-                  const isCurrent = rDate === currentDate;
+                {recentEntries.map((e, i) => {
+                  const ds = dateToStr(new Date(e.entryDate));
                   return (
-                    <div key={i} onClick={() => setCurrentDate(rDate)}
-                      className={`entry-card shrink-0 w-44 ${isCurrent ? "ring-2 ring-[#8b5e3c]" : ""}`}>
-                      <div className="text-[11px] font-bold text-[#8b5e3c] dark:text-[#c4a882] mb-1 diary-date-stamp">{fmtShort(rDate)}</div>
-                      {re.mood && <div className="text-base mb-1">{MOODS.find(m=>m.key===re.mood)?.emoji}</div>}
-                      <p className="text-[11px] text-[#5c3414] dark:text-[#a07040] line-clamp-3 leading-relaxed"
-                        style={{fontFamily:"'Kalam', cursive"}}
-                        dangerouslySetInnerHTML={{__html: re.content?.replace(/<[^>]+>/g," ").slice(0,80)+"…"}} />
-                      <div className="mt-2 flex gap-1 flex-wrap">
-                        {[-2,-1,1,2].map(offset => {
-                          const neighborDate = addDays(rDate, offset);
-                          const neighborIdx  = allDates.indexOf(neighborDate);
-                          if (neighborIdx < 0) return null;
-                          return (
-                            <button key={offset} onClick={e => { e.stopPropagation(); setCurrentDate(neighborDate); }}
-                              className="text-[10px] bg-[#eedfc0] dark:bg-[#3a2a18] text-[#5c3414] dark:text-[#c4a882] rounded px-1.5 py-0.5 hover:bg-[#e0c090] transition-colors border border-[#c4a882] dark:border-[#6b4c2a]">
-                              {offset>0?"+":""}{offset}d
-                            </button>
-                          );
-                        })}
+                    <div key={i} className="entry-card shrink-0 w-44"
+                      onClick={() => setCurrentDate(ds)}>
+                      <div className="text-xs font-bold text-[#8b5e3c] dark:text-[#c4a882] mb-1">{fmtShort(ds)}</div>
+                      {e.heading && <div className="text-xs font-semibold text-[#5c3414] dark:text-[#e8d5b0] truncate diary-heading-font mb-0.5">{e.heading}</div>}
+                      <div className="text-xs text-[#5c3414] dark:text-[#a07040] line-clamp-2 leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: e.content?.slice(0, 80) || "<span style='opacity:.5;font-style:italic'>No content</span>" }} />
+                      <div className="flex items-center justify-between mt-1.5">
+                        {e.mood && <span className="text-base">{MOODS.find(m=>m.key===e.mood)?.emoji}</span>}
+                        <div className="flex gap-1 ml-auto">
+                          {Array.from({length: 5-i}).map((_,k) => (
+                            <div key={k} className="w-1.5 h-1.5 rounded-full" style={{
+                              background: k < (5 - (e.editCount??0)) / 5 * (5-i) ? "#8b5e3c" : "#e8d5b0"
+                            }} />
+                          ))}
+                        </div>
                       </div>
                     </div>
                   );
