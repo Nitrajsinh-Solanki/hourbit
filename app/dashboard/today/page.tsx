@@ -169,6 +169,99 @@ function clearDraft() {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// THEME STYLE INJECTION
+// Fixes: dark theme too dark + invisible text, light theme misalignment
+// ─────────────────────────────────────────────────────────────────
+const themeStyles = `
+  /* ── DARK THEME (default / prefers-color-scheme: dark) ── */
+  :root,
+  [data-theme="dark"],
+  .dark {
+    --bg:        #0f1117;
+    --surface:   #181b24;
+    --surface2:  #1e2130;
+    --border:    rgba(255,255,255,0.09);
+    --border2:   rgba(255,255,255,0.16);
+    --text:      #f0f2f8;
+    --text2:     #c2c8d8;
+    --text3:     #8892a4;
+    --text4:     #556070;
+    --accent:    #7c6ef3;
+    --accent2:   #a78bfa;
+    --green:     #22d3a0;
+    --amber:     #f59e0b;
+    --danger:    #f87171;
+  }
+
+  /* ── LIGHT THEME ── */
+  [data-theme="light"],
+  .light,
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]):not(.dark) {
+      --bg:        #f4f6fb;
+      --surface:   #ffffff;
+      --surface2:  #f0f3fa;
+      --border:    rgba(0,0,0,0.08);
+      --border2:   rgba(0,0,0,0.14);
+      --text:      #111827;
+      --text2:     #374151;
+      --text3:     #6b7280;
+      --text4:     #9ca3af;
+      --accent:    #6152e8;
+      --accent2:   #7c6ef3;
+      --green:     #059669;
+      --amber:     #d97706;
+      --danger:    #dc2626;
+    }
+  }
+
+  /* Explicit light selector for theme switchers */
+  [data-theme="light"],
+  .light {
+    --bg:        #f4f6fb;
+    --surface:   #ffffff;
+    --surface2:  #f0f3fa;
+    --border:    rgba(0,0,0,0.08);
+    --border2:   rgba(0,0,0,0.14);
+    --text:      #111827;
+    --text2:     #374151;
+    --text3:     #6b7280;
+    --text4:     #9ca3af;
+    --accent:    #6152e8;
+    --accent2:   #7c6ef3;
+    --green:     #059669;
+    --amber:     #d97706;
+    --danger:    #dc2626;
+  }
+
+  /* ── Shared base resets ── */
+  * { box-sizing: border-box; }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] { -moz-appearance: textfield; }
+`;
+
+function ThemeStyleInjector() {
+  useEffect(() => {
+    const existing = document.getElementById("hourbit-theme-vars");
+    if (existing) return;
+    const style = document.createElement("style");
+    style.id = "hourbit-theme-vars";
+    style.textContent = themeStyles;
+    document.head.appendChild(style);
+    return () => {
+      const el = document.getElementById("hourbit-theme-vars");
+      if (el) el.remove();
+    };
+  }, []);
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────
 // CLOCK PICKER
 // ─────────────────────────────────────────────────────────────────
 type ClockMode = "hour" | "minute";
@@ -266,7 +359,7 @@ function ClockPicker({
 
         <div className="flex items-center justify-center gap-3 mb-5">
           <div className="flex items-center rounded-2xl px-4 py-2 gap-1.5"
-            style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
+            style={{ background: "var(--bg)", border: "1px solid var(--border2)" }}>
             <button onClick={() => setMode("hour")}
               className="font-syne font-bold text-[28px] bg-transparent border-none cursor-pointer p-0 transition-colors"
               style={{ color: mode === "hour" ? "var(--accent)" : "var(--text2)" }}>
@@ -294,7 +387,7 @@ function ClockPicker({
 
         <div className="relative mx-auto mb-5" style={{ width: "200px", height: "200px" }}>
           <div className="absolute inset-0 rounded-full"
-            style={{ background: "var(--bg)", border: "2px solid var(--border)" }} />
+            style={{ background: "var(--bg)", border: "2px solid var(--border2)" }} />
           <div className="absolute rounded-full"
             style={{
               width: "2px", height: "38%",
@@ -302,7 +395,7 @@ function ClockPicker({
               transformOrigin: "bottom center",
               transform: `rotate(${handAngle + 90}deg)`,
               transition: "transform 0.2s ease",
-              background: "rgba(124,110,243,0.45)",
+              background: "rgba(124,110,243,0.55)",
             }} />
           <div className="absolute w-3 h-3 rounded-full"
             style={{ top: "calc(50% - 6px)", left: "calc(50% - 6px)", background: "var(--accent)" }} />
@@ -369,7 +462,7 @@ function TimeButton({
             {label}
           </span>
           <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-            style={{ background: `${accentColor}18` }}>
+            style={{ background: `${accentColor}20` }}>
             <Icon size={15} style={{ color: accentColor }} />
           </div>
         </div>
@@ -380,13 +473,13 @@ function TimeButton({
               style={{ color: "var(--text)" }}>
               {to12h(value).split(" ")[0]}
             </p>
-            <p className="font-mono text-[12px] mt-1" style={{ color: accentColor }}>
+            <p className="font-mono text-[12px] mt-1 font-semibold" style={{ color: accentColor }}>
               {to12h(value).split(" ")[1]}
             </p>
           </div>
         ) : (
           <div>
-            <p className="font-syne font-bold text-[22px] leading-none" style={{ color: "var(--text4)" }}>
+            <p className="font-syne font-bold text-[22px] leading-none" style={{ color: "var(--text3)" }}>
               Tap to set
             </p>
             <p className="font-mono text-[11px] mt-1" style={{ color: "var(--text4)" }}>
@@ -407,7 +500,7 @@ function TimeButton({
             bottom:        "10px",
             right:         "10px",
             background:    "rgba(248,113,113,0.13)",
-            color:         "#f87171",
+            color:         "#ef4444",
             fontSize:      "10px",
             fontFamily:    "monospace",
             letterSpacing: "0.03em",
@@ -450,12 +543,12 @@ function LiveTimer({
 
   const targetSecs = requiredHours * 3600;
   const pct        = Math.min(100, (elapsed / targetSecs) * 100);
-  const rawColor   = pct >= 100 ? "#22d3a0" : pct >= 70 ? "#7c6ef3" : pct >= 40 ? "#a78bfa" : "#fbbf24";
+  const rawColor   = pct >= 100 ? "#22d3a0" : pct >= 70 ? "#7c6ef3" : pct >= 40 ? "#a78bfa" : "#f59e0b";
   const targetLabel = `${Math.floor(requiredHours)}h${requiredHours % 1 !== 0 ? ` ${Math.round((requiredHours % 1) * 60)}m` : ""}`;
 
   return (
     <div className="rounded-2xl p-5 space-y-3"
-      style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
+      style={{ background: "var(--surface2)", border: "1px solid var(--border2)" }}>
       <div className="flex items-center gap-2">
         <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "var(--green)" }} />
         <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
@@ -465,7 +558,7 @@ function LiveTimer({
       <p className="font-syne font-extrabold text-[36px] tracking-tight leading-none" style={{ color: rawColor }}>
         {fmtSecs(elapsed)}
       </p>
-      <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+      <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border2)" }}>
         <div className="h-full rounded-full transition-all duration-1000"
           style={{ width: `${pct}%`, background: rawColor }} />
       </div>
@@ -481,17 +574,17 @@ function LiveTimer({
 // ─────────────────────────────────────────────────────────────────
 function BreakChip({ br, onRemove }: { br: BreakEntry; onRemove: () => void }) {
   const colors = {
-    tea:    { bg: "#fbbf2415", border: "#fbbf2445", text: "#d97706" },
-    lunch:  { bg: "#22d3a015", border: "#22d3a045", text: "#10b981" },
-    custom: { bg: "#a78bfa15", border: "#a78bfa45", text: "#8b7cf8" },
+    tea:    { bg: "#fbbf2418", border: "#fbbf2450", text: "#d97706" },
+    lunch:  { bg: "#22d3a018", border: "#22d3a050", text: "#059669" },
+    custom: { bg: "#a78bfa18", border: "#a78bfa50", text: "#7c6ef3" },
   };
   const c = colors[br.type];
   return (
     <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl"
       style={{ background: c.bg, border: `1px solid ${c.border}` }}>
-      <span className="font-mono text-[13px] font-medium" style={{ color: c.text }}>{br.label}</span>
+      <span className="font-mono text-[13px] font-semibold" style={{ color: c.text }}>{br.label}</span>
       <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>·</span>
-      <span className="font-mono text-[12px]" style={{ color: "var(--text2)" }}>{br.minutes}m</span>
+      <span className="font-mono text-[12px] font-medium" style={{ color: "var(--text2)" }}>{br.minutes}m</span>
       <button onClick={onRemove}
         className="ml-1 bg-transparent border-none cursor-pointer p-0 transition-colors"
         style={{ color: "var(--text4)" }}
@@ -535,13 +628,13 @@ function CardHeader({ icon: Icon, iconColor, title, right }: {
 function HolidayBanner({ notes }: { notes: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-5 py-16 rounded-2xl"
-      style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.30)" }}>
+      style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.35)" }}>
       <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
-        style={{ background: "rgba(245,158,11,0.12)" }}>
+        style={{ background: "rgba(245,158,11,0.15)" }}>
         <Palmtree size={28} style={{ color: "#f59e0b" }} />
       </div>
       <div className="text-center space-y-2 px-6">
-        <h2 className="font-syne font-bold text-[20px]" style={{ color: "#f59e0b" }}>
+        <h2 className="font-syne font-bold text-[20px]" style={{ color: "#d97706" }}>
           Today is a Holiday 🌴
         </h2>
         {notes && (
@@ -556,8 +649,8 @@ function HolidayBanner({ notes }: { notes: string }) {
         className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[13px] font-medium transition-all no-underline"
         style={{
           background: "rgba(245,158,11,0.12)",
-          border:     "1px solid rgba(245,158,11,0.30)",
-          color:      "#f59e0b",
+          border:     "1px solid rgba(245,158,11,0.35)",
+          color:      "#d97706",
         }}
         onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>) =>
           (e.currentTarget.style.background = "rgba(245,158,11,0.22)")}
@@ -852,21 +945,26 @@ export default function TodayTrackPage() {
   // ── Loading state ────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-            style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
-          <p className="font-mono text-[13px]" style={{ color: "var(--text3)" }}>
-            Loading today&apos;s log...
-          </p>
+      <>
+        <ThemeStyleInjector />
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+              style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+            <p className="font-mono text-[13px]" style={{ color: "var(--text3)" }}>
+              Loading today&apos;s log...
+            </p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   // ── Render ───────────────────────────────────────────────────
   return (
     <>
+      <ThemeStyleInjector />
+
       {activePicker && (
         <ClockPicker
           value={activePicker === "entry" ? (entryTime || "") : (exitTime || "")}
@@ -884,7 +982,8 @@ export default function TodayTrackPage() {
         />
       )}
 
-      <div className="max-w-3xl mx-auto pb-6 space-y-5">
+      {/* ── Full-width container, no artificial max-w cap so it fills the content area ── */}
+      <div className="w-full pb-6 space-y-5">
 
         {/* ── HEADER ──────────────────────────────────────── */}
         <div className="flex items-start justify-between">
@@ -918,19 +1017,12 @@ export default function TodayTrackPage() {
         {/* ── NORMAL WORK LOG ─────────────────────────────── */}
         {!isHoliday && (
           <>
-            {/* ── LIVE TIMER ──────────────────────────────── */}
-            {entryTime && !exitTime && (
-              <LiveTimer
-                entryHHMM={entryTime}
-                breakMinutes={calc.totalBreak}
-                requiredHours={requiredHours}
-              />
-            )}
+            {/* ── BANNERS (full-width, above the columns) ─── */}
 
-            {/* ── PREDICTED LEAVE ─────────────────────────── */}
+            {/* Predicted leave */}
             {calc.predictedLeave && (
               <div className="flex items-center justify-between px-5 py-4 rounded-2xl"
-                style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.25)" }}>
+                style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.28)" }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-xl flex items-center justify-center"
                     style={{ background: "rgba(124,110,243,0.15)" }}>
@@ -951,10 +1043,10 @@ export default function TodayTrackPage() {
               </div>
             )}
 
-            {/* ── WORK DONE BANNER ────────────────────────── */}
+            {/* Work done */}
             {calc.pct >= 100 && exitTime && (
               <div className="flex items-center gap-3 px-5 py-4 rounded-2xl"
-                style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}>
+                style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.28)" }}>
                 <div className="w-8 h-8 rounded-xl flex items-center justify-center"
                   style={{ background: "rgba(34,211,160,0.15)" }}>
                   <Zap size={15} style={{ color: "var(--green)" }} />
@@ -965,322 +1057,346 @@ export default function TodayTrackPage() {
               </div>
             )}
 
-            {/* ── TIME ENTRY ──────────────────────────────── */}
-            <Card>
-              <CardHeader
-                icon={Clock} iconColor="var(--accent)" title="Work Hours"
-                right={
-                  <span className="font-mono text-[10px]" style={{ color: "var(--text4)" }}>
-                    tap card to change time
-                  </span>
-                }
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <TimeButton
-                  label="Entry Time"
-                  icon={LogIn}
-                  value={entryTime}
-                  accentColor="#7c6ef3"
-                  onClick={() => setActivePicker("entry")}
-                  onClear={() => {
-                    setEntryTime("");
-                    setEntryAmpmAndSave("AM");
-                  }}
-                />
-                <TimeButton
-                  label="Exit Time"
-                  icon={LogOut}
-                  value={exitTime}
-                  accentColor="#22d3a0"
-                  onClick={() => setActivePicker("exit")}
-                  onClear={() => {
-                    setExitTime("");
-                    setExitAmpmAndSave("PM");
-                  }}
-                />
-              </div>
+            {/* ── TWO-COLUMN GRID on lg+, single column below ─ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
 
-              {!entryTime && (
-                <button onClick={() => {
-                  const t = nowHHMM();
-                  setEntryTime(t);
-                  setEntryAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM");
-                }}
-                  className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
-                  style={{ borderColor: "rgba(124,110,243,0.35)", color: "var(--accent)", background: "transparent" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.05)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  ⚡ Clock in now — {to12h(nowHHMM())}
-                </button>
-              )}
-              {entryTime && !exitTime && (
-                <button onClick={() => {
-                  const t = nowHHMM();
-                  setExitTime(t);
-                  setExitAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM");
-                }}
-                  className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
-                  style={{ borderColor: "rgba(34,211,160,0.35)", color: "var(--green)", background: "transparent" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.05)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                  ⚡ Clock out now — {to12h(nowHHMM())}
-                </button>
-              )}
-            </Card>
+              {/* ════════════ LEFT COLUMN ════════════ */}
+              <div className="space-y-5">
 
-            {/* ── BREAKS ──────────────────────────────────── */}
-            <Card>
-              <CardHeader
-                icon={Coffee} iconColor="var(--amber)" title="Breaks"
-                right={
-                  calc.totalBreak > 0 ? (
-                    <span className="font-mono text-[11px] px-2 py-0.5 rounded-md"
-                      style={{
-                        color:      "var(--amber)",
-                        background: "rgba(251,191,36,0.10)",
-                        border:     "1px solid rgba(251,191,36,0.25)",
-                      }}>
-                      Total: {fmtDuration(calc.totalBreak)}
-                    </span>
-                  ) : undefined
-                }
-              />
+                {/* ── TIME ENTRY ──────────────────────────── */}
+                <Card>
+                  <CardHeader
+                    icon={Clock} iconColor="var(--accent)" title="Work Hours"
+                    right={
+                      <span className="font-mono text-[10px]" style={{ color: "var(--text4)" }}>
+                        tap card to change time
+                      </span>
+                    }
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <TimeButton
+                      label="Entry Time"
+                      icon={LogIn}
+                      value={entryTime}
+                      accentColor="#7c6ef3"
+                      onClick={() => setActivePicker("entry")}
+                      onClear={() => {
+                        setEntryTime("");
+                        setEntryAmpmAndSave("AM");
+                      }}
+                    />
+                    <TimeButton
+                      label="Exit Time"
+                      icon={LogOut}
+                      value={exitTime}
+                      accentColor="#22d3a0"
+                      onClick={() => setActivePicker("exit")}
+                      onClear={() => {
+                        setExitTime("");
+                        setExitAmpmAndSave("PM");
+                      }}
+                    />
+                  </div>
 
-              <div className="flex flex-wrap gap-2 mb-4">
-                <button onClick={() => addQuickBreak("tea", "Tea / Coffee", 15)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
-                  style={{ background: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.25)", color: "var(--amber)" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(251,191,36,0.20)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(251,191,36,0.10)")}>
-                  <Coffee size={13} />Tea / Coffee
-                  <span style={{ color: "var(--text3)", fontSize: "10px" }}>15m</span>
-                </button>
-
-                <button onClick={() => addQuickBreak("lunch", "Lunch Break", 30)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
-                  style={{ background: "rgba(34,211,160,0.10)", border: "1px solid rgba(34,211,160,0.25)", color: "var(--green)" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.20)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(34,211,160,0.10)")}>
-                  <UtensilsCrossed size={13} />Lunch Break
-                  <span style={{ color: "var(--text3)", fontSize: "10px" }}>30m</span>
-                </button>
-
-                <button onClick={() => setShowCustom(!showCustom)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
-                  style={{ background: "rgba(167,139,250,0.10)", border: "1px solid rgba(167,139,250,0.25)", color: "var(--accent2)" }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(167,139,250,0.20)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(167,139,250,0.10)")}>
-                  <Plus size={13} />Custom
-                </button>
-              </div>
-
-              {showCustom && (
-                <div className="flex flex-col sm:flex-row gap-2 p-4 rounded-xl mb-4"
-                  style={{ background: "var(--bg)", border: "1px solid rgba(167,139,250,0.25)" }}>
-                  <input
-                    placeholder="Label (e.g. Prayer Break)"
-                    value={customLabel}
-                    onChange={e => setCustomLabel(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && addCustomBreak()}
-                    className="flex-1 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none transition-colors"
-                    style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
-                    onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
-                    onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min="1"
-                      max="480"
-                      value={customMins}
-                      onChange={e => setCustomMins(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && addCustomBreak()}
-                      className="w-20 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none transition-colors text-center"
-                      style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
-                      onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
-                      onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
-                    <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>min</span>
-                    <button onClick={addCustomBreak}
-                      className="px-4 py-2 rounded-xl text-white font-mono text-[12px] transition-all hover:-translate-y-0.5 cursor-pointer border-none"
-                      style={{ background: "var(--accent2)" }}>
-                      Add
+                  {!entryTime && (
+                    <button onClick={() => {
+                      const t = nowHHMM();
+                      setEntryTime(t);
+                      setEntryAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM");
+                    }}
+                      className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
+                      style={{ borderColor: "rgba(124,110,243,0.40)", color: "var(--accent)", background: "transparent" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.06)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                      ⚡ Clock in now — {to12h(nowHHMM())}
                     </button>
-                    <button onClick={() => { setShowCustom(false); setCustomMins("10"); setCustomLabel(""); }}
-                      className="bg-transparent border-none cursor-pointer p-0 transition-colors"
-                      style={{ color: "var(--text3)" }}
-                      onMouseEnter={e => (e.currentTarget.style.color = "var(--text)")}
-                      onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
-                      <X size={14} />
+                  )}
+                  {entryTime && !exitTime && (
+                    <button onClick={() => {
+                      const t = nowHHMM();
+                      setExitTime(t);
+                      setExitAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM");
+                    }}
+                      className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
+                      style={{ borderColor: "rgba(34,211,160,0.40)", color: "var(--green)", background: "transparent" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.06)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                      ⚡ Clock out now — {to12h(nowHHMM())}
+                    </button>
+                  )}
+                </Card>
+
+                {/* ── BREAKS ──────────────────────────────── */}
+                <Card>
+                  <CardHeader
+                    icon={Coffee} iconColor="var(--amber)" title="Breaks"
+                    right={
+                      calc.totalBreak > 0 ? (
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded-md font-medium"
+                          style={{
+                            color:      "var(--amber)",
+                            background: "rgba(245,158,11,0.12)",
+                            border:     "1px solid rgba(245,158,11,0.30)",
+                          }}>
+                          Total: {fmtDuration(calc.totalBreak)}
+                        </span>
+                      ) : undefined
+                    }
+                  />
+
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <button onClick={() => addQuickBreak("tea", "Tea / Coffee", 15)}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] font-medium hover:-translate-y-0.5 transition-all cursor-pointer"
+                      style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.30)", color: "var(--amber)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(245,158,11,0.20)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(245,158,11,0.10)")}>
+                      <Coffee size={13} />Tea / Coffee
+                      <span style={{ color: "var(--text3)", fontSize: "10px" }}>15m</span>
+                    </button>
+
+                    <button onClick={() => addQuickBreak("lunch", "Lunch Break", 30)}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] font-medium hover:-translate-y-0.5 transition-all cursor-pointer"
+                      style={{ background: "rgba(34,211,160,0.10)", border: "1px solid rgba(34,211,160,0.28)", color: "var(--green)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.20)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(34,211,160,0.10)")}>
+                      <UtensilsCrossed size={13} />Lunch Break
+                      <span style={{ color: "var(--text3)", fontSize: "10px" }}>30m</span>
+                    </button>
+
+                    <button onClick={() => setShowCustom(!showCustom)}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] font-medium hover:-translate-y-0.5 transition-all cursor-pointer"
+                      style={{ background: "rgba(124,110,243,0.10)", border: "1px solid rgba(124,110,243,0.28)", color: "var(--accent2)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.20)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(124,110,243,0.10)")}>
+                      <Plus size={13} />Custom
                     </button>
                   </div>
-                </div>
-              )}
 
-              {breaks.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {breaks.map(br => (
-                    <BreakChip key={br.id} br={br}
-                      onRemove={() => setBreaksAndSave(p => p.filter(b => b.id !== br.id))} />
+                  {showCustom && (
+                    <div className="flex flex-col sm:flex-row gap-2 p-4 rounded-xl mb-4"
+                      style={{ background: "var(--bg)", border: "1px solid rgba(124,110,243,0.25)" }}>
+                      <input
+                        placeholder="Label (e.g. Prayer Break)"
+                        value={customLabel}
+                        onChange={e => setCustomLabel(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addCustomBreak()}
+                        className="flex-1 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none transition-colors"
+                        style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
+                        onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
+                        onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="480"
+                          value={customMins}
+                          onChange={e => setCustomMins(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && addCustomBreak()}
+                          className="w-20 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none transition-colors text-center"
+                          style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
+                          onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
+                          onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
+                        <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>min</span>
+                        <button onClick={addCustomBreak}
+                          className="px-4 py-2 rounded-xl text-white font-mono text-[12px] font-medium transition-all hover:-translate-y-0.5 cursor-pointer border-none"
+                          style={{ background: "var(--accent2)" }}>
+                          Add
+                        </button>
+                        <button onClick={() => { setShowCustom(false); setCustomMins("10"); setCustomLabel(""); }}
+                          className="bg-transparent border-none cursor-pointer p-0 transition-colors"
+                          style={{ color: "var(--text3)" }}
+                          onMouseEnter={e => (e.currentTarget.style.color = "var(--text)")}
+                          onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {breaks.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {breaks.map(br => (
+                        <BreakChip key={br.id} br={br}
+                          onRemove={() => setBreaksAndSave(p => p.filter(b => b.id !== br.id))} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="font-mono text-[12px] text-center py-3" style={{ color: "var(--text4)" }}>
+                      No breaks yet — tap a button above to add one
+                    </p>
+                  )}
+                </Card>
+
+                {/* ── NOTES (left col on lg+) ──────────────── */}
+                <Card>
+                  <label className="font-mono text-[11px] uppercase tracking-widest block mb-3"
+                    style={{ color: "var(--text3)" }}>
+                    Notes (optional)
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={notes}
+                    onChange={e => setNotesAndSave(e.target.value)}
+                    placeholder="What did you work on today?"
+                    className="w-full rounded-xl px-4 py-3 font-mono text-[13px] resize-none focus:outline-none transition-colors"
+                    style={{
+                      background: "var(--bg)",
+                      border:     "1px solid var(--border2)",
+                      color:      "var(--text)",
+                    }}
+                    onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
+                    onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
+                </Card>
+
+              </div>{/* end LEFT COLUMN */}
+
+              {/* ════════════ RIGHT COLUMN ════════════ */}
+              <div className="space-y-5">
+
+                {/* ── LIVE TIMER (right col, only while clocked in) ── */}
+                {entryTime && !exitTime && (
+                  <LiveTimer
+                    entryHHMM={entryTime}
+                    breakMinutes={calc.totalBreak}
+                    requiredHours={requiredHours}
+                  />
+                )}
+
+                {/* ── SUMMARY STATS ───────────────────────── */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    {
+                      label: "Productive",
+                      value: fmtDuration(calc.productive),
+                      color: "var(--accent)",
+                      icon:  Zap,
+                      bg:    "rgba(124,110,243,0.14)",
+                    },
+                    {
+                      label: "Total in Company",
+                      value: fmtDuration(calc.officeMins),
+                      color: "var(--text2)",
+                      icon:  Building2,
+                      bg:    "var(--surface2)",
+                    },
+                    {
+                      label: "Break Time",
+                      value: fmtDuration(calc.totalBreak),
+                      color: "var(--amber)",
+                      icon:  Coffee,
+                      bg:    "rgba(245,158,11,0.14)",
+                    },
+                    {
+                      label: calc.pct >= 100 ? "Completed!" : "Remaining",
+                      value: calc.pct >= 100 ? "Done ✓" : fmtDuration(calc.remaining),
+                      color: calc.pct >= 100 ? "var(--green)" : "var(--text2)",
+                      icon:  calc.pct >= 100 ? CheckCircle2 : Timer,
+                      bg:    calc.pct >= 100 ? "rgba(34,211,160,0.14)" : "var(--surface2)",
+                    },
+                    {
+                      label: "Overtime",
+                      value: calc.overtime > 0 ? `+${fmtDuration(calc.overtime)}` : "—",
+                      color: calc.overtime > 0 ? "var(--green)" : "var(--text4)",
+                      icon:  TrendingUp,
+                      bg:    calc.overtime > 0 ? "rgba(34,211,160,0.14)" : "var(--surface2)",
+                    },
+                  ].map(({ label, value, color, icon: Icon, bg }) => (
+                    <div key={label} className="rounded-2xl p-4 flex flex-col gap-2"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
+                          {label}
+                        </span>
+                        <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: bg }}>
+                          <Icon size={12} style={{ color }} />
+                        </div>
+                      </div>
+                      <p className="font-syne font-extrabold text-[20px] leading-none" style={{ color }}>{value}</p>
+                    </div>
                   ))}
                 </div>
-              ) : (
-                <p className="font-mono text-[12px] text-center py-3" style={{ color: "var(--text4)" }}>
-                  No breaks yet — tap a button above to add one
-                </p>
-              )}
-            </Card>
 
-            {/* ── SUMMARY STATS ───────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {[
-                {
-                  label: "Productive",
-                  value: fmtDuration(calc.productive),
-                  color: "var(--accent)",
-                  icon:  Zap,
-                  bg:    "rgba(124,110,243,0.12)",
-                },
-                {
-                  label: "Total in Company",
-                  value: fmtDuration(calc.officeMins),
-                  color: "var(--text2)",
-                  icon:  Building2,
-                  bg:    "var(--border)",
-                },
-                {
-                  label: "Break Time",
-                  value: fmtDuration(calc.totalBreak),
-                  color: "var(--amber)",
-                  icon:  Coffee,
-                  bg:    "rgba(251,191,36,0.12)",
-                },
-                {
-                  label: calc.pct >= 100 ? "Completed!" : "Remaining",
-                  value: calc.pct >= 100 ? "Done ✓" : fmtDuration(calc.remaining),
-                  color: calc.pct >= 100 ? "var(--green)" : "var(--text2)",
-                  icon:  calc.pct >= 100 ? CheckCircle2 : Timer,
-                  bg:    calc.pct >= 100 ? "rgba(34,211,160,0.12)" : "var(--border)",
-                },
-                {
-                  label: "Overtime",
-                  value: calc.overtime > 0 ? `+${fmtDuration(calc.overtime)}` : "—",
-                  color: calc.overtime > 0 ? "#22d3a0" : "var(--text4)",
-                  icon:  TrendingUp,
-                  bg:    calc.overtime > 0 ? "rgba(34,211,160,0.12)" : "var(--border)",
-                },
-              ].map(({ label, value, color, icon: Icon, bg }) => (
-                <div key={label} className="rounded-2xl p-4 flex flex-col gap-2"
-                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
-                      {label}
-                    </span>
-                    <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: bg }}>
-                      <Icon size={12} style={{ color }} />
+                {/* ── PROGRESS BAR ─────────────────────────── */}
+                {(entryTime || exitTime) && (
+                  <div className="rounded-2xl px-5 py-4 space-y-2"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>
+                        Daily progress — {fmtDuration(requiredHours * 60)} target
+                      </span>
+                      <span className="font-mono text-[11px] font-semibold" style={{ color: "var(--text2)" }}>
+                        {Math.min(100, Math.round(calc.pct))}%
+                      </span>
                     </div>
-                  </div>
-                  <p className="font-syne font-extrabold text-[20px] leading-none" style={{ color }}>{value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* ── PROGRESS BAR ─────────────────────────────── */}
-            {(entryTime || exitTime) && (
-              <div className="rounded-2xl px-5 py-4 space-y-2"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>
-                    Daily progress — {fmtDuration(requiredHours * 60)} target
-                  </span>
-                  <span className="font-mono text-[11px]" style={{ color: "var(--text2)" }}>
-                    {Math.min(100, Math.round(calc.pct))}%
-                  </span>
-                </div>
-                <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                  <div className="h-full rounded-full transition-all duration-700"
-                    style={{
-                      width:      `${Math.min(100, calc.pct)}%`,
-                      background: calc.pct >= 100 ? "#22d3a0" : calc.pct >= 60 ? "#7c6ef3" : "#fbbf24",
-                    }} />
-                </div>
-                {calc.officeMins > 0 && (
-                  <p className="font-mono text-[11px]" style={{ color: "var(--text4)" }}>
-                    <Building2 size={10} className="inline mr-1" style={{ verticalAlign: "middle" }} />
-                    Total time in company: <span style={{ color: "var(--text2)" }}>{fmtDuration(calc.officeMins)}</span>
-                    {calc.totalBreak > 0 && (
-                      <span> (incl. {fmtDuration(calc.totalBreak)} break)</span>
+                    <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--border2)" }}>
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width:      `${Math.min(100, calc.pct)}%`,
+                          background: calc.pct >= 100 ? "#22d3a0" : calc.pct >= 60 ? "#7c6ef3" : "#f59e0b",
+                        }} />
+                    </div>
+                    {calc.officeMins > 0 && (
+                      <p className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>
+                        <Building2 size={10} className="inline mr-1" style={{ verticalAlign: "middle" }} />
+                        Total time in company: <span style={{ color: "var(--text2)" }}>{fmtDuration(calc.officeMins)}</span>
+                        {calc.totalBreak > 0 && (
+                          <span> (incl. {fmtDuration(calc.totalBreak)} break)</span>
+                        )}
+                      </p>
                     )}
-                  </p>
+                  </div>
                 )}
-              </div>
-            )}
 
-            {/* ── NOTES ────────────────────────────────────── */}
-            <Card>
-              <label className="font-mono text-[11px] uppercase tracking-widest block mb-3"
-                style={{ color: "var(--text3)" }}>
-                Notes (optional)
-              </label>
-              <textarea
-                rows={3}
-                value={notes}
-                onChange={e => setNotesAndSave(e.target.value)}
-                placeholder="What did you work on today?"
-                className="w-full rounded-xl px-4 py-3 font-mono text-[13px] resize-none focus:outline-none transition-colors"
-                style={{
-                  background: "var(--bg)",
-                  border:     "1px solid var(--border2)",
-                  color:      "var(--text)",
-                }}
-                onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
-            </Card>
-
-            {/* ── SAVE BUTTON ──────────────────────────────── */}
-            <div className="flex items-center justify-end gap-3 flex-wrap">
-              {everSaved && !isDirty && (
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
-                  <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
-                    All changes saved
-                  </span>
+                {/* ── SAVE BUTTON (right col on lg+) ───────── */}
+                <div className="flex items-center justify-end gap-3 flex-wrap">
+                  {everSaved && !isDirty && (
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
+                      <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+                        All changes saved
+                      </span>
+                    </div>
+                  )}
+                  {isDirty && !everSaved && (
+                    <span className="font-mono text-[11px] font-medium" style={{ color: "var(--amber)" }}>
+                      ● Unsaved draft
+                    </span>
+                  )}
+                  {isDirty && everSaved && (
+                    <span className="font-mono text-[11px] font-medium" style={{ color: "var(--amber)" }}>
+                      ● Unsaved changes
+                    </span>
+                  )}
+                  <button
+                    onClick={handleSave}
+                    disabled={saving || !isDirty}
+                    title={!isDirty ? "No changes to save" : "Save today's work log"}
+                    className="flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-mono font-medium text-[14px] transition-all border-none"
+                    style={{
+                      background:  isDirty ? "var(--accent)" : "var(--border2)",
+                      boxShadow:   isDirty ? "0 0 24px rgba(124,110,243,0.35)" : "none",
+                      cursor:      isDirty ? "pointer" : "not-allowed",
+                      opacity:     isDirty ? 1 : 0.55,
+                      color:       isDirty ? "#fff" : "var(--text3)",
+                      transform:   "none",
+                    }}
+                    onMouseEnter={e => {
+                      if (isDirty) (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLElement).style.transform = "none";
+                    }}
+                  >
+                    {saving
+                      ? <><RefreshCw size={15} className="animate-spin" /> Saving...</>
+                      : <><Save size={15} /> Save Today&apos;s Log</>
+                    }
+                  </button>
                 </div>
-              )}
-              {isDirty && !everSaved && (
-                <span className="font-mono text-[11px]" style={{ color: "var(--amber)" }}>
-                  ● Unsaved draft
-                </span>
-              )}
-              {isDirty && everSaved && (
-                <span className="font-mono text-[11px]" style={{ color: "var(--amber)" }}>
-                  ● Unsaved changes
-                </span>
-              )}
-              <button
-                onClick={handleSave}
-                disabled={saving || !isDirty}
-                title={!isDirty ? "No changes to save" : "Save today's work log"}
-                className="flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-mono font-medium text-[14px] text-white transition-all border-none"
-                style={{
-                  background:  isDirty ? "var(--accent)" : "var(--border2)",
-                  boxShadow:   isDirty ? "0 0 24px rgba(124,110,243,0.35)" : "none",
-                  cursor:      isDirty ? "pointer" : "not-allowed",
-                  opacity:     isDirty ? 1 : 0.55,
-                  color:       isDirty ? "#fff" : "var(--text3)",
-                  transform:   "none",
-                }}
-                onMouseEnter={e => {
-                  if (isDirty) (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.transform = "none";
-                }}
-              >
-                {saving
-                  ? <><RefreshCw size={15} className="animate-spin" /> Saving...</>
-                  : <><Save size={15} /> Save Today&apos;s Log</>
-                }
-              </button>
-            </div>
+
+              </div>{/* end RIGHT COLUMN */}
+
+            </div>{/* end TWO-COLUMN GRID */}
           </>
         )}
 
