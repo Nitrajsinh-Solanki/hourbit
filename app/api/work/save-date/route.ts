@@ -7,11 +7,28 @@ import { connectDB }    from "@/app/lib/mongodb";
 import WorkLog          from "@/app/models/WorkLog";
 import User             from "@/app/models/User";
 
-function timeStrToDate(timeStr: string, refDate: Date): Date {
+// ─────────────────────────────────────────────────────────────────
+// THE FIX
+// ─────────────────────────────────────────────────────────────────
+// OLD (BROKEN):
+//   const refDate = new Date(y, mo - 1, d, 12, 0, 0);  ← local time
+//   d.setHours(h, m, 0, 0)  ← applies local timezone offset
+//   → "8:40" on IST server → 8:40 IST → stored as 3:10 UTC → shows "3:10" ❌
+//
+// NEW (CORRECT):
+//   Date.UTC(y, mo-1, d, h, m, 0, 0)  ← pure UTC, no offset
+//   → "8:40" → stored as 8:40 UTC → toISOString() "08:40Z"
+//   → frontend getUTCHours() = 8 → shows "8:40" ✅
+// ─────────────────────────────────────────────────────────────────
+
+function timeStrToUTC(timeStr: string, midnightUTC: Date): Date {
   const [h, m] = timeStr.split(":").map(Number);
-  const d = new Date(refDate);
-  d.setHours(h, m, 0, 0);
-  return d;
+  return new Date(Date.UTC(
+    midnightUTC.getUTCFullYear(),
+    midnightUTC.getUTCMonth(),
+    midnightUTC.getUTCDate(),
+    h, m, 0, 0
+  ));
 }
 
 // POST /api/work/save-date
@@ -57,11 +74,9 @@ export async function POST(req: Request) {
     }
 
     const [y, mo, d] = date.split("-").map(Number);
-    const refDate    = new Date(y, mo - 1, d, 12, 0, 0);
-    const midnight   = new Date(Date.UTC(y, mo - 1, d));
+    const midnight   = new Date(Date.UTC(y, mo - 1, d)); // pure UTC midnight — no local offset
 
-    // ── Holiday guard ──────────────────────────────────────────────
-    // Check BEFORE upserting — if this date is a holiday, block the save.
+    // ── Holiday guard ──────────────────────────────────────────
     const existing = await WorkLog.findOne({
       userId: decoded.userId,
       date:   midnight,
@@ -76,16 +91,16 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
-    // ──────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────
 
-    const entryDate = entryTime ? timeStrToDate(entryTime, refDate) : null;
-    const exitDate  = exitTime  ? timeStrToDate(exitTime,  refDate) : null;
+    const entryDate = entryTime ? timeStrToUTC(entryTime, midnight) : null;
+    const exitDate  = exitTime  ? timeStrToUTC(exitTime,  midnight) : null;
 
     const parsedBreaks = (breaks || [])
       .filter((b: any) => b.start && b.end)
       .map((b: any) => {
-        const s   = timeStrToDate(b.start, refDate);
-        const e   = timeStrToDate(b.end,   refDate);
+        const s   = timeStrToUTC(b.start, midnight);
+        const e   = timeStrToUTC(b.end,   midnight);
         const dur = Math.max(0, Math.floor((e.getTime() - s.getTime()) / 1000));
         return { start: s, end: e, duration: dur, type: b.type || "custom" };
       });

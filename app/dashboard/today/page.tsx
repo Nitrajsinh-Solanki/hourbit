@@ -36,7 +36,6 @@ interface SavedSnapshot {
   breaksKey: string;
 }
 
-// Draft stored in sessionStorage to survive tab switches + refreshes
 interface DraftState {
   entryTime: string;
   entryAmpm: "AM" | "PM";
@@ -44,7 +43,7 @@ interface DraftState {
   exitAmpm:  "AM" | "PM";
   breaks:    BreakEntry[];
   notes:     string;
-  savedAt:   string; // ISO date string — only valid for today's date
+  savedAt:   string;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -81,10 +80,6 @@ function fmtSecs(totalSecs: number): string {
   return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
 }
 
-/**
- * Convert a 24h "HH:MM" string to a 12h display with AM/PM.
- * Returns "—" if empty.
- */
 function to12h(hhmm: string): string {
   if (!hhmm) return "—";
   const [h, m] = hhmm.split(":").map(Number);
@@ -92,14 +87,21 @@ function to12h(hhmm: string): string {
   return `${pad2(h % 12 || 12)}:${pad2(m)} ${ap}`;
 }
 
-/**
- * Convert an ISO datetime string → local "HH:MM" (24h).
- * Uses LOCAL hours/minutes so the time shown matches the user's timezone.
- */
+// ─────────────────────────────────────────────────────────────────
+// THE FIX: isoToHHMM must use UTC getters, NOT local getters.
+//
+// The API stores times in MongoDB with the hour/minute as UTC exactly
+// matching what the user typed. e.g. user typed "8:40" →
+// stored as "2025-03-11T08:40:00.000Z".
+//
+// Using d.getHours() would apply the local timezone offset and return
+// the wrong value (e.g. IST +5:30 → "14:10" instead of "08:40").
+// We must use d.getUTCHours() / d.getUTCMinutes() instead.
+// ─────────────────────────────────────────────────────────────────
 function isoToHHMM(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
 function nowHHMM(): string {
@@ -113,7 +115,6 @@ function todayLabel(): string {
   });
 }
 
-/** Today as "YYYY-MM-DD" in local time */
 function todayDateStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -132,10 +133,6 @@ function toMins(hhmm: string): number {
   return h * 60 + m;
 }
 
-/**
- * Convert 12h hour+ampm into a 24h HH:MM string.
- * h12 is 1-12, ampm is "AM"|"PM".
- */
 function to24h(h12: number, minute: number, ampm: "AM" | "PM"): string {
   let h24 = h12 % 12;
   if (ampm === "PM") h24 += 12;
@@ -143,14 +140,13 @@ function to24h(h12: number, minute: number, ampm: "AM" | "PM"): string {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// DRAFT PERSISTENCE  (sessionStorage — survives tab switch, refresh)
+// DRAFT PERSISTENCE
 // ─────────────────────────────────────────────────────────────────
 function loadDraft(): DraftState | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const draft: DraftState = JSON.parse(raw);
-    // Only valid if it was saved today
     if (draft.savedAt !== todayDateStr()) {
       sessionStorage.removeItem(STORAGE_KEY);
       return null;
@@ -188,7 +184,6 @@ function ClockPicker({
   onChange: (val: string, ampm: "AM" | "PM") => void;
   onClose: () => void;
 }) {
-  // Parse current 24h value, or fall back to defaultAmpm
   const parsed = value ? value.split(":").map(Number) : [defaultAmpm === "AM" ? 9 : 18, 0];
   const initAmpm: "AM" | "PM" = value
     ? (parsed[0] >= 12 ? "PM" : "AM")
@@ -351,7 +346,7 @@ function ClockPicker({
 }
 
 // ─────────────────────────────────────────────────────────────────
-// TIME BUTTON  (now with Clear button)
+// TIME BUTTON
 // ─────────────────────────────────────────────────────────────────
 function TimeButton({
   label, icon: Icon, value, accentColor,
@@ -362,7 +357,6 @@ function TimeButton({
 }) {
   return (
     <div className="relative w-full">
-      {/* Main clickable card */}
       <button
         onClick={onClick}
         className="w-full group flex flex-col gap-3 rounded-2xl p-5 text-left transition-all hover:-translate-y-0.5 cursor-pointer"
@@ -370,7 +364,6 @@ function TimeButton({
         onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--border2)")}
         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
       >
-        {/* Row: label + icon */}
         <div className="flex items-center justify-between">
           <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
             {label}
@@ -381,7 +374,6 @@ function TimeButton({
           </div>
         </div>
 
-        {/* Time value or placeholder */}
         {value ? (
           <div>
             <p className="font-syne font-extrabold text-[30px] leading-none tracking-tight"
@@ -407,18 +399,17 @@ function TimeButton({
           style={{ background: `linear-gradient(to right, transparent, ${accentColor}60, transparent)` }} />
       </button>
 
-      {/* Clear button — absolute, bottom-right corner, outside the main button flow */}
       {value && (
         <button
           onClick={e => { e.stopPropagation(); onClear(); }}
           className="absolute flex items-center gap-1 px-2 py-1 rounded-lg border-none cursor-pointer transition-all"
           style={{
-            bottom:     "10px",
-            right:      "10px",
-            background: "rgba(248,113,113,0.13)",
-            color:      "#f87171",
-            fontSize:   "10px",
-            fontFamily: "monospace",
+            bottom:        "10px",
+            right:         "10px",
+            background:    "rgba(248,113,113,0.13)",
+            color:         "#f87171",
+            fontSize:      "10px",
+            fontFamily:    "monospace",
             letterSpacing: "0.03em",
           }}
           onMouseEnter={e => (e.currentTarget.style.background = "rgba(248,113,113,0.28)")}
@@ -584,9 +575,9 @@ function HolidayBanner({ notes }: { notes: string }) {
 export default function TodayTrackPage() {
   // ── Core state ───────────────────────────────────────────────
   const [entryTime,    setEntryTimeRaw]  = useState("");
-  const [entryAmpm,    setEntryAmpm]     = useState<"AM" | "PM">("AM");  // fix #7
+  const [entryAmpm,    setEntryAmpm]     = useState<"AM" | "PM">("AM");
   const [exitTime,     setExitTimeRaw]   = useState("");
-  const [exitAmpm,     setExitAmpm]      = useState<"AM" | "PM">("PM");  // fix #7
+  const [exitAmpm,     setExitAmpm]      = useState<"AM" | "PM">("PM");
   const [breaks,       setBreaks]        = useState<BreakEntry[]>([]);
   const [notes,        setNotes]         = useState("");
   const [saving,       setSaving]        = useState(false);
@@ -595,23 +586,21 @@ export default function TodayTrackPage() {
 
   // Custom break UI
   const [showCustom,  setShowCustom]  = useState(false);
-  const [customMins,  setCustomMins]  = useState<string>("10"); // fix #3: use string so we can clear it
+  const [customMins,  setCustomMins]  = useState<string>("10");
   const [customLabel, setCustomLabel] = useState("");
 
   // Holiday
   const [isHoliday,    setIsHoliday]    = useState(false);
   const [holidayNotes, setHolidayNotes] = useState("");
 
-  // Required work hours (from server / user profile)
+  // Required work hours
   const [requiredHours, setRequiredHours] = useState(8.5);
 
   // Dirty tracking
   const [savedSnapshot, setSavedSnapshot] = useState<SavedSnapshot>(EMPTY_SNAPSHOT);
   const [everSaved,     setEverSaved]     = useState(false);
 
-  // ── Wrapped setters that also write to draft ─────────────────
-  // We use a ref to hold latest draft state so the effect below
-  // can write it without stale closures.
+  // ── Draft ref ─────────────────────────────────────────────────
   const draftRef = useRef<Omit<DraftState, "savedAt">>({
     entryTime: "", entryAmpm: "AM", exitTime: "", exitAmpm: "PM",
     breaks: [], notes: "",
@@ -674,7 +663,7 @@ export default function TodayTrackPage() {
     const required   = requiredHours * 60;
     const remaining  = Math.max(0, required - productive);
     const pct        = required > 0 ? (productive / required) * 100 : 0;
-    const overtime   = Math.max(0, productive - required);   // fix #8
+    const overtime   = Math.max(0, productive - required);
     const predictedLeave = entryTime && !exitTime
       ? addMinsToTime(entryTime, required + totalBreak) : "";
     return { totalBreak, officeMins, productive, remaining, pct, overtime, predictedLeave };
@@ -700,6 +689,7 @@ export default function TodayTrackPage() {
         setIsHoliday(false);
         setRequiredHours(d.requiredWorkHours ?? 8.5);
 
+        // ── THE FIX: isoToHHMM now uses getUTCHours() ──────────
         const loadedEntry  = isoToHHMM(d.entryTime);
         const loadedExit   = isoToHHMM(d.exitTime);
         const loadedNotes  = d.notes || "";
@@ -712,15 +702,11 @@ export default function TodayTrackPage() {
           type:    b.type || "custom",
         })) as BreakEntry[];
 
-        // Derive AM/PM from loaded 24h time
         const loadedEntryAmpm: "AM" | "PM" = loadedEntry
           ? (parseInt(loadedEntry.split(":")[0]) >= 12 ? "PM" : "AM") : "AM";
         const loadedExitAmpm: "AM" | "PM"  = loadedExit
           ? (parseInt(loadedExit.split(":")[0]) >= 12 ? "PM" : "AM") : "PM";
 
-        // ── FIX #1: Check if unsaved draft exists — prefer draft over DB if user
-        //    hasn't explicitly saved yet (i.e. isDirty would be true with draft data).
-        //    If a draft exists with unsaved data, load the draft instead of the DB data.
         const draft = loadDraft();
         const hasDraftChanges = draft && (
           draft.entryTime !== loadedEntry ||
@@ -730,14 +716,12 @@ export default function TodayTrackPage() {
         );
 
         if (hasDraftChanges && draft) {
-          // Restore from draft (user had unsaved changes)
           setEntryTimeRaw(draft.entryTime);
           setEntryAmpm(draft.entryAmpm);
           setExitTimeRaw(draft.exitTime);
           setExitAmpm(draft.exitAmpm);
           setNotes(draft.notes);
           setBreaks(draft.breaks);
-
           draftRef.current = {
             entryTime: draft.entryTime,
             entryAmpm: draft.entryAmpm,
@@ -747,14 +731,12 @@ export default function TodayTrackPage() {
             notes:     draft.notes,
           };
         } else {
-          // Load from DB
           setEntryTimeRaw(loadedEntry);
           setEntryAmpm(loadedEntryAmpm);
           setExitTimeRaw(loadedExit);
           setExitAmpm(loadedExitAmpm);
           setNotes(loadedNotes);
           setBreaks(loadedBreaks);
-
           draftRef.current = {
             entryTime: loadedEntry,
             entryAmpm: loadedEntryAmpm,
@@ -775,8 +757,6 @@ export default function TodayTrackPage() {
 
       } else {
         setIsHoliday(false);
-
-        // No DB record — check if there's a draft
         const draft = loadDraft();
         if (draft) {
           setEntryTimeRaw(draft.entryTime);
@@ -785,7 +765,6 @@ export default function TodayTrackPage() {
           setExitAmpm(draft.exitAmpm);
           setNotes(draft.notes);
           setBreaks(draft.breaks);
-
           draftRef.current = {
             entryTime: draft.entryTime,
             entryAmpm: draft.entryAmpm,
@@ -795,7 +774,6 @@ export default function TodayTrackPage() {
             notes:     draft.notes,
           };
         }
-
         setSavedSnapshot(EMPTY_SNAPSHOT);
         setEverSaved(false);
       }
@@ -820,7 +798,7 @@ export default function TodayTrackPage() {
     const label = customLabel.trim() || "Custom Break";
     setBreaksAndSave(p => [...p, { id: uid(), label, minutes: mins, type: "custom" }]);
     setShowCustom(false);
-    setCustomMins("10");     // fix #3: reset to string "10"
+    setCustomMins("10");
     setCustomLabel("");
   }
 
@@ -860,7 +838,6 @@ export default function TodayTrackPage() {
           breaksKey: breaksToKey(breaks),
         });
         setEverSaved(true);
-        // Clear draft after a successful save
         clearDraft();
       } else {
         toast.error(data.message || "Save failed");
@@ -890,11 +867,10 @@ export default function TodayTrackPage() {
   // ── Render ───────────────────────────────────────────────────
   return (
     <>
-      {/* ── CLOCK PICKER MODAL ──────────────────────────────── */}
       {activePicker && (
         <ClockPicker
           value={activePicker === "entry" ? (entryTime || "") : (exitTime || "")}
-          defaultAmpm={activePicker === "entry" ? "AM" : "PM"}  // fix #7
+          defaultAmpm={activePicker === "entry" ? "AM" : "PM"}
           onChange={(val, ap) => {
             if (activePicker === "entry") {
               setEntryTime(val);
@@ -1000,7 +976,6 @@ export default function TodayTrackPage() {
                 }
               />
               <div className="grid grid-cols-2 gap-3">
-                {/* fix #5: clear button is now inside TimeButton */}
                 <TimeButton
                   label="Entry Time"
                   icon={LogIn}
@@ -1026,7 +1001,11 @@ export default function TodayTrackPage() {
               </div>
 
               {!entryTime && (
-                <button onClick={() => { const t = nowHHMM(); setEntryTime(t); setEntryAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM"); }}
+                <button onClick={() => {
+                  const t = nowHHMM();
+                  setEntryTime(t);
+                  setEntryAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM");
+                }}
                   className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
                   style={{ borderColor: "rgba(124,110,243,0.35)", color: "var(--accent)", background: "transparent" }}
                   onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.05)")}
@@ -1035,7 +1014,11 @@ export default function TodayTrackPage() {
                 </button>
               )}
               {entryTime && !exitTime && (
-                <button onClick={() => { const t = nowHHMM(); setExitTime(t); setExitAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM"); }}
+                <button onClick={() => {
+                  const t = nowHHMM();
+                  setExitTime(t);
+                  setExitAmpmAndSave(parseInt(t.split(":")[0]) >= 12 ? "PM" : "AM");
+                }}
                   className="w-full py-2.5 rounded-xl border border-dashed font-mono text-[12px] transition-all cursor-pointer mt-3"
                   style={{ borderColor: "rgba(34,211,160,0.35)", color: "var(--green)", background: "transparent" }}
                   onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.05)")}
@@ -1091,7 +1074,6 @@ export default function TodayTrackPage() {
                 </button>
               </div>
 
-              {/* FIX #3: custom break uses string state for the number input */}
               {showCustom && (
                 <div className="flex flex-col sm:flex-row gap-2 p-4 rounded-xl mb-4"
                   style={{ background: "var(--bg)", border: "1px solid rgba(167,139,250,0.25)" }}>
@@ -1105,7 +1087,6 @@ export default function TodayTrackPage() {
                     onFocus={e => (e.currentTarget.style.borderColor = "var(--accent2)")}
                     onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
                   <div className="flex items-center gap-2">
-                    {/* Fix #3: store as string to allow full clearing of input */}
                     <input
                       type="number"
                       min="1"
@@ -1148,8 +1129,7 @@ export default function TodayTrackPage() {
               )}
             </Card>
 
-            {/* ── SUMMARY STATS (with Total Hours in Company + Overtime) ─── */}
-            {/* FIX #2: added "In Company" row, FIX #8: added Overtime */}
+            {/* ── SUMMARY STATS ───────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 {
@@ -1181,7 +1161,6 @@ export default function TodayTrackPage() {
                   bg:    calc.pct >= 100 ? "rgba(34,211,160,0.12)" : "var(--border)",
                 },
                 {
-                  // FIX #8: Overtime
                   label: "Overtime",
                   value: calc.overtime > 0 ? `+${fmtDuration(calc.overtime)}` : "—",
                   color: calc.overtime > 0 ? "#22d3a0" : "var(--text4)",
@@ -1223,7 +1202,6 @@ export default function TodayTrackPage() {
                       background: calc.pct >= 100 ? "#22d3a0" : calc.pct >= 60 ? "#7c6ef3" : "#fbbf24",
                     }} />
                 </div>
-                {/* FIX #2: Total hours in company shown below productive hours in the progress area */}
                 {calc.officeMins > 0 && (
                   <p className="font-mono text-[11px]" style={{ color: "var(--text4)" }}>
                     <Building2 size={10} className="inline mr-1" style={{ verticalAlign: "middle" }} />
@@ -1251,7 +1229,7 @@ export default function TodayTrackPage() {
                 style={{
                   background: "var(--bg)",
                   border:     "1px solid var(--border2)",
-                  color:      "var(--text)",   // fix #6: ensure text is always visible
+                  color:      "var(--text)",
                 }}
                 onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
                 onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />

@@ -7,15 +7,34 @@ import { connectDB }    from "@/app/lib/mongodb";
 import WorkLog          from "@/app/models/WorkLog";
 import User             from "@/app/models/User";
 
-function timeStrToDate(timeStr: string, refDate: Date): Date {
-  const [h, m] = timeStr.split(":").map(Number);
-  const d = new Date(refDate);
-  d.setHours(h, m, 0, 0);
-  return d;
-}
+// ─────────────────────────────────────────────────────────────────
+// THE FIX
+// ─────────────────────────────────────────────────────────────────
+// OLD (BROKEN):
+//   d.setHours(h, m, 0, 0)
+//   → setHours uses LOCAL server time.
+//   → e.g. server in IST (+5:30): "8:40" → 8:40 IST → stored as 3:10 UTC
+//   → toISOString() returns "03:10Z" → frontend getHours() shows "3:10" ❌
+//
+// NEW (CORRECT):
+//   Date.UTC(y, mo, d, h, m, 0, 0)
+//   → stores exactly h:m as UTC, no offset applied
+//   → "8:40" → stored as 8:40 UTC → toISOString() returns "08:40Z"
+//   → frontend getUTCHours() returns 8 → shows "8:40" ✅
+// ─────────────────────────────────────────────────────────────────
 
 function toMidnightUTC(d: Date): Date {
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function timeStrToUTC(timeStr: string, midnightUTC: Date): Date {
+  const [h, m] = timeStr.split(":").map(Number);
+  return new Date(Date.UTC(
+    midnightUTC.getUTCFullYear(),
+    midnightUTC.getUTCMonth(),
+    midnightUTC.getUTCDate(),
+    h, m, 0, 0
+  ));
 }
 
 export async function POST(req: Request) {
@@ -46,8 +65,7 @@ export async function POST(req: Request) {
     const now           = new Date();
     const todayMidnight = toMidnightUTC(now);
 
-    // ── Holiday guard ──────────────────────────────────────────────
-    // Reject saves if today is already marked as a holiday.
+    // ── Holiday guard ──────────────────────────────────────────
     const existing = await WorkLog.findOne({
       userId: decoded.userId,
       date:   todayMidnight,
@@ -62,16 +80,16 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
-    // ──────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────
 
-    const entryDate = entryTime ? timeStrToDate(entryTime, now) : null;
-    const exitDate  = exitTime  ? timeStrToDate(exitTime,  now) : null;
+    const entryDate = entryTime ? timeStrToUTC(entryTime, todayMidnight) : null;
+    const exitDate  = exitTime  ? timeStrToUTC(exitTime,  todayMidnight) : null;
 
     const parsedBreaks = (breaks || [])
       .filter((b: any) => b.start && b.end)
       .map((b: any) => {
-        const s   = timeStrToDate(b.start, now);
-        const e   = timeStrToDate(b.end,   now);
+        const s   = timeStrToUTC(b.start, todayMidnight);
+        const e   = timeStrToUTC(b.end,   todayMidnight);
         const dur = Math.max(0, Math.floor((e.getTime() - s.getTime()) / 1000));
         return { start: s, end: e, duration: dur, type: b.type || "custom" };
       });
