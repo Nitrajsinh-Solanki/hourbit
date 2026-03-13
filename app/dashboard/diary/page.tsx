@@ -1,7 +1,8 @@
 "use client";
-// app/dashboard/diary/page.tsx
+// app/dashboard/diary/page.tsx 
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
