@@ -62,14 +62,14 @@ const DARK_THEME = `
 
 const LIGHT_THEME = `
   :root {
-    --bg:       #f4f6fb;
+    --bg:       #f0f2f8;
     --surface:  #ffffff;
-    --surface2: #eef1f8;
-    --border:   rgba(0,0,0,0.07);
-    --border2:  rgba(0,0,0,0.13);
+    --surface2: #e8ecf5;
+    --border:   rgba(0,0,0,0.09);
+    --border2:  rgba(0,0,0,0.16);
     --text:     #111827;
-    --text2:    #374151;
-    --text3:    #6b7280;
+    --text2:    #1f2937;
+    --text3:    #4b5563;
     --text4:    #9ca3af;
     --accent:   #6152e8;
     --accent2:  #7c6ef3;
@@ -77,6 +77,13 @@ const LIGHT_THEME = `
     --amber:    #d97706;
     --danger:   #dc2626;
   }
+  * { box-sizing: border-box; }
+  input, textarea, select, button {
+    font-family: inherit;
+  }
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type='number'] { -moz-appearance: textfield; }
 `;
 
 // ── Theme hook ─────────────────────────────────────────────────
@@ -233,7 +240,7 @@ function SidebarContent({
             <button
               onClick={onToggleCollapse}
               title="Collapse sidebar"
-              className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer border-none"
+              className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer border-none"
               style={{ background: "var(--surface2)", color: "var(--text3)" }}
               onMouseEnter={e => {
                 (e.currentTarget as HTMLElement).style.color = "var(--accent)";

@@ -5,8 +5,9 @@ import { cookies }      from "next/headers";
 import jwt              from "jsonwebtoken";
 import { connectDB }    from "@/app/lib/mongodb";
 import WorkLog          from "@/app/models/WorkLog";
+import User             from "@/app/models/User";
 
-// GET /api/work/analysis?year=2026&month=3
+// GET /api/work/analysis?year=YYYY&month=M
 export async function GET(req: Request) {
   try {
     const cookieStore = await cookies();
@@ -28,14 +29,18 @@ export async function GET(req: Request) {
       );
     }
 
+    await connectDB();
+
+    // Fetch user profile default hours
+    const user = await User.findById(decoded.userId).select("defaultWorkHours").lean();
+    const userDefaultHours: number = (user as any)?.defaultWorkHours ?? 8.5;
+
     const from     = new Date(Date.UTC(year, month - 1, 1));
     const to       = new Date(Date.UTC(year, month,     1));
     const prevYear = month === 1 ? year - 1 : year;
     const prevMon  = month === 1 ? 12 : month - 1;
     const prevFrom = new Date(Date.UTC(prevYear, prevMon - 1, 1));
     const prevTo   = new Date(Date.UTC(prevYear, prevMon,     1));
-
-    await connectDB();
 
     const [logs, prevLogs] = await Promise.all([
       WorkLog.find({ userId: decoded.userId, date: { $gte: from, $lt: to } }).lean(),
@@ -62,6 +67,20 @@ export async function GET(req: Request) {
       const isFuture  = date > todayUTC;
       const log       = logByDay[day];
 
+      // ── Effective required hours for this day ─────────────────
+      // Priority: log.requiredWorkHoursOverride > log.requiredWorkHours > userDefaultHours
+      // requiredWorkHoursOverride is the explicit per-day value the user set.
+      // requiredWorkHours is the effective value already stored on the log (includes fallback).
+      // If no log exists, use the profile default.
+      let requiredH: number;
+      if (log) {
+        requiredH = (log as any).requiredWorkHoursOverride != null
+          ? (log as any).requiredWorkHoursOverride
+          : (log.requiredWorkHours ?? userDefaultHours);
+      } else {
+        requiredH = userDefaultHours;
+      }
+
       return {
         day,
         dow,
@@ -72,7 +91,8 @@ export async function GET(req: Request) {
         productiveH: log && !log.isHoliday ? toH(log.productiveTime  ?? 0) : 0,
         officeH:     log && !log.isHoliday ? toH(log.totalOfficeTime ?? 0) : 0,
         breakH:      log && !log.isHoliday ? toH(log.totalBreakTime  ?? 0) : 0,
-        requiredH:   log?.requiredWorkHours ?? 8.5,
+        // Per-day effective required hours (may vary day to day)
+        requiredH,
         entryTime:   log?.entryTime ? (log.entryTime as Date).toISOString() : null,
         exitTime:    log?.exitTime  ? (log.exitTime  as Date).toISOString() : null,
         notes:       log?.notes ?? "",
@@ -88,16 +108,15 @@ export async function GET(req: Request) {
     const missingDays = stdWorkDays.filter(d => !d.hasEntry);
 
     // ── Total Required Hours ─────────────────────────────────────
-    // Weekdays (Mon–Fri): always counted, use per-log requiredWorkHours (or 8.5 default)
-    // Weekend days: only counted if user actually logged that day (user chose to work Sat/Sun)
-    // Holidays & future days: excluded
+    // Each day uses its own per-day requiredH (override or profile default).
+    // Weekdays always counted; weekends only if user logged that day; holidays/future excluded.
     let totalRequiredH = 0;
     for (const d of dailyData) {
       if (d.isFuture || d.isHoliday) continue;
       if (d.isWeekend) {
-        if (d.hasEntry) totalRequiredH += d.requiredH; // only if user worked that weekend
+        if (d.hasEntry) totalRequiredH += d.requiredH;
       } else {
-        totalRequiredH += d.requiredH; // every weekday counts
+        totalRequiredH += d.requiredH;
       }
     }
     totalRequiredH = Math.round(totalRequiredH * 100) / 100;
@@ -114,8 +133,14 @@ export async function GET(req: Request) {
 
     const totalWorkDays = stdWorkDays.length + weekendDays.filter(d => d.hasEntry).length;
 
-    // ── Weekly breakdown (chunks of 7 from day 1) ────────────────
-    const weeks: { weekNum:number; days:typeof dailyData; totalProductiveH:number; totalRequiredH:number }[] = [];
+    // ── Weekly breakdown ─────────────────────────────────────────
+    const weeks: {
+      weekNum:          number;
+      days:             typeof dailyData;
+      totalProductiveH: number;
+      totalRequiredH:   number;
+    }[] = [];
+
     for (let i = 0; i < dailyData.length; i += 7) {
       const slice = dailyData.slice(i, i + 7);
       const wReq  = slice.reduce((a, d) => {
@@ -148,8 +173,8 @@ export async function GET(req: Request) {
     let longestBreakSecs = 0, maxBreaksInDay = 0;
 
     for (const log of logs) {
-      if (log.isHoliday) continue;
-      const breaks = log.breaks ?? [];
+      if ((log as any).isHoliday) continue;
+      const breaks = (log as any).breaks ?? [];
       if (breaks.length > maxBreaksInDay) maxBreaksInDay = breaks.length;
       for (const b of breaks) {
         const dur = b.duration ?? 0;
@@ -187,7 +212,9 @@ export async function GET(req: Request) {
 
     // ── Prev month ───────────────────────────────────────────────
     const prevLogged      = prevLogs.filter((l: any) => !l.isHoliday && l.entryTime);
-    const prevProductiveH = Math.round(prevLogged.reduce((a: number, l: any) => a + toH(l.productiveTime ?? 0), 0) * 100) / 100;
+    const prevProductiveH = Math.round(
+      prevLogged.reduce((a: number, l: any) => a + toH(l.productiveTime ?? 0), 0) * 100
+    ) / 100;
 
     return NextResponse.json({
       success: true,

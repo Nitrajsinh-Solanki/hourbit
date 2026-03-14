@@ -7,7 +7,7 @@ import {
   BarChart2, TrendingUp, TrendingDown, Clock, Coffee, Zap,
   CalendarDays, ChevronLeft, ChevronRight, Award, Flame,
   AlertCircle, CheckCircle2, RefreshCw, LogIn, LogOut,
-  Target, Activity, BookCheck,
+  Target, Activity, BookCheck, Settings2,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────
@@ -83,6 +83,13 @@ function fmtH(h: number): string {
   const hrs  = Math.floor(h);
   const mins = Math.round((h - hrs) * 60);
   if (hrs === 0) return `${mins}m`;
+  if (mins === 0) return `${hrs}h`;
+  return `${hrs}h ${mins}m`;
+}
+
+function fmtHLabel(h: number): string {
+  const hrs  = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
   if (mins === 0) return `${hrs}h`;
   return `${hrs}h ${mins}m`;
 }
@@ -352,6 +359,65 @@ function QuickFilters({ current, onSelect }: {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// PER-DAY HOURS OVERRIDE TABLE — only rendered when days differ
+// ─────────────────────────────────────────────────────────────────
+function PerDayHoursTable({
+  dailyData, defaultRequiredH, year, month,
+}: {
+  dailyData: DayData[]; defaultRequiredH: number; year: number; month: number;
+}) {
+  const overrideDays = dailyData.filter(
+    d => d.hasEntry && Math.abs(d.requiredH - defaultRequiredH) > 0.01
+  );
+  if (overrideDays.length === 0) return null;
+
+  return (
+    <Card>
+      <SectionTitle
+        icon={Settings2} iconColor="var(--accent)"
+        title="Custom Daily Targets"
+        subtitle={`${overrideDays.length} day${overrideDays.length > 1 ? "s" : ""} used a custom required-hours target`}
+      />
+      <p className="font-mono text-[12px] mb-4" style={{ color: "var(--text3)" }}>
+        Profile default is {fmtHLabel(defaultRequiredH)}.
+        These days had a per-day override set from the Today page.
+      </p>
+      <div className="space-y-2">
+        {overrideDays.map(d => {
+          const pct  = d.requiredH > 0 ? Math.min(100, (d.productiveH / d.requiredH) * 100) : 0;
+          const done = pct >= 100;
+          const dateStr = new Date(Date.UTC(year, month - 1, d.day))
+            .toLocaleDateString("en-IN", { day: "2-digit", month: "short", weekday: "short" });
+          const barColor = done ? "#22d3a0" : "#7c6ef3";
+          return (
+            <div key={d.day} className="flex items-center gap-3 px-4 py-3 rounded-xl"
+              style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
+              <div className="w-20 shrink-0">
+                <p className="font-mono text-[12px] font-semibold" style={{ color: "var(--text2)" }}>{dateStr}</p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="font-mono text-[12px] font-bold" style={{ color: "var(--accent)" }}>
+                  {fmtHLabel(d.requiredH)}
+                </span>
+                <span className="font-mono text-[10px]" style={{ color: "var(--text4)" }}>target</span>
+              </div>
+              <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+                <div className="h-full rounded-full transition-all"
+                  style={{ width: `${pct}%`, background: barColor }} />
+              </div>
+              <span className="font-mono text-[12px] shrink-0 w-14 text-right"
+                style={{ color: done ? "var(--green)" : "var(--text3)" }}>
+                {fmtH(d.productiveH)}{done ? " ✓" : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
 // LOADING / EMPTY
 // ─────────────────────────────────────────────────────────────────
 function LoadingSpinner() {
@@ -421,12 +487,27 @@ export default function AnalysisPage() {
     setActiveFilter(key); setYear(y); setMonth(m);
   }
 
+  // Compute default required hours = most common requiredH across logged days
+  const defaultRequiredH = useMemo(() => {
+    if (!data) return 8.5;
+    const logged = data.dailyData.filter(d => d.hasEntry);
+    if (!logged.length) return 8.5;
+    const freq: Record<number, number> = {};
+    for (const d of logged) freq[d.requiredH] = (freq[d.requiredH] || 0) + 1;
+    return Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]);
+  }, [data]);
+
+  // True if any logged day used a custom target
+  const hasVariableHours = useMemo(() =>
+    data?.dailyData.some(d => d.hasEntry && Math.abs(d.requiredH - defaultRequiredH) > 0.01) ?? false,
+  [data, defaultRequiredH]);
+
   const dailyBarData = useMemo(() => {
     if (!data) return [];
     return data.dailyData.map(d => ({
       label:     String(d.day),
       value:     d.productiveH,
-      refValue:  d.requiredH,
+      refValue:  d.requiredH,           // per-day ghost bar
       isFuture:  d.isFuture,
       isWeekend: d.isWeekend,
       isHoliday: d.isHoliday,
@@ -434,10 +515,14 @@ export default function AnalysisPage() {
   }, [data]);
 
   const maxDailyProd = useMemo(() =>
-    data ? Math.max(...data.dailyData.map(d => d.productiveH), data.dailyData[0]?.requiredH ?? 8.5, 1) : 10,
+    data ? Math.max(
+      ...data.dailyData.map(d => d.productiveH),
+      ...data.dailyData.map(d => d.requiredH),   // keep scale correct for variable targets
+      1
+    ) : 10,
   [data]);
 
-  const score                           = data?.consistencyScore ?? 0;
+  const score = data?.consistencyScore ?? 0;
   const { label: scoreLabel, color: scoreColor } = getScoreMeta(score);
 
   // ─────────────────────────────────────────────────────────────
@@ -501,8 +586,19 @@ export default function AnalysisPage() {
             </div>
           )}
 
+          {/* Variable hours info banner */}
+          {hasVariableHours && (
+            <div className="flex items-center gap-3 px-5 py-3.5 rounded-2xl"
+              style={{ background: "rgba(124,110,243,0.07)", border: "1px solid rgba(124,110,243,0.25)" }}>
+              <Settings2 size={14} style={{ color: "var(--accent)" }} />
+              <p className="font-mono text-[12px]" style={{ color: "var(--text2)" }}>
+                Some days this month used a custom daily target. All totals use each day&apos;s actual target.
+                Profile default is {fmtHLabel(defaultRequiredH)}.
+              </p>
+            </div>
+          )}
+
           {/* ══ ROW 1 — MONTHLY OVERVIEW STAT CARDS ════════════════ */}
-          {/* 7 cards: Days Logged, Productive, Required, Office, Break, Overtime/Underwork, Missing */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             <StatCard
               label="Days Logged"
@@ -523,7 +619,7 @@ export default function AnalysisPage() {
             <StatCard
               label="Required Hrs"
               value={fmtH(data.totalRequiredH)}
-              sub={`${data.totalWorkDays} day${data.totalWorkDays !== 1 ? "s" : ""} × avg hrs`}
+              sub={`${data.totalWorkDays} day${data.totalWorkDays !== 1 ? "s" : ""} × per-day target`}
               color="#7c6ef3"
               icon={BookCheck}
               bg="rgba(124,110,243,0.10)"
@@ -567,7 +663,7 @@ export default function AnalysisPage() {
           {/* ══ ROW 2 — DAILY PRODUCTIVE HOURS BAR CHART ═══════════ */}
           <Card>
             <SectionTitle icon={BarChart2} iconColor="var(--accent)" title="Daily Productive Hours"
-              subtitle={`${MONTHS[month - 1]} ${year} — each bar = one day`} />
+              subtitle={`${MONTHS[month - 1]} ${year} — each bar = one day · ghost = per-day required target`} />
             <div className="flex gap-2">
               <div className="flex flex-col justify-between pb-6 text-right pr-1"
                 style={{ height: 120, minWidth: 24 }}>
@@ -590,7 +686,7 @@ export default function AnalysisPage() {
                     d.isWeekend   ? `Day ${d.label} — Weekend` :
                     d.isFuture    ? `Day ${d.label} — Future`  :
                     d.value === 0 ? `Day ${d.label} — Not logged` :
-                    `Day ${d.label} — ${fmtH(d.value)} productive`
+                    `Day ${d.label} — ${fmtH(d.value)} productive / ${fmtH(d.refValue ?? 0)} required`
                   }
                 />
               </div>
@@ -598,7 +694,7 @@ export default function AnalysisPage() {
             <div className="flex items-center gap-5 mt-2 flex-wrap">
               {[
                 { color: "#7c6ef3",               label: "Productive hrs" },
-                { color: "rgba(124,110,243,0.2)", label: "Required hrs (ghost)" },
+                { color: "rgba(124,110,243,0.2)", label: "Required hrs (per-day ghost)" },
                 { color: "#fbbf24",               label: "Holiday" },
               ].map(({ color, label }) => (
                 <div key={label} className="flex items-center gap-1.5">
@@ -609,13 +705,21 @@ export default function AnalysisPage() {
             </div>
           </Card>
 
+          {/* ══ PER-DAY HOURS OVERRIDE TABLE (only if any overrides) */}
+          <PerDayHoursTable
+            dailyData={data.dailyData}
+            defaultRequiredH={defaultRequiredH}
+            year={year}
+            month={month}
+          />
+
           {/* ══ ROW 3 — WEEK-BY-WEEK + BEST/WORST + STREAKS ════════ */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-            {/* Week breakdown */}
+            {/* Week breakdown — uses per-day totalRequiredH from API */}
             <Card>
               <SectionTitle icon={Activity} iconColor="#22d3a0" title="Week-by-Week Breakdown"
-                subtitle="Productive vs required per week" />
+                subtitle="Productive vs required per week (per-day targets)" />
               <div className="space-y-3">
                 {data.weeks.map(w => {
                   const pct      = w.totalRequiredH > 0
@@ -821,7 +925,7 @@ export default function AnalysisPage() {
             {/* Consistency score gauge */}
             <Card>
               <SectionTitle icon={Target} iconColor={scoreColor} title="Work Consistency Score"
-                subtitle="Productive ÷ Required hours × 100" />
+                subtitle="Productive ÷ Required hours × 100 (uses per-day targets)" />
               <div className="flex flex-col items-center py-4 gap-4">
                 <div className="relative" style={{ width: 160, height: 90 }}>
                   <svg viewBox="0 0 160 90" className="w-full h-full overflow-visible">
@@ -868,7 +972,6 @@ export default function AnalysisPage() {
                   })}
                 </div>
 
-                {/* Required vs Productive summary row */}
                 <div className="w-full grid grid-cols-2 gap-2 pt-1" style={{ borderTop: "1px solid var(--border)" }}>
                   <div className="rounded-xl p-3 text-center"
                     style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.2)" }}>
@@ -945,7 +1048,6 @@ export default function AnalysisPage() {
                   );
                 })}
 
-                {/* Overtime / Underwork */}
                 <div className="grid grid-cols-2 gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
                   <div className="rounded-xl p-3"
                     style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.2)" }}>

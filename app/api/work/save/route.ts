@@ -8,21 +8,9 @@ import WorkLog          from "@/app/models/WorkLog";
 import User             from "@/app/models/User";
 
 // ─────────────────────────────────────────────────────────────────
-// THE FIX
+// UTC helpers (same convention as the rest of the project)
+// "8:40" → stored as 08:40 UTC → isoToHHMM uses getUTCHours() to read it back
 // ─────────────────────────────────────────────────────────────────
-// OLD (BROKEN):
-//   d.setHours(h, m, 0, 0)
-//   → setHours uses LOCAL server time.
-//   → e.g. server in IST (+5:30): "8:40" → 8:40 IST → stored as 3:10 UTC
-//   → toISOString() returns "03:10Z" → frontend getHours() shows "3:10" ❌
-//
-// NEW (CORRECT):
-//   Date.UTC(y, mo, d, h, m, 0, 0)
-//   → stores exactly h:m as UTC, no offset applied
-//   → "8:40" → stored as 8:40 UTC → toISOString() returns "08:40Z"
-//   → frontend getUTCHours() returns 8 → shows "8:40" ✅
-// ─────────────────────────────────────────────────────────────────
-
 function toMidnightUTC(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
@@ -37,6 +25,19 @@ function timeStrToUTC(timeStr: string, midnightUTC: Date): Date {
   ));
 }
 
+// ── POST /api/work/save ────────────────────────────────────────
+//
+// Body:
+// {
+//   entryTime:         "HH:MM" | null
+//   exitTime:          "HH:MM" | null
+//   breaks:            Array<{ start: "HH:MM", end: "HH:MM", type, label? }>
+//   notes:             string
+//   requiredWorkHours: number | null   ← per-day override
+//                        number = set override for TODAY only
+//                        null   = clear override (revert to profile default)
+//                        omit   = leave existing override unchanged
+// }
 export async function POST(req: Request) {
   try {
     const cookieStore = await cookies();
@@ -60,7 +61,17 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { entryTime, exitTime, breaks, notes } = body;
+    const {
+      entryTime,
+      exitTime,
+      breaks,
+      notes,
+      // requiredWorkHours sent by the new UI:
+      //   number  → save as per-day override
+      //   null    → clear override (use profile default)
+      //   undefined → don't change the existing override
+      requiredWorkHours: requiredWorkHoursFromBody,
+    } = body;
 
     const now           = new Date();
     const todayMidnight = toMidnightUTC(now);
@@ -69,9 +80,9 @@ export async function POST(req: Request) {
     const existing = await WorkLog.findOne({
       userId: decoded.userId,
       date:   todayMidnight,
-    }).select("isHoliday").lean();
+    }).select("isHoliday requiredWorkHoursOverride").lean();
 
-    if (existing?.isHoliday) {
+    if ((existing as any)?.isHoliday) {
       return NextResponse.json(
         {
           success: false,
@@ -80,8 +91,27 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
-    // ──────────────────────────────────────────────────────────
 
+    // ── Resolve per-day override ───────────────────────────────
+    // Priority: body value (if explicitly sent) > existing stored override
+    let resolvedOverride: number | null;
+
+    if (requiredWorkHoursFromBody === undefined) {
+      // Caller did not send the field — preserve whatever is stored
+      resolvedOverride = (existing as any)?.requiredWorkHoursOverride ?? null;
+    } else if (requiredWorkHoursFromBody === null) {
+      // Caller explicitly cleared the override
+      resolvedOverride = null;
+    } else {
+      // Caller set a specific override value
+      resolvedOverride = Number(requiredWorkHoursFromBody);
+    }
+
+    // Effective hours used for calculation and stored in requiredWorkHours
+    const effectiveHours: number =
+      resolvedOverride != null ? resolvedOverride : (user.defaultWorkHours ?? 8.5);
+
+    // ── Build Date objects ─────────────────────────────────────
     const entryDate = entryTime ? timeStrToUTC(entryTime, todayMidnight) : null;
     const exitDate  = exitTime  ? timeStrToUTC(exitTime,  todayMidnight) : null;
 
@@ -91,7 +121,7 @@ export async function POST(req: Request) {
         const s   = timeStrToUTC(b.start, todayMidnight);
         const e   = timeStrToUTC(b.end,   todayMidnight);
         const dur = Math.max(0, Math.floor((e.getTime() - s.getTime()) / 1000));
-        return { start: s, end: e, duration: dur, type: b.type || "custom" };
+        return { start: s, end: e, duration: dur, type: b.type || "custom", label: b.label || "" };
       });
 
     const totalBreakTime = parsedBreaks.reduce(
@@ -105,20 +135,20 @@ export async function POST(req: Request) {
       productiveTime  = Math.max(0, totalOfficeTime - totalBreakTime);
     }
 
-    const requiredWorkHours = user.defaultWorkHours ?? 8.5;
-
+    // ── Upsert ────────────────────────────────────────────────
     const workLog = await WorkLog.findOneAndUpdate(
       { userId: decoded.userId, date: todayMidnight },
       {
         $set: {
-          entryTime:         entryDate,
-          exitTime:          exitDate,
-          breaks:            parsedBreaks,
+          entryTime:                 entryDate,
+          exitTime:                  exitDate,
+          breaks:                    parsedBreaks,
           totalBreakTime,
           totalOfficeTime,
           productiveTime,
-          requiredWorkHours,
-          notes:             notes || "",
+          requiredWorkHoursOverride: resolvedOverride,
+          requiredWorkHours:         effectiveHours,
+          notes:                     notes || "",
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -127,7 +157,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       message: "Work log saved successfully",
-      data:    workLog,
+      data: {
+        requiredWorkHoursOverride: workLog.requiredWorkHoursOverride,
+        requiredWorkHours:         workLog.requiredWorkHours,
+        productiveTime:            workLog.productiveTime,
+        totalOfficeTime:           workLog.totalOfficeTime,
+        totalBreakTime:            workLog.totalBreakTime,
+      },
     });
 
   } catch (error: any) {

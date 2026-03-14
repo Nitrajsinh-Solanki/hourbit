@@ -9,17 +9,33 @@ import {
 import toast from "react-hot-toast";
 import {
   Palmtree, ChevronLeft, ChevronRight, RefreshCw,
-  Trash2, CalendarDays, Info, X,
+  Trash2, CalendarDays, Info, X, Lock, AlertTriangle,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────
-// HELPERS  (mirror exactly what date-wise page uses)
+// RULES (must match date-wise page exactly)
+// VIEW   → any date in history
+// ADD    → only within last 90 days
+// EDIT   → only within last 30 days
+// ─────────────────────────────────────────────────────────────────
+const EDIT_WINDOW  = 30;
+const ENTRY_WINDOW = 90;
+
+// ─────────────────────────────────────────────────────────────────
+// HELPERS
 // ─────────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
 function localToday(): string {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function daysAgo(ymd: string): number {
+  const today = localToday();
+  const [ty, tm, td] = today.split("-").map(Number);
+  const [fy, fm, fd] = ymd.split("-").map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
 }
 
 function prettyDate(ymd: string): string {
@@ -44,20 +60,19 @@ const MONTHS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────
-// CALENDAR  — identical visual to CalendarPicker in date-wise,
-//             but adds amber holiday dots and holiday-set awareness
+// CALENDAR
 // ─────────────────────────────────────────────────────────────────
 export interface HolidayCalHandle { refresh: () => void; }
 
 const HolidayCalendar = forwardRef<HolidayCalHandle, {
-  selected:   string;
-  onSelect:   (ymd: string) => void;
-  holidaySet: Set<number>;   // days in viewed month that are holidays
-  loggedSet:  Set<number>;   // days in viewed month that have a work log
-  dotsLoading: boolean;
+  selected:      string;
+  onSelect:      (ymd: string) => void;
+  holidaySet:    Set<number>;
+  loggedSet:     Set<number>;
+  dotsLoading:   boolean;
   onMonthChange: (y: number, m0: number) => void;
-  viewY: number;
-  viewM: number;             // 0-indexed
+  viewY:         number;
+  viewM:         number; // 0-indexed
 }>(function HolidayCalendar(
   { selected, onSelect, holidaySet, loggedSet, dotsLoading, onMonthChange, viewY, viewM },
   ref
@@ -121,9 +136,9 @@ const HolidayCalendar = forwardRef<HolidayCalHandle, {
           className="w-8 h-8 rounded-xl flex items-center justify-center border-none transition-all"
           style={{
             background: "var(--bg)",
-            color:      canGoNext ? "var(--text2)" : "var(--text4)",
-            cursor:     canGoNext ? "pointer" : "not-allowed",
-            opacity:    canGoNext ? 1 : 0.4,
+            color:   canGoNext ? "var(--text2)" : "var(--text4)",
+            cursor:  canGoNext ? "pointer" : "not-allowed",
+            opacity: canGoNext ? 1 : 0.4,
           }}
           onMouseEnter={e => { if (canGoNext) (e.currentTarget as HTMLElement).style.color = "var(--accent)"; }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = canGoNext ? "var(--text2)" : "var(--text4)"; }}>
@@ -154,10 +169,15 @@ const HolidayCalendar = forwardRef<HolidayCalHandle, {
           const isWeekend = dow === 0 || dow === 6;
           const isMissing = !isFuture && !isToday && !isLogged && !isWeekend && !isHol;
 
-          const dotColor = isHol    ? "#f59e0b"
-                         : isLogged ? "#22d3a0"
-                         : isMissing? "#f87171"
-                         : isWeekend? "var(--border2)"
+          // Visual hint: date is older than edit window but selectable for viewing
+          const age          = daysAgo(ymd);
+          const isOldNoEdit  = age > EDIT_WINDOW && !isHol;
+          const isDeepPast   = age > ENTRY_WINDOW;
+
+          const dotColor = isHol     ? "#f59e0b"
+                         : isLogged  ? "#22d3a0"
+                         : isMissing ? "#f87171"
+                         : isWeekend ? "var(--border2)"
                          : "transparent";
 
           return (
@@ -169,7 +189,7 @@ const HolidayCalendar = forwardRef<HolidayCalHandle, {
               style={{
                 minHeight:  "38px",
                 cursor:     isFuture ? "not-allowed" : "pointer",
-                opacity:    isFuture ? 0.22 : 1,
+                opacity:    isFuture ? 0.22 : isDeepPast && !isHol ? 0.35 : 1,
                 background: isSel    ? (isHol ? "#f59e0b" : "var(--accent)")
                            : isToday ? "rgba(124,110,243,0.12)"
                            : isHol   ? "rgba(245,158,11,0.10)"
@@ -177,6 +197,7 @@ const HolidayCalendar = forwardRef<HolidayCalHandle, {
                 color:      isSel    ? "#fff"
                            : isToday ? "var(--accent)"
                            : isHol   ? "#f59e0b"
+                           : isDeepPast ? "var(--text4)"
                            : "var(--text2)",
                 border:     isToday && !isSel
                            ? "1px solid rgba(124,110,243,0.35)"
@@ -194,10 +215,9 @@ const HolidayCalendar = forwardRef<HolidayCalHandle, {
                 if (!isSel)
                   (e.currentTarget as HTMLElement).style.background =
                     isToday ? "rgba(124,110,243,0.12)"
-                    : isHol ? "rgba(245,158,11,0.10)"
+                    : isHol  ? "rgba(245,158,11,0.10)"
                     : "transparent";
-              }}
-            >
+              }}>
               <span style={{ lineHeight: 1 }}>{day}</span>
               <span style={{
                 display: "block", width: "4px", height: "4px",
@@ -235,22 +255,27 @@ const HolidayCalendar = forwardRef<HolidayCalHandle, {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// HOLIDAY CHIP  — one row in the month's holiday list
+// HOLIDAY CHIP
 // ─────────────────────────────────────────────────────────────────
 function HolidayChip({
   date, reason, onRemove, removing,
 }: {
-  date: string; reason: string;
-  onRemove: () => void; removing: boolean;
+  date: string; reason: string; onRemove: () => void; removing: boolean;
 }) {
+  const age         = daysAgo(date);
+  const canEdit     = age <= EDIT_WINDOW;   // within 30 days — remove allowed
+  const isOneTime   = age > EDIT_WINDOW && age <= ENTRY_WINDOW; // 31–90 days — was one-time
+  const isDeepPast  = age > ENTRY_WINDOW;   // beyond 90 days — fully locked
+
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl"
       style={{
-        background: "rgba(245,158,11,0.07)",
-        border:     "1px solid rgba(245,158,11,0.20)",
+        background: isDeepPast ? "rgba(245,158,11,0.04)" : "rgba(245,158,11,0.07)",
+        border:     `1px solid ${isDeepPast ? "rgba(245,158,11,0.12)" : "rgba(245,158,11,0.20)"}`,
+        opacity:    isDeepPast ? 0.7 : 1,
       }}>
       <div className="flex items-center gap-3 min-w-0">
-        <span className="text-base shrink-0">🌴</span>
+        <span className="text-base shrink-0">{isDeepPast ? "🔒" : "🌴"}</span>
         <div className="min-w-0">
           <p className="text-[13px] font-semibold truncate" style={{ color: "#f59e0b" }}>
             {shortMonthDay(date)}
@@ -260,21 +285,39 @@ function HolidayChip({
               {reason}
             </p>
           )}
+          {/* Inline status note */}
+          {isDeepPast && (
+            <p className="font-mono text-[10px] mt-0.5" style={{ color: "var(--text4)" }}>
+              Beyond {ENTRY_WINDOW} days · locked
+            </p>
+          )}
+          {isOneTime && !isDeepPast && (
+            <p className="font-mono text-[10px] mt-0.5" style={{ color: "#d97706" }}>
+              One-time entry · cannot be edited
+            </p>
+          )}
         </div>
       </div>
 
-      <button
-        onClick={onRemove}
-        disabled={removing}
-        className="shrink-0 p-1.5 rounded-lg transition-colors cursor-pointer border-none"
-        style={{ background: "transparent", color: "var(--text4)" }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--danger)"; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text4)"; }}
-        aria-label="Remove holiday">
-        {removing
-          ? <RefreshCw size={13} className="animate-spin" />
-          : <Trash2 size={13} />}
-      </button>
+      {/* Remove button — only for within-edit-window holidays */}
+      {canEdit ? (
+        <button
+          onClick={onRemove}
+          disabled={removing}
+          className="shrink-0 p-1.5 rounded-lg transition-colors cursor-pointer border-none"
+          style={{ background: "transparent", color: "var(--text4)" }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--danger)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text4)"; }}
+          aria-label="Remove holiday">
+          {removing
+            ? <RefreshCw size={13} className="animate-spin" />
+            : <Trash2 size={13} />}
+        </button>
+      ) : (
+        <div className="shrink-0 p-1.5" title={isDeepPast ? "Locked — beyond 90 days" : "One-time entry — cannot be changed"}>
+          <Lock size={13} style={{ color: "var(--text4)" }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -286,28 +329,22 @@ export default function MarkHoliday() {
   const today    = localToday();
   const [ty, tm] = today.split("-").map(Number);
 
-  // Calendar view state
   const [viewY, setViewY] = useState(ty);
-  const [viewM, setViewM] = useState(tm - 1);   // 0-indexed
+  const [viewM, setViewM] = useState(tm - 1);
 
-  // Selection
   const [selected, setSelected] = useState(today);
 
-  // Per-date data
-  const [holidaySet,     setHolidaySet]     = useState<Set<number>>(new Set());
-  const [loggedSet,      setLoggedSet]      = useState<Set<number>>(new Set());
-  const [monthHolidays,  setMonthHolidays]  = useState<{ date: string; reason: string }[]>([]);
-  const [dotsLoading,    setDotsLoading]    = useState(false);
+  const [holidaySet,    setHolidaySet]    = useState<Set<number>>(new Set());
+  const [loggedSet,     setLoggedSet]     = useState<Set<number>>(new Set());
+  const [monthHolidays, setMonthHolidays] = useState<{ date: string; reason: string }[]>([]);
+  const [dotsLoading,   setDotsLoading]   = useState(false);
 
-  // For the selected-date panel
   const [selectedIsHoliday, setSelectedIsHoliday] = useState(false);
   const [reason,             setReason]             = useState("");
 
-  // Saving flags
   const [saving,   setSaving]   = useState(false);
-  const [removing, setRemoving] = useState<string | null>(null); // date string being removed
+  const [removing, setRemoving] = useState<string | null>(null);
 
-  // ── Fetch all dots + holiday list for the currently viewed month ──
   const fetchMonth = useCallback(async (y: number, m0: number) => {
     setDotsLoading(true);
     try {
@@ -316,7 +353,6 @@ export default function MarkHoliday() {
         fetch(`/api/work/holidays?year=${y}&month=${m0 + 1}`),
       ]);
       const [logsData, holData] = await Promise.all([logsRes.json(), holRes.json()]);
-
       if (logsData.success) setLoggedSet(new Set<number>(logsData.days));
       if (holData.success) {
         setHolidaySet(new Set<number>(holData.holidays.map((h: any) => h.day as number)));
@@ -328,17 +364,13 @@ export default function MarkHoliday() {
 
   useEffect(() => { fetchMonth(viewY, viewM); }, [viewY, viewM, fetchMonth]);
 
-  // ── When selected date changes, refresh its holiday status ───────
   useEffect(() => {
-    setReason(""); // always clear reason when switching dates
-
+    setReason("");
     const [sy, sm, sd] = selected.split("-").map(Number);
     const inView = sy === viewY && (sm - 1) === viewM;
-
     if (inView) {
       setSelectedIsHoliday(holidaySet.has(sd));
     } else {
-      // Date belongs to a different month — ask the API
       fetch(`/api/work/date?date=${selected}`)
         .then(r => r.json())
         .then(d => setSelectedIsHoliday(d.data?.isHoliday ?? false))
@@ -347,7 +379,6 @@ export default function MarkHoliday() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  // Re-sync holiday status when the month data refreshes (e.g., after a toggle)
   useEffect(() => {
     const [sy, sm, sd] = selected.split("-").map(Number);
     if (sy === viewY && (sm - 1) === viewM) {
@@ -355,7 +386,6 @@ export default function MarkHoliday() {
     }
   }, [holidaySet, selected, viewY, viewM]);
 
-  // ── Toggle holiday for selected date ─────────────────────────────
   const toggleHoliday = async (markAs: boolean) => {
     setSaving(true);
     try {
@@ -366,7 +396,6 @@ export default function MarkHoliday() {
       });
       const data = await res.json();
       if (!data.success) { toast.error(data.message); return; }
-
       toast.success(data.message);
       setReason("");
       await fetchMonth(viewY, viewM);
@@ -374,7 +403,6 @@ export default function MarkHoliday() {
     finally { setSaving(false); }
   };
 
-  // ── Remove holiday from the list directly ───────────────────────
   const removeHoliday = async (date: string) => {
     setRemoving(date);
     try {
@@ -391,12 +419,18 @@ export default function MarkHoliday() {
     finally { setRemoving(null); }
   };
 
-  // ── Derived info for selected date ──────────────────────────────
-  const [sy, sm, sd]  = selected.split("-").map(Number);
-  const selDow        = new Date(sy, sm - 1, sd).getDay();
-  const isWeekend     = selDow === 0 || selDow === 6;
+  // ── Derived state for selected date ──────────────────────────
+  const [sy, sm, sd] = selected.split("-").map(Number);
+  const selDow       = new Date(sy, sm - 1, sd).getDay();
+  const isWeekend    = selDow === 0 || selDow === 6;
+  const selAge       = daysAgo(selected);
 
-  // ── Month stats ─────────────────────────────────────────────────
+  // Access level for the selected date
+  const isDeepPast    = selAge > ENTRY_WINDOW;          // > 90 days: cannot mark/remove
+  const isOneTimeZone = selAge > EDIT_WINDOW && selAge <= ENTRY_WINDOW; // 31–90 days: one-time only
+  const isEditable    = selAge <= EDIT_WINDOW;           // ≤ 30 days: fully editable
+
+  // ── Month stats ───────────────────────────────────────────────
   const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
   let weekendsCount = 0;
   for (let i = 1; i <= daysInMonth; i++) {
@@ -416,28 +450,35 @@ export default function MarkHoliday() {
           Mark Holiday
         </h1>
         <p className="font-mono text-[13px] mt-1" style={{ color: "var(--text3)" }}>
-          Mark personal holidays or public holidays — they are excluded from all weekly &amp; monthly averages.
+          Mark holidays up to {ENTRY_WINDOW} days back · remove within {EDIT_WINDOW} days only
         </p>
       </div>
 
       {/* ── Info banner ─────────────────────────────────────── */}
       <div className="flex items-start gap-3 px-4 py-3 rounded-2xl"
-        style={{
-          background: "rgba(124,110,243,0.07)",
-          border:     "1px solid rgba(124,110,243,0.18)",
-        }}>
+        style={{ background: "rgba(124,110,243,0.07)", border: "1px solid rgba(124,110,243,0.18)" }}>
         <Info size={14} className="mt-0.5 shrink-0" style={{ color: "var(--accent)" }} />
-        <p className="text-[13px]" style={{ color: "var(--text2)" }}>
-          <span style={{ color: "var(--text)", fontWeight: 600 }}>
-            Saturdays &amp; Sundays
-          </span>{" "}
-          are already excluded from averages automatically. Use this page to mark gazetted
-          holidays, sick days, or any other personal off-days. Holidays will{" "}
-          <span style={{ color: "var(--text)", fontWeight: 600 }}>
-            not count as missing
-          </span>{" "}
-          days in your analysis.
-        </p>
+        <div className="space-y-1">
+          <p className="text-[13px]" style={{ color: "var(--text2)" }}>
+            <span style={{ color: "var(--text)", fontWeight: 600 }}>Saturdays &amp; Sundays</span>{" "}
+            are already excluded automatically. Use this page to mark gazetted holidays, sick days, or personal
+            off-days. Holidays are{" "}
+            <span style={{ color: "var(--text)", fontWeight: 600 }}>excluded from missing-day counts</span>{" "}
+            in your analysis.
+          </p>
+          {/* Rule summary inline */}
+          <div className="flex flex-wrap gap-x-5 gap-y-1 pt-1">
+            {[
+              { icon: "🗓️", text: `Mark/remove within last ${EDIT_WINDOW} days — fully editable` },
+              { icon: "⚠️", text: `Days ${EDIT_WINDOW + 1}–${ENTRY_WINDOW} ago — mark once, cannot remove` },
+              { icon: "🔒", text: `Beyond ${ENTRY_WINDOW} days — view only, no changes` },
+            ].map(({ icon, text }) => (
+              <span key={text} className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>
+                {icon} {text}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* ── Two-column layout ───────────────────────────────── */}
@@ -459,7 +500,7 @@ export default function MarkHoliday() {
 
           {/* ── Selected date action panel ─────────────────── */}
           <div className="rounded-2xl p-5 space-y-4"
-            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            style={{ background: "var(--surface)", border: `1px solid ${isDeepPast ? "var(--border)" : isOneTimeZone && !selectedIsHoliday ? "rgba(245,158,11,0.25)" : "var(--border)"}` }}>
 
             {/* Date label + badge */}
             <div className="flex items-start justify-between gap-3">
@@ -468,38 +509,109 @@ export default function MarkHoliday() {
                   {prettyDate(selected)}
                 </p>
                 <p className="font-mono text-[11px] mt-1" style={{ color: "var(--text3)" }}>
+                  {/* Context-aware sub-label */}
                   {isWeekend
                     ? "Weekend — already excluded from averages automatically"
+                    : isDeepPast
+                    ? `${selAge} days ago — beyond ${ENTRY_WINDOW}-day window, view only`
+                    : isOneTimeZone && !selectedIsHoliday
+                    ? `${selAge} days ago — one-time mark only, cannot be removed later`
+                    : isOneTimeZone && selectedIsHoliday
+                    ? `${selAge} days ago — marked as holiday (one-time, locked)`
                     : selectedIsHoliday
                     ? "Currently marked as a holiday 🌴"
-                    : "Regular work day — not marked as holiday"}
+                    : `Within ${EDIT_WINDOW} days — fully editable`}
                 </p>
               </div>
 
-              {selectedIsHoliday && !isWeekend && (
+              {/* Status badge */}
+              {isDeepPast && !isWeekend && (
+                <span className="shrink-0 flex items-center gap-1 font-mono text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap"
+                  style={{ background: "rgba(90,90,114,0.12)", color: "var(--text4)", border: "1px solid var(--border2)" }}>
+                  <Lock size={10} /> Locked
+                </span>
+              )}
+              {isOneTimeZone && selectedIsHoliday && !isWeekend && (
+                <span className="shrink-0 flex items-center gap-1 font-mono text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap"
+                  style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)" }}>
+                  🌴 Holiday · Locked
+                </span>
+              )}
+              {isOneTimeZone && !selectedIsHoliday && !isWeekend && (
+                <span className="shrink-0 flex items-center gap-1 font-mono text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap"
+                  style={{ background: "rgba(245,158,11,0.10)", color: "#d97706", border: "1px solid rgba(245,158,11,0.22)" }}>
+                  <AlertTriangle size={10} /> One-time
+                </span>
+              )}
+              {isEditable && selectedIsHoliday && !isWeekend && (
                 <span className="shrink-0 font-mono text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap"
-                  style={{
-                    background: "rgba(245,158,11,0.12)",
-                    color:      "#f59e0b",
-                    border:     "1px solid rgba(245,158,11,0.25)",
-                  }}>
+                  style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)" }}>
                   🌴 Holiday
                 </span>
               )}
               {isWeekend && (
                 <span className="shrink-0 font-mono text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap"
-                  style={{
-                    background: "rgba(90,90,114,0.12)",
-                    color:      "var(--text3)",
-                    border:     "1px solid var(--border2)",
-                  }}>
+                  style={{ background: "rgba(90,90,114,0.12)", color: "var(--text3)", border: "1px solid var(--border2)" }}>
                   Weekend
                 </span>
               )}
             </div>
 
-            {/* Reason input + buttons — only for non-weekend days */}
-            {!isWeekend && (
+            {/* ── DEEP PAST: view-only notice ───────────────── */}
+            {isDeepPast && !isWeekend && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
+                style={{ background: "rgba(90,90,114,0.08)", border: "1px solid var(--border2)" }}>
+                <Lock size={14} className="mt-0.5 shrink-0" style={{ color: "var(--text4)" }} />
+                <div>
+                  <p className="font-mono text-[12px] font-semibold" style={{ color: "var(--text3)" }}>
+                    Cannot change — beyond {ENTRY_WINDOW}-day window
+                  </p>
+                  <p className="font-mono text-[11px] mt-0.5" style={{ color: "var(--text4)" }}>
+                    {selectedIsHoliday
+                      ? "This day was marked as a holiday and is now permanently locked."
+                      : `This date is ${selAge} days ago. Holidays can only be marked within the last ${ENTRY_WINDOW} days.`}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── ONE-TIME ZONE: already marked → locked notice ─ */}
+            {isOneTimeZone && selectedIsHoliday && !isWeekend && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
+                style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.22)" }}>
+                <Lock size={14} className="mt-0.5 shrink-0" style={{ color: "#f59e0b" }} />
+                <div>
+                  <p className="font-mono text-[12px] font-semibold" style={{ color: "#d97706" }}>
+                    One-time entry — cannot be removed
+                  </p>
+                  <p className="font-mono text-[11px] mt-0.5" style={{ color: "var(--text3)" }}>
+                    This date is {selAge} days ago (beyond the {EDIT_WINDOW}-day edit window).
+                    The holiday was saved as a one-time entry and is now locked.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── ONE-TIME ZONE: not yet marked → warn before marking ─ */}
+            {isOneTimeZone && !selectedIsHoliday && !isWeekend && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
+                style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.22)" }}>
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" style={{ color: "#f59e0b" }} />
+                <div>
+                  <p className="font-mono text-[12px] font-semibold" style={{ color: "#d97706" }}>
+                    One-time mark — cannot be removed after saving
+                  </p>
+                  <p className="font-mono text-[11px] mt-0.5" style={{ color: "var(--text3)" }}>
+                    This date is {selAge} days ago (beyond the {EDIT_WINDOW}-day edit window).
+                    Once you mark it as a holiday, <strong>it cannot be undone</strong>.
+                    Make sure this is correct before saving.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── ACTION AREA — only for non-deep-past, non-weekend, non-locked-holiday ─ */}
+            {!isWeekend && !isDeepPast && !(isOneTimeZone && selectedIsHoliday) && (
               <>
                 <div className="flex flex-col gap-2">
                   <label className="font-mono text-[11px] uppercase tracking-widest"
@@ -513,59 +625,54 @@ export default function MarkHoliday() {
                     type="text"
                     value={reason}
                     onChange={e => setReason(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && !saving) toggleHoliday(true);
-                    }}
+                    onKeyDown={e => { if (e.key === "Enter" && !saving) toggleHoliday(true); }}
                     placeholder={
                       selectedIsHoliday
                         ? "Update reason..."
+                        : isOneTimeZone
+                        ? "e.g. Diwali — confirm this is correct before saving"
                         : "e.g. Diwali, Republic Day, Sick leave..."
                     }
-                    className="w-full rounded-xl px-4 py-3 font-mono text-[13px]
-                      focus:outline-none transition-colors"
-                    style={{
-                      background:  "var(--bg)",
-                      border:      "1px solid var(--border2)",
-                      color:       "var(--text)",
-                    }}
-                    onFocus={e  => (e.currentTarget.style.borderColor = "#7c6ef3")}
+                    className="w-full rounded-xl px-4 py-3 font-mono text-[13px] focus:outline-none transition-colors"
+                    style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--text)" }}
+                    onFocus={e  => (e.currentTarget.style.borderColor = isOneTimeZone ? "#f59e0b" : "#7c6ef3")}
                     onBlur={e   => (e.currentTarget.style.borderColor = "var(--border2)")}
                   />
                 </div>
 
                 <div className="flex flex-wrap gap-3">
-                  {/* Primary CTA — Mark / Update */}
+                  {/* Primary CTA */}
                   <button
                     onClick={() => toggleHoliday(true)}
                     disabled={saving}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl
-                      font-mono text-[13px] font-medium cursor-pointer border-none transition-all"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[13px] font-medium cursor-pointer border-none transition-all"
                     style={{
                       background: saving
                         ? "rgba(245,158,11,0.35)"
                         : selectedIsHoliday
                         ? "rgba(245,158,11,0.15)"
+                        : isOneTimeZone
+                        ? "#d97706"         // amber-filled to signal caution
                         : "#f59e0b",
-                      color:  selectedIsHoliday ? "#f59e0b" : "#0a0a0f",
-                      border: selectedIsHoliday
-                        ? "1px solid rgba(245,158,11,0.30)"
-                        : "1px solid transparent",
+                      color: selectedIsHoliday ? "#f59e0b" : "#0a0a0f",
+                      border: selectedIsHoliday ? "1px solid rgba(245,158,11,0.30)" : "1px solid transparent",
                       opacity: saving ? 0.7 : 1,
                     }}>
                     {saving
                       ? <><RefreshCw size={13} className="animate-spin" /> Saving...</>
                       : selectedIsHoliday
                       ? <><Palmtree size={13} /> Update Reason</>
+                      : isOneTimeZone
+                      ? <><Palmtree size={13} /> Mark Holiday (One-Time)</>
                       : <><Palmtree size={13} /> Mark as Holiday</>}
                   </button>
 
-                  {/* Remove — only shown when already a holiday */}
-                  {selectedIsHoliday && (
+                  {/* Remove — only shown for fully-editable holidays (≤ 30 days) */}
+                  {selectedIsHoliday && isEditable && (
                     <button
                       onClick={() => toggleHoliday(false)}
                       disabled={saving}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl
-                        font-mono text-[13px] font-medium cursor-pointer border-none transition-all"
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[13px] font-medium cursor-pointer border-none transition-all"
                       style={{
                         background: "rgba(248,113,113,0.08)",
                         color:      "var(--danger)",
@@ -588,18 +695,13 @@ export default function MarkHoliday() {
           <div className="rounded-2xl p-5"
             style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
 
-            <div className="flex items-center gap-2 mb-4 pb-4"
-              style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-2 mb-4 pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
               <CalendarDays size={14} style={{ color: "#f59e0b" }} />
               <h2 className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
                 {MONTHS[viewM]} {viewY}
               </h2>
               <span className="ml-auto font-mono text-[11px] px-2 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(245,158,11,0.10)",
-                  color:      "#f59e0b",
-                  border:     "1px solid rgba(245,158,11,0.20)",
-                }}>
+                style={{ background: "rgba(245,158,11,0.10)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.20)" }}>
                 {holidayCount} holiday{holidayCount !== 1 ? "s" : ""}
               </span>
             </div>
@@ -628,64 +730,77 @@ export default function MarkHoliday() {
             )}
           </div>
 
-          {/* Month-at-a-glance stats */}
+          {/* Month stats */}
           <div className="rounded-2xl px-5 py-4 space-y-3"
             style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
 
-            <p className="font-mono text-[11px] uppercase tracking-widest"
-              style={{ color: "var(--text3)" }}>
+            <p className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
               {MONTHS[viewM]} at a glance
             </p>
 
             <div className="space-y-2">
               {[
-                { label: "Total days",       value: daysInMonth,   color: "var(--text)"  },
-                { label: "Weekends (auto off)",value: weekendsCount, color: "var(--text3)" },
-                { label: "Work days",        value: workdays,      color: "var(--text2)" },
-                { label: "Holidays marked",  value: holidayCount,  color: "#f59e0b"      },
-                { label: "Effective days",   value: effectiveDays, color: "#22d3a0"      },
+                { label: "Total days",          value: daysInMonth,   color: "var(--text)"  },
+                { label: "Weekends (auto off)",  value: weekendsCount, color: "var(--text3)" },
+                { label: "Work days",            value: workdays,      color: "var(--text2)" },
+                { label: "Holidays marked",      value: holidayCount,  color: "#f59e0b"      },
+                { label: "Effective work days",  value: effectiveDays, color: "#22d3a0"      },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex items-center justify-between">
-                  <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
-                    {label}
-                  </span>
-                  <span className="font-mono text-[13px] font-semibold tabular-nums"
-                    style={{ color }}>
-                    {value}
-                  </span>
+                  <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>{label}</span>
+                  <span className="font-mono text-[13px] font-semibold tabular-nums" style={{ color }}>{value}</span>
                 </div>
               ))}
             </div>
 
             {/* Visual bar */}
             <div className="pt-1">
-              <div className="flex h-2 rounded-full overflow-hidden gap-px"
-                style={{ background: "var(--border)" }}>
-                {/* Weekends segment */}
-                <div style={{
-                  width: `${(weekendsCount / daysInMonth) * 100}%`,
-                  background: "var(--border2)",
-                }} />
-                {/* Holidays segment */}
-                <div style={{
-                  width: `${(holidayCount / daysInMonth) * 100}%`,
-                  background: "#f59e0b",
-                }} />
-                {/* Effective work segment */}
-                <div style={{
-                  width: `${(effectiveDays / daysInMonth) * 100}%`,
-                  background: "rgba(124,110,243,0.5)",
-                }} />
+              <div className="flex h-2 rounded-full overflow-hidden gap-px" style={{ background: "var(--border)" }}>
+                <div style={{ width: `${(weekendsCount / daysInMonth) * 100}%`, background: "var(--border2)" }} />
+                <div style={{ width: `${(holidayCount / daysInMonth) * 100}%`, background: "#f59e0b" }} />
+                <div style={{ width: `${(effectiveDays / daysInMonth) * 100}%`, background: "rgba(124,110,243,0.5)" }} />
               </div>
               <div className="flex justify-between mt-1.5">
-                <span className="font-mono text-[9px]" style={{ color: "var(--text4)" }}>
-                  Weekends
-                </span>
-                <span className="font-mono text-[9px]" style={{ color: "var(--text4)" }}>
-                  Effective work days
-                </span>
+                <span className="font-mono text-[9px]" style={{ color: "var(--text4)" }}>Weekends</span>
+                <span className="font-mono text-[9px]" style={{ color: "var(--text4)" }}>Effective work days</span>
               </div>
             </div>
+          </div>
+
+          {/* Access rules reminder card */}
+          <div className="rounded-2xl px-4 py-3 space-y-2"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <p className="font-mono text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--text3)" }}>
+              Holiday rules
+            </p>
+            {[
+              {
+                icon: "✅",
+                text: `Within ${EDIT_WINDOW} days`,
+                detail: "Mark & remove freely",
+                color: "var(--green)",
+              },
+              {
+                icon: "⚠️",
+                text: `${EDIT_WINDOW + 1}–${ENTRY_WINDOW} days ago`,
+                detail: "Mark once — cannot remove",
+                color: "#d97706",
+              },
+              {
+                icon: "🔒",
+                text: `Beyond ${ENTRY_WINDOW} days`,
+                detail: "View only — no changes",
+                color: "var(--text4)",
+              },
+            ].map(({ icon, text, detail, color }) => (
+              <div key={text} className="flex items-center gap-2">
+                <span className="text-[11px]">{icon}</span>
+                <div className="flex flex-1 justify-between items-center gap-2">
+                  <span className="font-mono text-[11px]" style={{ color: "var(--text2)" }}>{text}</span>
+                  <span className="font-mono text-[10px]" style={{ color }}>{detail}</span>
+                </div>
+              </div>
+            ))}
           </div>
 
         </div>
