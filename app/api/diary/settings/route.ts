@@ -1,10 +1,14 @@
 // app/api/diary/settings/route.ts
+// CHANGE: Added MAX_HEADINGS = 5 server-side enforcement
+// All other behaviour identical to original.
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
 import { DiarySettings } from "@/app/models/DiaryEntry";
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
+
+const MAX_HEADINGS = 5;
 
 async function getUserId(): Promise<string | null> {
   try {
@@ -14,7 +18,7 @@ async function getUserId(): Promise<string | null> {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
       userId: string;
     };
-    return decoded.userId;           // ← "userId", NOT "id"
+    return decoded.userId;
   } catch {
     return null;
   }
@@ -38,6 +42,13 @@ export async function POST(req: NextRequest) {
 
   if (!Array.isArray(headings))
     return NextResponse.json({ error: "headings array required" }, { status: 400 });
+
+  // FIX #1: enforce max headings limit server-side
+  if (headings.length > MAX_HEADINGS)
+    return NextResponse.json(
+      { error: `Maximum ${MAX_HEADINGS} headings allowed.` },
+      { status: 400 }
+    );
 
   for (const h of headings) {
     if (!h.text || typeof h.text !== "string")
