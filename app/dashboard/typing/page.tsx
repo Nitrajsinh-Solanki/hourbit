@@ -1,56 +1,37 @@
 "use client";
-
 // app/dashboard/typing/page.tsx
 
 import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
+  useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
 import toast from "react-hot-toast";
 
-// ─── Types ─────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type TypingMode =
-  | "smallLetters"
-  | "mixedLetters"
-  | "punctuation"
-  | "numbers"
-  | "numbersIncluded";
+  | "smallLetters" | "mixedLetters" | "punctuation"
+  | "numbers"      | "numbersIncluded";
 
 type TestState = "idle" | "running" | "finished";
 
 interface TimerStats {
-  highestWpm: number;
-  accuracyAtHighestWpm: number;
-  highestAccuracy: number;
-  wpmAtHighestAccuracy: number;
-  totalTests: number;
-  averageWpm: number;
+  highestWpm: number; accuracyAtHighestWpm: number;
+  highestAccuracy: number; wpmAtHighestAccuracy: number;
+  totalTests: number; averageWpm: number;
 }
-
-interface StatsResponse {
-  stats: TimerStats;
-  globalTotalTests: number;
-}
-
-interface CustomTimer {
-  _id: string;
-  duration: number;
-}
-
+interface StatsResponse { stats: TimerStats; globalTotalTests: number; }
+interface CustomTimer   { _id: string; duration: number; }
 interface TestResult {
-  wpm: number;
-  accuracy: number;
-  errors: number;
-  totalKeystrokes: number;
-  charactersTyped: number;
-  duration: number;
+  wpm: number; effectiveWpm: number; accuracy: number;
+  errors: number; totalKeystrokes: number;
+  charactersTyped: number; duration: number;
+}
+interface WordToken {
+  chars: string[];   // chars of word + trailing space
+  startIdx: number;  // index in the global char array
 }
 
-// ─── Word Generator ─────────────────────────────────────────────
+// ─── Word bank ───────────────────────────────────────────────────────────────
 
 const COMMON_WORDS = [
   "the","be","to","of","and","a","in","that","have","it","for","not","on",
@@ -79,173 +60,151 @@ const COMMON_WORDS = [
   "west","ground","interest","reach","fast","several","notice","whether",
   "leave","miles","grow","four","carry","state",
 ];
+const PUNCT  = [".", ",", ";", ":", "!", "?", "-"];
+const NUMS   = ["1","2","3","4","5","6","7","8","9","0","12","23","45","67",
+                "89","100","2024","42","99","15","500"];
 
-const PUNCTUATION_MARKS = [".", ",", ";", ":", "!", "?", "-"];
-const NUMBERS_LIST = [
-  "1","2","3","4","5","6","7","8","9","0",
-  "12","23","45","67","89","100","2024","42","99","15","500",
-];
-
-function generateText(mode: TypingMode, wordCount = 120): string {
-  const words: string[] = [];
-  for (let i = 0; i < wordCount; i++) {
-    let word = COMMON_WORDS[Math.floor(Math.random() * COMMON_WORDS.length)];
-    switch (mode) {
-      case "mixedLetters":
-        word = word.split("").map(c => Math.random() > 0.6 ? c.toUpperCase() : c).join("");
-        break;
-      case "punctuation":
-        word = word.toLowerCase();
-        if (Math.random() > 0.72)
-          word += PUNCTUATION_MARKS[Math.floor(Math.random() * PUNCTUATION_MARKS.length)];
-        break;
-      case "numbers":
-        word = Math.random() > 0.5
-          ? NUMBERS_LIST[Math.floor(Math.random() * NUMBERS_LIST.length)]
-          : word.toLowerCase();
-        break;
-      case "numbersIncluded":
-        word = Math.random() > 0.72
-          ? NUMBERS_LIST[Math.floor(Math.random() * NUMBERS_LIST.length)]
-          : word.toLowerCase();
-        break;
-      default:
-        word = word.toLowerCase();
+function pickWord(mode: TypingMode): string {
+  const base = COMMON_WORDS[Math.floor(Math.random() * COMMON_WORDS.length)];
+  switch (mode) {
+    case "mixedLetters":
+      return base.split("").map(c => Math.random() > 0.6 ? c.toUpperCase() : c).join("");
+    case "punctuation": {
+      const w = base.toLowerCase();
+      return Math.random() > 0.72 ? w + PUNCT[Math.floor(Math.random() * PUNCT.length)] : w;
     }
-    words.push(word);
+    case "numbers":
+      return Math.random() > 0.5 ? NUMS[Math.floor(Math.random() * NUMS.length)] : base.toLowerCase();
+    case "numbersIncluded":
+      return Math.random() > 0.72 ? NUMS[Math.floor(Math.random() * NUMS.length)] : base.toLowerCase();
+    default:
+      return base.toLowerCase();
   }
-  return words.join(" ");
 }
 
-// ─── Helpers ────────────────────────────────────────────────────
+function generateTokens(mode: TypingMode, count = 200): WordToken[] {
+  const tokens: WordToken[] = [];
+  let idx = 0;
+  for (let i = 0; i < count; i++) {
+    const w    = pickWord(mode);
+    const full = i < count - 1 ? w + " " : w;
+    tokens.push({ chars: full.split(""), startIdx: idx });
+    idx += full.length;
+  }
+  return tokens;
+}
 
-function formatDuration(s: number): string {
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function fmtDur(s: number): string {
   if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return rem === 0 ? `${m}m` : `${m}m ${rem}s`;
+  const m = Math.floor(s / 60), r = s % 60;
+  return r === 0 ? `${m}m` : `${m}m ${r}s`;
 }
 
 const EMPTY_STATS: TimerStats = {
-  highestWpm: 0, accuracyAtHighestWpm: 0,
-  highestAccuracy: 0, wpmAtHighestAccuracy: 0,
-  totalTests: 0, averageWpm: 0,
+  highestWpm:0, accuracyAtHighestWpm:0,
+  highestAccuracy:0, wpmAtHighestAccuracy:0,
+  totalTests:0, averageWpm:0,
 };
 
-// ─── Character colour classes ────────────────────────────────────
-// Using className instead of inline style to avoid the
-// textDecoration / textDecorationColor shorthand conflict that
-// caused the React console error.
-// Tailwind classes aren't available for CSS vars, so we inject a
-// tiny <style> block once and reference stable class names.
+// Module-level stats cache (survives re-renders, cleared on page unload)
+const statsCache = new Map<number, StatsResponse>();
 
-const CHAR_STYLE_TAG = `
-  .tc-pending   { color: var(--tc-pending);   }
-  .tc-correct   { color: var(--tc-correct);   }
-  .tc-incorrect { color: var(--tc-incorrect); text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: var(--tc-incorrect); }
-  .tc-cursor    { color: var(--tc-cursor);    }
-`;
+// ─── StatsCard ───────────────────────────────────────────────────────────────
 
-// ─── Stats Card ──────────────────────────────────────────────────
-
-function StatsCard({
-  title, primary, sub1, sub2, accent, loading,
-}: {
+function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
   title: string; primary: string; sub1: string;
   sub2?: string; accent: string; loading?: boolean;
 }) {
-  if (loading) {
+  if (loading)
     return (
-      <div
-        className="rounded-2xl p-5 animate-pulse"
-        style={{ background: "var(--surface)", border: "1px solid var(--border2)", minHeight: 96 }}
-      />
+      <div className="rounded-2xl p-4 sm:p-5 animate-pulse"
+        style={{ background:"var(--surface)", border:"1px solid var(--border2)", minHeight:88 }} />
     );
-  }
   return (
-    <div
-      className="rounded-2xl p-5 flex flex-col gap-1"
-      style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
-    >
-      <div className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: "var(--text3)" }}>
-        {title}
-      </div>
-      <div className="text-2xl font-bold font-mono leading-tight" style={{ color: accent }}>
+    <div className="rounded-2xl p-4 sm:p-5 flex flex-col gap-1"
+      style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+      <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest"
+        style={{ color:"var(--text3)" }}>{title}</div>
+      <div className="text-xl sm:text-2xl font-bold font-mono leading-tight" style={{ color:accent }}>
         {primary}
       </div>
-      <div className="text-xs" style={{ color: "var(--text2)" }}>{sub1}</div>
-      {sub2 && <div className="text-xs mt-0.5" style={{ color: "var(--text3)" }}>{sub2}</div>}
+      <div className="text-xs" style={{ color:"var(--text2)" }}>{sub1}</div>
+      {sub2 && <div className="text-[11px]" style={{ color:"var(--text3)" }}>{sub2}</div>}
     </div>
   );
 }
 
-// ─── Main Component ──────────────────────────────────────────────
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 const DEFAULT_TIMERS = [15, 30, 60, 120];
 
 export default function TypingPage() {
 
-  // ── Config
   const [selectedTimer, setSelectedTimer] = useState(30);
   const [typingMode, setTypingMode]       = useState<TypingMode>("smallLetters");
   const [customTimers, setCustomTimers]   = useState<CustomTimer[]>([]);
-
-  // ── Custom timer add UI
-  const [showAddTimer, setShowAddTimer]         = useState(false);
-  const [newTimerDuration, setNewTimerDuration] = useState("");
-  const [addingTimer, setAddingTimer]           = useState(false);
-
-  // ── Delete confirmation
-  const [confirmDelete, setConfirmDelete] = useState<CustomTimer | null>(null);
+  const [showAddTimer, setShowAddTimer]   = useState(false);
+  const [newTimerDur, setNewTimerDur]     = useState("");
+  const [addingTimer, setAddingTimer]     = useState(false);
+  const [confirmDel, setConfirmDel]       = useState<CustomTimer | null>(null);
   const [deletingTimer, setDeletingTimer] = useState(false);
 
-  // ── Stats
   const [statsData, setStatsData]       = useState<StatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  // ── Test state (drives renders)
   const [testState, setTestState]   = useState<TestState>("idle");
-  const [text, setText]             = useState<string[]>([]);
+  const [words, setWords]           = useState<WordToken[]>([]);
   const [typedChars, setTypedChars] = useState<string[]>([]);
   const [timeLeft, setTimeLeft]     = useState(30);
   const [result, setResult]         = useState<TestResult | null>(null);
+  const [isFocused, setIsFocused]   = useState(false);
 
-  // ── Refs (mutated during typing — zero re-renders)
+  // ── scroll state stored ONLY in a ref to avoid stale closures ──
+  // lineOffsetRef holds the current translateY value.
+  // We set it synchronously and then call setScrollTick to trigger a re-render.
+  const lineOffsetRef = useRef(0);
+  const [scrollTick, setScrollTick] = useState(0); // just a render trigger
+
+  // Mutable refs — never cause re-renders on their own
   const typedRef         = useRef<string[]>([]);
-  const textRef          = useRef<string[]>([]);
+  const wordsRef         = useRef<WordToken[]>([]);
   const testStateRef     = useRef<TestState>("idle");
   const timerRef         = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef     = useRef<number>(0);
   const selectedTimerRef = useRef(30);
   const typingModeRef    = useRef<TypingMode>("smallLetters");
   const wrapperRef       = useRef<HTMLDivElement>(null);
-  const charEls          = useRef<(HTMLSpanElement | null)[]>([]);
-  const saveIdRef        = useRef<string>("");
+  const textBlockRef     = useRef<HTMLDivElement>(null);  // the flex-wrap word container
+  const clipRef          = useRef<HTMLDivElement>(null);  // the overflow:hidden viewport
+  const saveIdRef        = useRef("");
+  const keystrokesRef    = useRef(0);
+  const rawErrorsRef     = useRef(0);
+  const wordElsRef       = useRef<(HTMLSpanElement | null)[]>([]);
+  // Track which row we last scrolled to, to avoid re-scrolling on every keystroke
+  const lastRowRef       = useRef(-1);
 
-  // ── ACCURACY FIX: track every keystroke ever pressed, including
-  // ones the user backspaced over. A corrected error still counts
-  // as an error — identical to how Monkeytype measures accuracy.
-  //   accuracy = (correct_keystrokes / total_keystrokes) * 100
-  // where correct_keystrokes = total_keystrokes - error_keystrokes
-  // and error_keystrokes are keystrokes where typed[i] !== text[i]
-  // AT THE MOMENT OF PRESSING (before any backspace correction).
-  const keystrokesRef    = useRef(0); // every non-backspace key pressed
-  const rawErrorsRef     = useRef(0); // wrong chars pressed (even if later fixed)
-
-  // Keep refs in sync with state
   useEffect(() => { selectedTimerRef.current = selectedTimer; }, [selectedTimer]);
   useEffect(() => { typingModeRef.current    = typingMode;    }, [typingMode]);
 
-  // ─── Fetch stats ──────────────────────────────────────────────
+  // ── Stats fetch with session cache ───────────────────────────────────────
 
-  const fetchStats = useCallback(async (timer?: number) => {
-    const t = timer ?? selectedTimerRef.current;
+  const fetchStats = useCallback(async (timer: number, force = false) => {
+    if (!force && statsCache.has(timer)) {
+      setStatsData(statsCache.get(timer)!);
+      setStatsLoading(false);
+      return;
+    }
     setStatsLoading(true);
     try {
-      const res  = await fetch(`/api/typing/stats?timer=${t}`);
+      const res  = await fetch(`/api/typing/stats?timer=${timer}`);
       const data = await res.json();
-      if (data.success)
-        setStatsData({ stats: data.stats, globalTotalTests: data.globalTotalTests });
+      if (data.success) {
+        const p: StatsResponse = { stats: data.stats, globalTotalTests: data.globalTotalTests };
+        statsCache.set(timer, p);
+        setStatsData(p);
+      }
     } catch { /* silent */ }
     finally { setStatsLoading(false); }
   }, []);
@@ -261,52 +220,96 @@ export default function TypingPage() {
   useEffect(() => { fetchStats(30); fetchCustomTimers(); }, [fetchStats, fetchCustomTimers]);
   useEffect(() => { fetchStats(selectedTimer); }, [selectedTimer, fetchStats]);
 
-  // ─── End test ─────────────────────────────────────────────────
+  // ── Scroll logic — THE KEY FIX ──────────────────────────────────────────
+  //
+  // PROBLEM: previously updateLineScroll closed over `lineOffset` state.
+  //   On every keystroke React hadn't re-rendered yet, so lineOffset was stale
+  //   (still 0 or previous value). The formula:
+  //     elTopInContainer = elRect.top - containerRect.top - lineOffset   ← WRONG
+  //   used the old lineOffset, computing a wrong delta, causing over-scroll.
+  //
+  // FIX: store the offset in lineOffsetRef (a ref — always current).
+  //   Only call setScrollTick(n+1) to trigger the re-render AFTER we have
+  //   already written the correct value to the ref.
+  //   Formula: newOffset = -(activeWordTop - targetTop)  where both coords
+  //   are measured in the UN-TRANSFORMED frame (we subtract current
+  //   lineOffsetRef.current from the measured top to undo the transform).
+  //
+  // We also gate scrolling so it only moves when the CURSOR CHANGES ROW,
+  // not on every single keystroke. This prevents jittery motion.
+
+  const updateScroll = useCallback((cursorCharIdx: number) => {
+    if (!clipRef.current || !textBlockRef.current) return;
+
+    // Find which word the cursor is in
+    const wTokens = wordsRef.current;
+    let activeWi  = wTokens.length - 1;
+    for (let i = 0; i < wTokens.length; i++) {
+      const t = wTokens[i];
+      if (cursorCharIdx >= t.startIdx && cursorCharIdx < t.startIdx + t.chars.length) {
+        activeWi = i; break;
+      }
+    }
+
+    const wordEl = wordElsRef.current[activeWi];
+    if (!wordEl) return;
+
+    // Measure the word's top relative to the clip container,
+    // UNDOING the current transform so we're in layout-space coordinates.
+    const clipRect  = clipRef.current.getBoundingClientRect();
+    const wordRect  = wordEl.getBoundingClientRect();
+    const wordTopInLayout = wordRect.top - clipRect.top - lineOffsetRef.current;
+
+    // Determine which visual row this word is on (0-indexed from top of text block)
+    const lineH = wordEl.offsetHeight || 40;
+    const currentRow = Math.round(wordTopInLayout / lineH);
+
+    // Only scroll when we move to a new row (gate prevents per-keystroke jitter)
+    if (currentRow === lastRowRef.current) return;
+    lastRowRef.current = currentRow;
+
+    // We want row 0 to stay visible until the cursor reaches row 1,
+    // then scroll so the active row is always the FIRST visible row.
+    // i.e. targetTop = 0 (clip top) — cursor row should be at the top.
+    // For the very first row (row 0) we don't scroll at all.
+    if (currentRow <= 0) {
+      lineOffsetRef.current = 0;
+    } else {
+      lineOffsetRef.current = -(currentRow * lineH);
+    }
+
+    setScrollTick(t => t + 1);
+  }, []);
+
+  // ── End test ─────────────────────────────────────────────────────────────
 
   const endTest = useCallback(async () => {
-    // Unique run guard — prevents double-save on React 18 strict mode or
-    // the rare case where the interval fires twice before clearing.
-    const runId = `${Date.now()}`;
+    const runId = `${Date.now()}-${Math.random()}`;
     if (saveIdRef.current === runId) return;
     saveIdRef.current = runId;
-
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const typed   = [...typedRef.current];
-    const textArr = [...textRef.current];
-    const dur     = selectedTimerRef.current;
-    const mode    = typingModeRef.current;
+    const typed    = [...typedRef.current];
+    const allChars = wordsRef.current.flatMap(w => w.chars);
+    const dur      = selectedTimerRef.current;
+    const mode     = typingModeRef.current;
 
-    // ── WPM: based on characters actually typed divided by 5 ──
     const chars      = typed.length;
     const elapsedSec = startTimeRef.current > 0
       ? (Date.now() - startTimeRef.current) / 1000
       : dur;
     const minutes    = elapsedSec / 60;
-    const wpm        = minutes > 0 ? Math.round((chars / 5) / minutes) : 0;
+    const rawWpm     = minutes > 0 ? Math.round((chars / 5) / minutes) : 0;
 
-    // ── ACCURACY: raw errors / total keystrokes pressed ──
-    // rawErrorsRef counts every wrong key AT TIME OF PRESS.
-    // Backspacing and retyping correctly does NOT undo that error.
-    const totalKS  = keystrokesRef.current;
-    const rawErr   = rawErrorsRef.current;
-    const accuracy = totalKS > 0
-      ? Math.round(((totalKS - rawErr) / totalKS) * 100)
-      : 0;
-
-    // Final error count = positions still wrong at end (for display)
-    let finalErrors = 0;
-    for (let i = 0; i < typed.length; i++) {
-      if (typed[i] !== textArr[i]) finalErrors++;
-    }
+    const totalKS      = keystrokesRef.current;
+    const rawErr       = rawErrorsRef.current;
+    const accuracy     = totalKS > 0 ? Math.round(((totalKS - rawErr) / totalKS) * 100) : 0;
+    const effectiveWpm = Math.round(rawWpm * Math.pow(accuracy / 100, 2));
 
     const r: TestResult = {
-      wpm,
-      accuracy,
-      errors:          rawErr,        // total mistakes made (including fixed ones)
-      totalKeystrokes: totalKS,
-      charactersTyped: chars,
-      duration:        Math.round(elapsedSec),
+      wpm: rawWpm, effectiveWpm, accuracy,
+      errors: rawErr, totalKeystrokes: totalKS,
+      charactersTyped: chars, duration: Math.round(elapsedSec),
     };
 
     testStateRef.current = "finished";
@@ -315,547 +318,586 @@ export default function TypingPage() {
 
     try {
       await fetch("/api/typing/result", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           timerDuration: dur, typingMode: mode,
-          wpm, accuracy,
-          errors:          rawErr,
-          charactersTyped: chars,
+          wpm: effectiveWpm, accuracy,
+          errors: rawErr, charactersTyped: chars,
         }),
       });
-      await fetchStats(dur);
+      await fetchStats(dur, true);
     } catch { /* silent */ }
   }, [fetchStats]);
 
-  // ─── Init / restart ───────────────────────────────────────────
+  // ── Init / restart ───────────────────────────────────────────────────────
 
   const initTest = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
-    saveIdRef.current = "";
+    saveIdRef.current     = "";
+    lineOffsetRef.current = 0;
+    lastRowRef.current    = -1;
 
-    const arr       = generateText(typingModeRef.current, 120).split("");
-    textRef.current = arr;
-    typedRef.current = [];
-    charEls.current  = [];
+    const tokens         = generateTokens(typingModeRef.current, 200);
+    wordsRef.current     = tokens;
+    typedRef.current     = [];
+    wordElsRef.current   = [];
     keystrokesRef.current = 0;
     rawErrorsRef.current  = 0;
 
-    setText(arr);
+    setWords(tokens);
     setTypedChars([]);
     setTimeLeft(selectedTimerRef.current);
     setResult(null);
+    setScrollTick(0);
     testStateRef.current = "idle";
     setTestState("idle");
     startTimeRef.current = 0;
 
-    setTimeout(() => wrapperRef.current?.focus(), 30);
+    requestAnimationFrame(() => requestAnimationFrame(() => wrapperRef.current?.focus()));
   }, []);
 
-  useEffect(() => {
-    initTest();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTimer, typingMode]);
+  useEffect(() => { initTest(); }, [selectedTimer, typingMode]); // eslint-disable-line
 
-  // ─── Keyboard handler ─────────────────────────────────────────
+  // ── Keyboard handler ─────────────────────────────────────────────────────
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Tab") { e.preventDefault(); initTest(); return; }
       if (e.ctrlKey || e.altKey || e.metaKey) return;
-      if (e.key === "Tab" || e.key === "Escape") return;
-      if (testStateRef.current === "finished") return;
-
-      e.preventDefault();
-
-      if (e.key === "Backspace") {
-        // Backspace never affects error count — damage is already counted
-        typedRef.current = typedRef.current.slice(0, -1);
-        setTypedChars([...typedRef.current]);
+      if (testStateRef.current === "finished") {
+        if (e.key === "Enter") { e.preventDefault(); initTest(); }
         return;
       }
+      e.preventDefault();
+      if (e.key === "Escape") { initTest(); return; }
 
+      if (e.key === "Backspace") {
+        typedRef.current = typedRef.current.slice(0, -1);
+        const next = [...typedRef.current];
+        setTypedChars(next);
+        updateScroll(next.length);
+        return;
+      }
       if (e.key.length !== 1) return;
 
-      // Start timer on very first character
+      // Start timer
       if (testStateRef.current === "idle") {
         startTimeRef.current = Date.now();
         testStateRef.current = "running";
         setTestState("running");
-
         let remaining = selectedTimerRef.current;
         timerRef.current = setInterval(() => {
           remaining -= 1;
           setTimeLeft(remaining);
-          if (remaining <= 0) {
-            clearInterval(timerRef.current!);
-            endTest();
-          }
+          if (remaining <= 0) { clearInterval(timerRef.current!); endTest(); }
         }, 1000);
       }
 
-      // Track keystroke and whether it was correct AT THIS MOMENT
-      const pos     = typedRef.current.length;
-      const correct = textRef.current[pos] === e.key;
+      const allChars = wordsRef.current.flatMap(w => w.chars);
+      const pos      = typedRef.current.length;
       keystrokesRef.current += 1;
-      if (!correct) rawErrorsRef.current += 1;
+      if (allChars[pos] !== e.key) rawErrorsRef.current += 1;
 
       typedRef.current = [...typedRef.current, e.key];
-      setTypedChars([...typedRef.current]);
-
-      // Scroll next char into view smoothly
-      const nextIdx = typedRef.current.length;
-      charEls.current[nextIdx]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const next = [...typedRef.current];
+      setTypedChars(next);
+      updateScroll(next.length);
     },
-    [endTest]
+    [endTest, initTest, updateScroll],
   );
 
-  // ─── Char states (memoised) ───────────────────────────────────
+  // ── Char states ───────────────────────────────────────────────────────────
 
-  const charStates = useMemo<("correct" | "incorrect" | "cursor" | "pending")[]>(() => {
-    return text.map((_, i) => {
-      if (i < typedChars.length) return typedChars[i] === text[i] ? "correct" : "incorrect";
+  const allChars = useMemo(() => words.flatMap(w => w.chars), [words]);
+
+  type CS = "correct" | "incorrect" | "cursor" | "pending";
+  const charStates = useMemo<CS[]>(() => {
+    return allChars.map((_, i) => {
+      if (i < typedChars.length) return typedChars[i] === allChars[i] ? "correct" : "incorrect";
       if (i === typedChars.length) return "cursor";
       return "pending";
     });
-  }, [text, typedChars]);
+  }, [allChars, typedChars]);
 
-  // ─── Custom timer handlers ────────────────────────────────────
+  // ── Custom timer handlers ─────────────────────────────────────────────────
 
   const handleAddTimer = async () => {
-    const dur = parseInt(newTimerDuration, 10);
+    const dur = parseInt(newTimerDur, 10);
     if (!dur || dur < 1 || dur > 3600) { toast.error("Duration must be 1–3600 seconds"); return; }
     setAddingTimer(true);
     try {
       const res  = await fetch("/api/typing/timers", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ duration: dur }),
       });
       const data = await res.json();
       if (data.success) {
-        setCustomTimers(prev => [...prev, data.timer]);
-        setNewTimerDuration(""); setShowAddTimer(false);
+        setCustomTimers(p => [...p, data.timer]);
+        setNewTimerDur(""); setShowAddTimer(false);
         toast.success("Custom timer added");
-      } else { toast.error(data.message); }
+      } else toast.error(data.message);
     } catch { toast.error("Failed to add timer"); }
     finally { setAddingTimer(false); }
   };
 
   const handleDeleteTimer = async () => {
-    if (!confirmDelete) return;
+    if (!confirmDel) return;
     setDeletingTimer(true);
     try {
       const res  = await fetch("/api/typing/timers", {
-        method: "DELETE", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timerId: confirmDelete._id, duration: confirmDelete.duration }),
+        method:"DELETE", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ timerId: confirmDel._id, duration: confirmDel.duration }),
       });
       const data = await res.json();
       if (data.success) {
-        setCustomTimers(prev => prev.filter(t => t._id !== confirmDelete._id));
-        if (selectedTimer === confirmDelete.duration) setSelectedTimer(30);
-        setConfirmDelete(null);
+        setCustomTimers(p => p.filter(t => t._id !== confirmDel._id));
+        if (selectedTimer === confirmDel.duration) setSelectedTimer(30);
+        setConfirmDel(null);
         toast.success("Timer deleted");
-        fetchStats(selectedTimerRef.current);
-      } else { toast.error(data.message); }
+        statsCache.delete(confirmDel.duration);
+        fetchStats(selectedTimerRef.current, true);
+      } else toast.error(data.message);
     } catch { toast.error("Failed to delete timer"); }
     finally { setDeletingTimer(false); }
   };
 
-  // ─── Derived values ───────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
 
-  const timerLabel  = formatDuration(selectedTimer);
+  const timerLabel  = fmtDur(selectedTimer);
   const s           = statsData?.stats ?? EMPTY_STATS;
   const globalTotal = statsData?.globalTotalTests ?? 0;
 
   const MODES: { key: TypingMode; label: string; title: string }[] = [
-    { key: "smallLetters",    label: "abc", title: "Lowercase only"   },
-    { key: "mixedLetters",    label: "Abc", title: "Mixed case"       },
-    { key: "punctuation",     label: "!,.", title: "With punctuation" },
-    { key: "numbers",         label: "123", title: "Numbers only"     },
-    { key: "numbersIncluded", label: "ab1", title: "Words + numbers"  },
+    { key:"smallLetters",    label:"abc", title:"Lowercase only"   },
+    { key:"mixedLetters",    label:"Abc", title:"Mixed case"       },
+    { key:"punctuation",     label:"!,.", title:"With punctuation" },
+    { key:"numbers",         label:"123", title:"Numbers only"     },
+    { key:"numbersIncluded", label:"ab1", title:"Words + numbers"  },
   ];
 
-  // ─── Render ───────────────────────────────────────────────────
+  const liveWpm = useMemo(() => {
+    if (testState !== "running" || !startTimeRef.current) return null;
+    const elapsed = (Date.now() - startTimeRef.current) / 1000 / 60;
+    if (elapsed < 0.05) return null;
+    const raw = Math.round((typedChars.length / 5) / elapsed);
+    const ks  = keystrokesRef.current;
+    const re  = rawErrorsRef.current;
+    const acc = ks > 0 ? (ks - re) / ks : 1;
+    return Math.round(raw * acc * acc);
+  }, [testState, typedChars.length]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen flex flex-col gap-6 pb-8" style={{ background: "var(--bg)", color: "var(--text)" }}>
+    <div className="min-h-screen flex flex-col gap-4 sm:gap-6 pb-10"
+      style={{ background:"var(--bg)", color:"var(--text)" }}>
 
-      {/* Inject character colour vars + blink keyframe once */}
+      {/* ── Injected styles ── */}
       <style>{`
-        ${CHAR_STYLE_TAG}
+        /* Character colours */
+        .tc-p  { color: var(--tc-p,  #7a7a8c); }
+        .tc-ok { color: var(--tc-ok, var(--green, #22d3a0)); }
+        .tc-er {
+          color: var(--tc-er, var(--danger, #f87171));
+          text-decoration-line: underline;
+          text-decoration-style: wavy;
+          text-decoration-color: var(--tc-er, #f87171);
+        }
+        body[data-theme="light"] { --tc-p: #55556a; }
+        @media (prefers-color-scheme: light) { :root { --tc-p: #55556a; } }
 
-        /* Pending chars: clearly readable but visually dimmer than typed.
-           We use a fixed mid-grey so it works well in BOTH dark and light themes. */
-        :root {
-          --tc-pending:   #888899;
-          --tc-correct:   var(--green);
-          --tc-incorrect: var(--danger);
-          --tc-cursor:    var(--text);
+        /* Cursor blink */
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+        /* Word token — never breaks mid-word */
+        .wt {
+          display: inline-flex;
+          white-space: nowrap;
+          flex-shrink: 0;
+          /* Slight letter-spacing inside each word for readability */
         }
 
-        /* Light theme — pending needs to be darker so it's readable on white */
-        @media (prefers-color-scheme: light) {
-          :root { --tc-pending: #606070; }
+        /* Typing text size — fluid */
+        .ty-text {
+          font-size: clamp(16px, 1.6vw + 8px, 24px);
+          line-height: 2.4;
+          letter-spacing: 0.02em;
         }
 
-        /* Also honour the JS-toggled class the layout.tsx injects */
-        body[data-theme="light"] { --tc-pending: #606070; }
+        /* Focus ring */
+        .ty-focused { box-shadow: 0 0 0 2.5px rgba(124,110,243,.45); }
+        .ty-panel   { border-radius: 16px; transition: box-shadow .2s; }
 
-        @keyframes typingCursorBlink {
-          0%, 100% { opacity: 1; }
-          50%       { opacity: 0; }
+        /* Unfocused overlay */
+        .ty-overlay {
+          position:absolute; inset:0; border-radius:12px; z-index:20;
+          display:flex; align-items:center; justify-content:center;
+          background:rgba(0,0,0,.50);
+          backdrop-filter:blur(3px);
+          cursor:pointer;
         }
       `}</style>
 
-      {/* ── Page title ── */}
-      <div className="flex items-center gap-2 pt-1">
-        <span style={{ color: "var(--accent)", fontSize: 22 }}>⌨</span>
-        <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>Typing Practice</h1>
-        <span
-          className="ml-1 text-xs font-semibold px-2 py-0.5 rounded-full font-mono"
-          style={{ background: "rgba(124,110,243,0.15)", color: "var(--accent2)", border: "1px solid rgba(124,110,243,0.25)" }}
-        >
+      {/* ── Header ── */}
+      <div className="flex items-center gap-2 pt-1 flex-wrap">
+        <span style={{ color:"var(--accent)", fontSize:22 }}>⌨</span>
+        <h1 className="text-lg sm:text-xl font-bold" style={{ color:"var(--text)" }}>Typing Practice</h1>
+        <span className="text-xs font-semibold px-2 py-0.5 rounded-full font-mono"
+          style={{ background:"rgba(124,110,243,.15)", color:"var(--accent2)", border:"1px solid rgba(124,110,243,.25)" }}>
           {timerLabel}
         </span>
+        <div className="ml-auto flex items-center gap-1.5 text-[10px] sm:text-xs font-mono"
+          style={{ color:"var(--text3)" }}>
+          <kbd className="px-1.5 py-0.5 rounded"
+            style={{ background:"var(--surface2)", border:"1px solid var(--border2)" }}>Tab</kbd>
+          restart
+        </div>
       </div>
 
-      {/* ── Stats Cards — scoped to selected timer ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatsCard
-          title={`Best Speed · ${timerLabel}`}
-          primary={`${s.highestWpm} WPM`}
-          sub1={`${s.accuracyAtHighestWpm}% accuracy`}
-          accent="var(--accent2)"
-          loading={statsLoading}
-        />
-        <StatsCard
-          title={`Best Accuracy · ${timerLabel}`}
-          primary={`${s.highestAccuracy}%`}
-          sub1={`${s.wpmAtHighestAccuracy} WPM`}
-          accent="var(--green)"
-          loading={statsLoading}
-        />
-        <StatsCard
-          title="Tests Completed"
-          primary={`${globalTotal}`}
-          sub1={`${s.totalTests} on ${timerLabel} timer`}
-          sub2="all timers · all time"
-          accent="var(--amber)"
-          loading={statsLoading}
-        />
-        <StatsCard
-          title={`Avg WPM · ${timerLabel}`}
-          primary={`${s.averageWpm}`}
-          sub1={`${s.totalTests} test${s.totalTests !== 1 ? "s" : ""} on this timer`}
-          accent="#38bdf8"
-          loading={statsLoading}
-        />
+      {/* ── Stats cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <StatsCard title={`Best Speed · ${timerLabel}`} primary={`${s.highestWpm} WPM`}
+          sub1={`${s.accuracyAtHighestWpm}% accuracy`} accent="var(--accent2)" loading={statsLoading} />
+        <StatsCard title={`Best Accuracy · ${timerLabel}`} primary={`${s.highestAccuracy}%`}
+          sub1={`${s.wpmAtHighestAccuracy} WPM`} accent="var(--green)" loading={statsLoading} />
+        <StatsCard title="Tests Completed" primary={`${globalTotal}`}
+          sub1={`${s.totalTests} on ${timerLabel}`} sub2="all timers · all time"
+          accent="var(--amber)" loading={statsLoading} />
+        <StatsCard title={`Avg WPM · ${timerLabel}`} primary={`${s.averageWpm}`}
+          sub1={`${s.totalTests} test${s.totalTests !== 1 ? "s" : ""}`}
+          accent="#38bdf8" loading={statsLoading} />
       </div>
 
-      {/* ── Typing Panel ── */}
-      <div
-        className="rounded-2xl flex flex-col gap-4 p-5 sm:p-6"
-        style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
-      >
+      {/* ── Typing panel ── */}
+      <div className="flex flex-col gap-3 sm:gap-5 p-4 sm:p-6 ty-panel"
+        style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+
         {/* Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
 
-          {/* Timer selector */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Timer buttons */}
+          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
             {DEFAULT_TIMERS.map(t => (
-              <button
-                key={t}
-                onClick={() => setSelectedTimer(t)}
-                className="px-3 py-1.5 rounded-lg text-sm font-mono font-medium transition-all duration-150"
+              <button key={t} onClick={() => setSelectedTimer(t)}
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all"
                 style={{
-                  background: selectedTimer === t ? "var(--accent)"  : "var(--surface2)",
-                  color:      selectedTimer === t ? "#fff"            : "var(--text2)",
-                  border:     selectedTimer === t ? "1px solid var(--accent)" : "1px solid var(--border2)",
-                }}
-              >
-                {formatDuration(t)}
+                  background: selectedTimer===t ? "var(--accent)"  : "var(--surface2)",
+                  color:      selectedTimer===t ? "#fff"            : "var(--text2)",
+                  border:     selectedTimer===t ? "1px solid var(--accent)" : "1px solid var(--border2)",
+                }}>
+                {fmtDur(t)}
               </button>
             ))}
 
             {customTimers.map(ct => (
               <div key={ct._id} className="relative group flex items-center">
-                <button
-                  onClick={() => setSelectedTimer(ct.duration)}
-                  className="px-3 py-1.5 rounded-lg text-sm font-mono font-medium transition-all duration-150 pr-6"
+                <button onClick={() => setSelectedTimer(ct.duration)}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all pr-5"
                   style={{
-                    background: selectedTimer === ct.duration ? "var(--accent)"  : "var(--surface2)",
-                    color:      selectedTimer === ct.duration ? "#fff"            : "var(--text2)",
-                    border:     selectedTimer === ct.duration ? "1px solid var(--accent)" : "1px solid var(--border2)",
-                  }}
-                >
-                  {formatDuration(ct.duration)}
+                    background: selectedTimer===ct.duration ? "var(--accent)"  : "var(--surface2)",
+                    color:      selectedTimer===ct.duration ? "#fff"            : "var(--text2)",
+                    border:     selectedTimer===ct.duration ? "1px solid var(--accent)" : "1px solid var(--border2)",
+                  }}>
+                  {fmtDur(ct.duration)}
                 </button>
-                <button
-                  onClick={() => setConfirmDelete(ct)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 text-xs w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ color: "var(--danger)" }}
-                  title="Delete timer"
-                >×</button>
+                <button onClick={() => setConfirmDel(ct)}
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 text-xs w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ color:"var(--danger)" }}>×</button>
               </div>
             ))}
 
             {customTimers.length < 3 && (
-              <button
-                onClick={() => setShowAddTimer(!showAddTimer)}
-                className="px-3 py-1.5 rounded-lg text-sm font-mono font-medium transition-all"
-                style={{ background: "transparent", color: "var(--text3)", border: "1px dashed var(--border2)" }}
-                title="Add custom timer"
-              >+</button>
+              <button onClick={() => setShowAddTimer(!showAddTimer)}
+                className="px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium"
+                style={{ background:"transparent", color:"var(--text3)", border:"1px dashed var(--border2)" }}
+                title="Add custom timer">+</button>
             )}
 
             {showAddTimer && (
-              <div
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1"
-                style={{ background: "var(--surface2)", border: "1px solid var(--border2)" }}
-              >
-                <input
-                  type="number" value={newTimerDuration}
-                  onChange={e => setNewTimerDuration(e.target.value)}
+              <div className="flex items-center gap-1.5 rounded-lg px-2 py-1"
+                style={{ background:"var(--surface2)", border:"1px solid var(--border2)" }}>
+                <input type="number" value={newTimerDur} onChange={e => setNewTimerDur(e.target.value)}
                   placeholder="sec" min={1} max={3600}
-                  className="bg-transparent text-sm w-16 outline-none font-mono"
-                  style={{ color: "var(--text)" }}
-                  onKeyDown={e => e.key === "Enter" && handleAddTimer()}
-                />
+                  className="bg-transparent text-xs sm:text-sm w-14 outline-none font-mono"
+                  style={{ color:"var(--text)" }}
+                  onKeyDown={e => e.key==="Enter" && handleAddTimer()} />
                 <button onClick={handleAddTimer} disabled={addingTimer}
-                  className="text-xs font-medium disabled:opacity-50"
-                  style={{ color: "var(--accent)" }}>
+                  className="text-xs font-medium disabled:opacity-50" style={{ color:"var(--accent)" }}>
                   {addingTimer ? "…" : "add"}
                 </button>
-                <button onClick={() => setShowAddTimer(false)} className="text-xs" style={{ color: "var(--text3)" }}>×</button>
+                <button onClick={() => setShowAddTimer(false)} className="text-xs"
+                  style={{ color:"var(--text3)" }}>×</button>
               </div>
             )}
           </div>
 
-          {/* Mode selector */}
-          <div className="flex items-center gap-1">
+          {/* Mode */}
+          <div className="flex items-center gap-0.5 sm:gap-1">
             {MODES.map(({ key, label, title }) => (
               <button key={key} onClick={() => setTypingMode(key)} title={title}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all duration-150"
+                className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs font-mono font-medium transition-all"
                 style={{
-                  background: typingMode === key ? "rgba(124,110,243,0.15)" : "transparent",
-                  color:      typingMode === key ? "var(--accent2)"         : "var(--text3)",
-                  border:     typingMode === key ? "1px solid rgba(124,110,243,0.35)" : "1px solid transparent",
-                }}
-              >{label}</button>
+                  background: typingMode===key ? "rgba(124,110,243,.15)" : "transparent",
+                  color:      typingMode===key ? "var(--accent2)"         : "var(--text3)",
+                  border:     typingMode===key ? "1px solid rgba(124,110,243,.35)" : "1px solid transparent",
+                }}>
+                {label}
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Timer countdown */}
-        <div className="flex items-center justify-between px-0.5 h-9">
-          <span
-            className="font-mono text-3xl font-bold tabular-nums transition-colors duration-300"
+        {/* Timer + live stats row */}
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums transition-colors"
             style={{
-              color: testState === "running" && timeLeft <= 5
+              color: testState==="running" && timeLeft<=5
                 ? "var(--danger)"
-                : testState === "running"
+                : testState==="running"
                   ? "var(--accent2)"
                   : "var(--text3)",
-            }}
-          >
+            }}>
             {timeLeft}
           </span>
-          {testState === "idle" && (
-            <span className="text-sm animate-pulse" style={{ color: "var(--text3)" }}>
-              click here and start typing
+
+          {testState==="idle" && (
+            <span className="text-xs sm:text-sm animate-pulse" style={{ color:"var(--text3)" }}>
+              click the text and start typing
             </span>
           )}
-          {testState === "running" && (
-            <span className="text-sm font-mono" style={{ color: "var(--text3)" }}>
-              {typedChars.length} chars
-            </span>
+          {testState==="running" && (
+            <div className="flex items-center gap-3 font-mono text-xs sm:text-sm"
+              style={{ color:"var(--text3)" }}>
+              {liveWpm !== null && <span style={{ color:"var(--accent2)" }}>{liveWpm} wpm</span>}
+              <span>{typedChars.length} chars</span>
+            </div>
           )}
         </div>
 
-        {/* ── Typing area ── */}
+        {/* ── THE TYPING AREA ─────────────────────────────────────────────── */}
         {/*
-          Focusable div captures all keystrokes via onKeyDown.
-          No hidden <input> — avoids onChange / backspace edge cases.
+          Architecture:
+            • wrapperRef  — focusable keyboard-capture div (outline:none)
+            • clipRef     — overflow:hidden viewport; height = 4 lines
+            • textBlockRef — the full text rendered with flex-wrap; shifted
+                             via transform:translateY(lineOffsetRef.current)
+            • word-tokens (.wt) — each word is inline-flex, never breaks
+
+          Scroll algorithm (see updateScroll above):
+            1. Find which word-element contains the cursor character.
+            2. Undo the current transform to get the word's layout-space top.
+            3. Determine which row (0-indexed) the word is on.
+            4. If row hasn't changed since last keystroke, do nothing (no jitter).
+            5. If row > 0, shift the entire block up by -(row * lineHeight).
+            6. Row 0 = offset 0 (never over-scroll upward).
         */}
         <div
           ref={wrapperRef}
           tabIndex={0}
           onKeyDown={handleKeyDown}
-          className="relative outline-none select-none cursor-text"
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onClick={() => wrapperRef.current?.focus()}
+          className={`relative outline-none select-none cursor-text ty-panel ${isFocused ? "ty-focused" : ""}`}
           aria-label="Typing area — click and start typing"
+          style={{ outline: "none" }}
         >
-          {/* Focus ring */}
+          {/* ── Clip viewport — 4 lines tall ── */}
           <div
-            className="absolute inset-0 rounded-xl pointer-events-none transition-all duration-200"
+            ref={clipRef}
+            className="overflow-hidden relative"
             style={{
-              boxShadow: testState === "running"
-                ? "0 0 0 2px rgba(124,110,243,0.2)"
-                : "0 0 0 2px transparent",
-            }}
-          />
+              // Height = 4 × line-height of .ty-text
+              // ty-text line-height = 2.4; font-size ≈ clamp(16px, ~, 24px)
+              // We use em units so it scales with the font:
+              // 4 lines × 2.4em line-height = 9.6em
+              // Add 0.8em top+bottom padding so first/last line aren't clipped
+              height: "calc(4 * 2.4 * clamp(16px, 1.6vw + 8px, 24px))",
+              padding: "0.5em 0.5em",
+              borderRadius: 12,
+            }}>
 
-          <div
-            className="relative overflow-hidden rounded-xl"
-            style={{ height: "7.5rem", padding: "0.6rem 0.4rem" }}
-          >
-            {/* Top fade */}
-            <div className="absolute top-0 left-0 right-0 h-6 pointer-events-none z-10"
-              style={{ background: "linear-gradient(to bottom, var(--surface), transparent)" }} />
-            {/* Bottom fade */}
-            <div className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-10"
-              style={{ background: "linear-gradient(to top, var(--surface), transparent)" }} />
+            {/* Top fade mask */}
+            <div className="absolute top-0 left-0 right-0 pointer-events-none z-10"
+              style={{ height:"2em", background:"linear-gradient(to bottom, var(--surface), transparent)" }} />
+            {/* Bottom fade mask */}
+            <div className="absolute bottom-0 left-0 right-0 pointer-events-none z-10"
+              style={{ height:"2em", background:"linear-gradient(to top, var(--surface), transparent)" }} />
 
-            {/* Characters — className only, no mixed shorthand/longhand style conflict */}
-            <div className="flex flex-wrap font-mono text-xl leading-relaxed" style={{ gap: "0 1px" }}>
-              {text.map((char, i) => {
-                const state = charStates[i];
-                return (
-                  <span
-                    key={i}
-                    ref={el => { charEls.current[i] = el; }}
-                    className={`relative transition-colors duration-[50ms] ${
-                      state === "correct"   ? "tc-correct"   :
-                      state === "incorrect" ? "tc-incorrect" :
-                      state === "cursor"    ? "tc-cursor"    :
-                      "tc-pending"
-                    }`}
-                  >
-                    {/* Blinking vertical cursor line */}
-                    {state === "cursor" && (
+            {/* Click-to-focus overlay */}
+            {!isFocused && testState !== "finished" && (
+              <div className="ty-overlay" onClick={() => wrapperRef.current?.focus()}>
+                <div className="flex flex-col items-center gap-2 text-white text-center px-4">
+                  <span className="text-3xl">⌨️</span>
+                  <span className="text-sm sm:text-base font-semibold">Click here to start typing</span>
+                  <span className="text-[11px] opacity-70">or tap this box on mobile</span>
+                </div>
+              </div>
+            )}
+
+            {/* ── Text block — shifts up via transform ── */}
+            <div
+              ref={textBlockRef}
+              className="ty-text font-mono"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignContent: "flex-start",
+                transform: `translateY(${lineOffsetRef.current}px)`,
+                transition: "transform 0.1s ease",
+                paddingBottom: "4em",
+                userSelect: "none",
+              }}
+            >
+              {words.map((token, wi) => (
+                <span
+                  key={wi}
+                  ref={el => { wordElsRef.current[wi] = el; }}
+                  className="wt"
+                >
+                  {token.chars.map((ch, ci) => {
+                    const gi    = token.startIdx + ci;
+                    const state = charStates[gi] ?? "pending";
+                    const isCur = state === "cursor";
+
+                    return (
                       <span
-                        className="absolute top-0 bottom-0"
-                        style={{
-                          left: -1, width: 2, borderRadius: 1,
-                          background: "var(--accent)",
-                          animation: "typingCursorBlink 1s step-end infinite",
-                        }}
-                      />
-                    )}
-                    {char === " " ? "\u00A0" : char}
-                  </span>
-                );
-              })}
+                        key={ci}
+                        className={
+                          state === "correct"   ? "tc-ok" :
+                          state === "incorrect" ? "tc-er" :
+                          "tc-p"
+                        }
+                        style={isCur ? { color:"var(--text)", position:"relative" } : undefined}
+                      >
+                        {/* Cursor bar */}
+                        {isCur && (
+                          <span style={{
+                            position:"absolute", left:-1, top:"15%", bottom:"10%",
+                            width:2, borderRadius:1,
+                            background:"var(--accent)",
+                            animation:"blink 1s step-end infinite",
+                          }} />
+                        )}
+                        {ch === " " ? "\u00A0" : ch}
+                      </span>
+                    );
+                  })}
+                </span>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Restart */}
-        <div className="flex justify-center pt-1">
-          <button
-            onClick={initTest}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm transition-all duration-150"
-            style={{ color: "var(--text3)", background: "transparent", border: "1px solid transparent" }}
+        {/* Restart hint */}
+        <div className="flex items-center justify-center gap-3">
+          <button onClick={initTest}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm transition-all"
+            style={{ color:"var(--text3)", background:"transparent", border:"1px solid transparent" }}
             onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.color      = "var(--text2)";
-              (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
-              (e.currentTarget as HTMLElement).style.border     = "1px solid var(--border2)";
+              const el = e.currentTarget as HTMLElement;
+              el.style.color="var(--text2)"; el.style.background="var(--surface2)";
+              el.style.border="1px solid var(--border2)";
             }}
             onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.color      = "var(--text3)";
-              (e.currentTarget as HTMLElement).style.background = "transparent";
-              (e.currentTarget as HTMLElement).style.border     = "1px solid transparent";
-            }}
-          >
-            <span style={{ fontSize: 16 }}>↺</span> restart
+              const el = e.currentTarget as HTMLElement;
+              el.style.color="var(--text3)"; el.style.background="transparent";
+              el.style.border="1px solid transparent";
+            }}>
+            <span style={{ fontSize:16 }}>↺</span> restart
           </button>
+          <span className="text-[10px] sm:text-xs font-mono" style={{ color:"var(--text3)" }}>
+            <kbd className="px-1.5 py-0.5 rounded text-[10px]"
+              style={{ background:"var(--surface2)", border:"1px solid var(--border2)" }}>Tab</kbd>
+            {" "}quick restart
+          </span>
         </div>
       </div>
 
-      {/* ── Result overlay ── */}
+      {/* ── Result modal — bottom-sheet on mobile ── */}
       {testState === "finished" && result && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ background: "rgba(0,0,0,0.80)", backdropFilter: "blur(6px)" }}
-        >
-          <div
-            className="rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl flex flex-col gap-5"
-            style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
-          >
-            {/* Header */}
+        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background:"rgba(0,0,0,.82)", backdropFilter:"blur(6px)" }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-2xl p-6 sm:p-8 flex flex-col gap-5"
+            style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+
             <div className="text-center">
-              <div className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text3)" }}>
+              <div className="text-[10px] font-bold uppercase tracking-widest mb-1"
+                style={{ color:"var(--text3)" }}>
                 {timerLabel} · {typingMode}
               </div>
-              <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>Test Complete</h2>
+              <h2 className="text-lg sm:text-xl font-bold" style={{ color:"var(--text)" }}>
+                Test Complete
+              </h2>
             </div>
 
-            {/* Stats grid */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {[
-                { label: "WPM",         value: `${result.wpm}`,            color: "var(--accent2)" },
-                { label: "Accuracy",    value: `${result.accuracy}%`,      color: "var(--green)"   },
-                { label: "Keystrokes",  value: `${result.totalKeystrokes}`, color: "var(--amber)"   },
-                { label: "Errors Made", value: `${result.errors}`,          color: "var(--danger)"  },
-              ].map(({ label, value, color }) => (
-                <div
-                  key={label}
-                  className="rounded-xl p-4 text-center"
-                  style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}
-                >
-                  <div className="text-3xl font-bold font-mono" style={{ color }}>{value}</div>
-                  <div className="text-[10px] mt-1 uppercase tracking-widest font-semibold" style={{ color: "var(--text3)" }}>
-                    {label}
-                  </div>
+                { label:"Effective WPM",  value:`${result.effectiveWpm}`, sub:"speed × accuracy²",     color:"var(--accent2)" },
+                { label:"Accuracy",       value:`${result.accuracy}%`,    sub:`${result.totalKeystrokes} keystrokes`, color:"var(--green)"   },
+                { label:"Raw WPM",        value:`${result.wpm}`,          sub:"before accuracy penalty",color:"#38bdf8"        },
+                { label:"Errors Made",    value:`${result.errors}`,       sub:"incl. corrected",        color:"var(--danger)"  },
+              ].map(({ label, value, sub, color }) => (
+                <div key={label} className="rounded-xl p-3 sm:p-4 text-center"
+                  style={{ background:"var(--surface2)", border:"1px solid var(--border)" }}>
+                  <div className="text-2xl sm:text-3xl font-bold font-mono" style={{ color }}>{value}</div>
+                  <div className="text-[9px] sm:text-[10px] mt-1 uppercase tracking-widest font-semibold"
+                    style={{ color:"var(--text3)" }}>{label}</div>
+                  <div className="text-[9px] mt-0.5" style={{ color:"var(--text3)" }}>{sub}</div>
                 </div>
               ))}
             </div>
 
-            
-
-            {/* New record badges */}
-            <div className="flex flex-col gap-1.5">
-              {result.wpm > 0 && result.wpm >= s.highestWpm && s.highestWpm > 0 && (
-                <div className="text-xs text-center font-semibold" style={{ color: "var(--accent2)" }}>
+            <div className="flex flex-col gap-1">
+              {result.effectiveWpm > 0 && result.effectiveWpm >= s.highestWpm && s.highestWpm > 0 && (
+                <div className="text-xs text-center font-semibold" style={{ color:"var(--accent2)" }}>
                   🎉 New best speed on {timerLabel}!
                 </div>
               )}
               {result.accuracy > 0 && result.accuracy >= s.highestAccuracy && s.highestAccuracy > 0 && (
-                <div className="text-xs text-center font-semibold" style={{ color: "var(--green)" }}>
+                <div className="text-xs text-center font-semibold" style={{ color:"var(--green)" }}>
                   🎯 New best accuracy on {timerLabel}!
                 </div>
               )}
             </div>
 
-            {/* Next test button */}
-            <button
-              onClick={initTest}
-              className="w-full py-3 rounded-xl text-sm font-semibold transition-opacity duration-150"
-              style={{ background: "var(--accent)", color: "#fff", border: "1px solid var(--accent)" }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "0.85"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-            >
+            <button onClick={initTest}
+              className="w-full py-3 rounded-xl text-sm font-semibold transition-opacity"
+              style={{ background:"var(--accent)", color:"#fff" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity=".85"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity="1"; }}>
               Next Test ↵
+              <span className="ml-2 text-xs opacity-70 font-mono">or Tab / Enter</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* ── Delete confirmation ── */}
-      {confirmDelete && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)" }}
-        >
-          <div
-            className="rounded-2xl p-6 max-w-sm w-full mx-4"
-            style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
-          >
-            <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text)" }}>Delete Custom Timer</h3>
-            <p className="text-sm mb-5" style={{ color: "var(--text2)" }}>
-              All typing history and scores for the{" "}
-              <span className="font-mono" style={{ color: "var(--text)" }}>{formatDuration(confirmDelete.duration)}</span>{" "}
-              timer will be <span style={{ color: "var(--danger)" }}>permanently deleted</span>. This cannot be undone.
+      {/* ── Delete timer confirm ── */}
+      {confirmDel && (
+        <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
+          style={{ background:"rgba(0,0,0,.72)", backdropFilter:"blur(6px)" }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-2xl p-5 sm:p-6"
+            style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+            <h3 className="text-base font-semibold mb-2" style={{ color:"var(--text)" }}>
+              Delete Custom Timer
+            </h3>
+            <p className="text-sm mb-5" style={{ color:"var(--text2)" }}>
+              All history for the{" "}
+              <span className="font-mono" style={{ color:"var(--text)" }}>{fmtDur(confirmDel.duration)}</span>{" "}
+              timer will be <span style={{ color:"var(--danger)" }}>permanently deleted</span>.
             </p>
             <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="flex-1 px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ background: "var(--surface2)", color: "var(--text2)", border: "1px solid var(--border2)" }}
-              >Cancel</button>
-              <button
-                onClick={handleDeleteTimer} disabled={deletingTimer}
-                className="flex-1 px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50"
-                style={{ background: "rgba(248,113,113,0.12)", color: "var(--danger)", border: "1px solid rgba(248,113,113,0.3)" }}
-              >{deletingTimer ? "Deleting…" : "Delete"}</button>
+              <button onClick={() => setConfirmDel(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium"
+                style={{ background:"var(--surface2)", color:"var(--text2)", border:"1px solid var(--border2)" }}>
+                Cancel
+              </button>
+              <button onClick={handleDeleteTimer} disabled={deletingTimer}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50"
+                style={{ background:"rgba(248,113,113,.12)", color:"var(--danger)", border:"1px solid rgba(248,113,113,.3)" }}>
+                {deletingTimer ? "Deleting…" : "Delete"}
+              </button>
             </div>
           </div>
         </div>
