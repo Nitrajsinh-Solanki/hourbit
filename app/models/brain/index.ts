@@ -21,3 +21,6 @@ export type { ILevel, IUserLevelProgress, IUserLevelSession } from "./Level";
 
 export { Question }                                    from "./Question";
 export type { IQuestion }                              from "./Question";
+
+export { QuizAttemptResult }                           from "./QuizAttemptResult";
+export type { IQuizAttemptResult, IQuizAnswerDetail }  from "./QuizAttemptResult";

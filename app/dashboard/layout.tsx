@@ -1,5 +1,3 @@
-// app/dashboard/layout.tsx
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -23,6 +21,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Brain,
+  Zap,
 } from "lucide-react";
 import Logo from "../components/Logo";
 
@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   { label: "Go Date Wise",  href: "/dashboard/date-wise",icon: CalendarDays },
   { label: "Mark Holiday",  href: "/dashboard/holiday",  icon: Palmtree     },
   { label: "See Analysis",  href: "/dashboard/analysis", icon: BarChart2    },
+  { label: "Brain Quiz",    href: "/dashboard/quiz",     icon: Brain        },
   { label: "Diary",         href: "/dashboard/diary",    icon: BookOpen     },
   { label: "Typing Test",   href: "/dashboard/typing",   icon: Keyboard     },
   { label: "Profile",       href: "/dashboard/profile",  icon: User         },
@@ -364,13 +365,16 @@ function DashNavbar({
   onMobileMenuToggle,
   mobileOpen,
   sidebarCollapsed,
+  totalXp,
 }: {
   dark: boolean;
   onThemeToggle: () => void;
   onMobileMenuToggle: () => void;
   mobileOpen: boolean;
   sidebarCollapsed: boolean;
+  totalXp: number;
 }) {
+  const router     = useRouter();
   const leftOffset = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
 
   return (
@@ -412,6 +416,31 @@ function DashNavbar({
 
       {/* Right controls */}
       <div className="flex items-center gap-3">
+
+        {/* XP badge — navigates to quiz on click */}
+        <button
+          onClick={() => router.push("/dashboard/quiz")}
+          title="Your Brain XP — click to visit Quiz"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-none cursor-pointer transition-all hover:-translate-y-0.5"
+          style={{
+            background: "rgba(245,158,11,0.12)",
+            border:     "1px solid rgba(245,158,11,0.28)",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.22)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.55)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.12)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.28)";
+          }}
+        >
+          <Zap size={13} style={{ color: "var(--amber)" }} />
+          <span className="font-mono font-bold text-[12px]" style={{ color: "var(--amber)" }}>
+            {totalXp.toLocaleString()} XP
+          </span>
+        </button>
+
         <a
           href="https://my-portfolio-xi-ochre-28.vercel.app/"
           target="_blank"
@@ -512,6 +541,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [fullName, setFullName] = useState("");
+  const [totalXp,  setTotalXp]  = useState(0);
   const router = useRouter();
 
   // Persist collapse preference
@@ -551,6 +581,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .catch(() => router.replace("/auth/login"));
   }, [router]);
 
+  // Fetch total XP — non-blocking, silent on failure
+  const refreshXp = () => {
+    fetch("/api/quiz/xp")
+      .then(r => r.json())
+      .then(d => { if (d.success) setTotalXp(d.totalXp ?? 0); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshXp();
+    // Re-fetch whenever a quiz is completed
+    window.addEventListener("xp-updated", refreshXp);
+    return () => window.removeEventListener("xp-updated", refreshXp);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Close mobile sidebar on resize to desktop
   useEffect(() => {
     const handle = () => {
@@ -572,6 +617,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onMobileMenuToggle={() => setMobileOpen(p => !p)}
         mobileOpen={mobileOpen}
         sidebarCollapsed={sidebarCollapsed}
+        totalXp={totalXp}
       />
 
       <Sidebar
