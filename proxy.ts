@@ -1,14 +1,14 @@
-// middleware.ts
-// Edge runtime — cannot use jsonwebtoken (Node.js only)
-// Must use jose which is Web Crypto API compatible
+// proxy.ts  (root level, next to package.json)
+// Next.js 16: file is proxy.ts and the exported function must be named "proxy"
+// Edge runtime — uses jose (Web Crypto API), NOT jsonwebtoken (Node.js only)
 
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify }                 from "jose";
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only guard these two route trees
+  // Only guard dashboard and admin page routes
   const isProtectedPage =
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/admin");
@@ -17,7 +17,7 @@ export async function middleware(req: NextRequest) {
 
   const token = req.cookies.get("token")?.value;
 
-  // No token → redirect to login
+  // No token → redirect to login immediately
   if (!token) {
     const url = req.nextUrl.clone();
     url.pathname = "/auth/login";
@@ -25,20 +25,20 @@ export async function middleware(req: NextRequest) {
   }
 
   try {
-    // jose uses a Uint8Array secret — Edge compatible, no Node.js required
-    const secret  = new TextEncoder().encode(process.env.JWT_SECRET!);
+    // jose uses Web Crypto API — Edge compatible
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
     const { payload } = await jwtVerify(token, secret);
 
     const role = payload.role as string | undefined;
 
-    // Non-admin trying to reach /admin → send to dashboard
+    // Non-admin trying to reach /admin → redirect to dashboard
     if (pathname.startsWith("/admin") && role !== "admin") {
       const url = req.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);
     }
 
-    // Valid token, correct role → allow through
+    // Token valid, role correct → allow through
     return NextResponse.next();
 
   } catch {
