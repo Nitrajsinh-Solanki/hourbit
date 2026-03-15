@@ -11,7 +11,6 @@ import {
   Layers,
   BarChart3,
   HelpCircle,
-  Brain,
   Star,
   Trophy,
   ShieldCheck,
@@ -31,17 +30,16 @@ import Logo from "../components/Logo";
 
 // ── Nav items ─────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { label: "Dashboard",             href: "/admin",                  icon: LayoutDashboard },
-  { label: "User Management",       href: "/admin/users",            icon: Users           },
-  { label: "Categories",            href: "/admin/categories",       icon: Tag             },
-  { label: "Subcategories",         href: "/admin/subcategories",    icon: Layers          },
-  { label: "Levels Management",     href: "/admin/levels",           icon: BarChart3       },
-  { label: "Questions Management",  href: "/admin/questions",        icon: HelpCircle      },
-  { label: "Brain Analytics",       href: "/admin/brain-analytics",  icon: Brain           },
-  { label: "XP & Rewards",          href: "/admin/xp-rewards",       icon: Star            },
-  { label: "Leaderboard",           href: "/admin/leaderboard",      icon: Trophy          },
-  { label: "Admin Management",      href: "/admin/management",       icon: ShieldCheck     },
-  { label: "Profile",               href: "/admin/profile",          icon: User            },
+  { label: "Dashboard",            href: "/admin",               icon: LayoutDashboard },
+  { label: "User Management",      href: "/admin/users",         icon: Users           },
+  { label: "Categories",           href: "/admin/categories",    icon: Tag             },
+  { label: "Subcategories",        href: "/admin/subcategories", icon: Layers          },
+  { label: "Levels Management",    href: "/admin/levels",        icon: BarChart3       },
+  { label: "Questions Management", href: "/admin/questions",     icon: HelpCircle      },
+  { label: "XP & Rewards",         href: "/admin/xp-rewards",   icon: Star            },
+  { label: "Leaderboard",          href: "/admin/leaderboard",  icon: Trophy          },
+  { label: "Admin Management",     href: "/admin/management",   icon: ShieldCheck     },
+  { label: "Profile",              href: "/admin/profile",      icon: User            },
 ];
 
 const SIDEBAR_WIDTH     = 240;
@@ -208,13 +206,13 @@ function SidebarContent({
               title={collapsed ? label : undefined}
               className="flex items-center gap-3 rounded-xl transition-all no-underline"
               style={{
-                padding:    collapsed ? "10px 0" : "9px 12px",
+                padding:        collapsed ? "10px 0" : "9px 12px",
                 justifyContent: collapsed ? "center" : "flex-start",
-                background: isActive ? "rgba(232,67,147,0.13)" : "transparent",
-                color:      isActive ? "var(--accent)" : "var(--text3)",
-                fontWeight: isActive ? 600 : 400,
-                fontSize:   "13.5px",
-                borderLeft: isActive ? "2px solid var(--accent)" : "2px solid transparent",
+                background:     isActive ? "rgba(232,67,147,0.13)" : "transparent",
+                color:          isActive ? "var(--accent)" : "var(--text3)",
+                fontWeight:     isActive ? 600 : 400,
+                fontSize:       "13.5px",
+                borderLeft:     isActive ? "2px solid var(--accent)" : "2px solid transparent",
               }}
               onMouseEnter={e => {
                 if (!isActive) {
@@ -349,13 +347,13 @@ function Sidebar({
 
 // ── Root layout ───────────────────────────────────────────────
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const router   = useRouter();
+  const router         = useRouter();
   const { dark, toggle } = useTheme();
 
-  const [fullName,    setFullName]    = useState("");
-  const [loading,     setLoading]     = useState(true);
-  const [mobileOpen,  setMobileOpen]  = useState(false);
-  const [collapsed,   setCollapsed]   = useState(false);
+  const [fullName,   setFullName]   = useState("");
+  const [loading,    setLoading]    = useState(true);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed,  setCollapsed]  = useState(false);
 
   // Auth check — only allow role === "admin"
   useEffect(() => {
@@ -367,7 +365,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           return;
         }
         if (data.user.role !== "admin") {
-          // Employee → send to employee dashboard
           router.replace("/dashboard");
           return;
         }
@@ -381,7 +378,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
         <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+          <div
+            className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+            style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+          />
           <p className="font-mono text-sm" style={{ color: "var(--text3)" }}>Loading Admin Panel…</p>
         </div>
       </div>
@@ -392,13 +392,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
+
       {/* ── TOP NAVBAR ── */}
       <header
         className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4"
         style={{
-          height:     "64px",
-          background: "var(--bg)",
-          borderBottom: "1px solid var(--border2)",
+          height:         "64px",
+          background:     "var(--bg)",
+          borderBottom:   "1px solid var(--border2)",
           backdropFilter: "blur(12px)",
         }}
       >
@@ -464,14 +465,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <main
         className="transition-all duration-300 ease-in-out"
         style={{
-          marginLeft:  `${sidebarWidth}px` ,
-          paddingTop:  "64px",
+          marginLeft:    `${sidebarWidth}px`,
+          paddingTop:    "64px",
           paddingBottom: "44px",
-          minHeight:   "100vh",
+          minHeight:     "100vh",
         }}
       >
         <div className="hidden md:block" />
-        {/* Show sidebar offset on mobile */}
         <div className="md:hidden" style={{ marginLeft: 0 }} />
         <div className="p-4 md:p-6" style={{ maxWidth: "1400px" }}>
           {children}
@@ -482,12 +482,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <footer
         className="fixed bottom-0 z-50 flex items-center justify-between px-5"
         style={{
-          left:         `${sidebarWidth}px`,
-          right:        0,
-          height:       "44px",
-          background:   "var(--bg)",
-          borderTop:    "1px solid var(--border2)",
-          transition:   "left 0.3s ease",
+          left:       `${sidebarWidth}px`,
+          right:      0,
+          height:     "44px",
+          background: "var(--bg)",
+          borderTop:  "1px solid var(--border2)",
+          transition: "left 0.3s ease",
         }}
       >
         <p className="text-xs" style={{ color: "var(--text4)", whiteSpace: "nowrap" }}>
@@ -503,17 +503,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </a>
         </p>
         <div className="flex items-center gap-4">
-          <a href="https://www.linkedin.com/in/nitrajsinh-solanki-647b11293" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs transition-colors" style={{ color: "var(--text4)" }}>
+          <a
+            href="https://www.linkedin.com/in/nitrajsinh-solanki-647b11293"
+            target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs transition-colors"
+            style={{ color: "var(--text4)" }}
+          >
             <Linkedin size={13} /><span className="hidden sm:inline">LinkedIn</span>
           </a>
-          <a href="https://github.com/Nitrajsinh-Solanki" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs transition-colors" style={{ color: "var(--text4)" }}>
+          <a
+            href="https://github.com/Nitrajsinh-Solanki"
+            target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs transition-colors"
+            style={{ color: "var(--text4)" }}
+          >
             <Github size={13} /><span className="hidden sm:inline">GitHub</span>
           </a>
-          <a href="https://my-portfolio-xi-ochre-28.vercel.app/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs transition-colors" style={{ color: "var(--text4)" }}>
+          <a
+            href="https://my-portfolio-xi-ochre-28.vercel.app/"
+            target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs transition-colors"
+            style={{ color: "var(--text4)" }}
+          >
             <Globe size={13} /><span className="hidden sm:inline">Portfolio</span>
           </a>
         </div>
       </footer>
+
     </div>
   );
 }
