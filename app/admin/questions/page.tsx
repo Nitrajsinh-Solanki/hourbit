@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
+import Link from "next/link";
 import {
   Plus, Pencil, Trash2, Search, X,
   ChevronUp, ChevronDown, HelpCircle,
@@ -10,7 +11,7 @@ import {
   GripVertical, CheckCircle, Eye,
   Tag, Layers, BarChart3, Shield,
   Zap, Lightbulb, FileText, BookOpen,
-  ToggleLeft, ToggleRight, Type, List,
+  ToggleLeft, ToggleRight, Type, List, Upload,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1203,6 +1204,14 @@ export default function QuestionsPage() {
             >
               <RefreshCw size={15} className={fetchLoading ? "animate-spin" : ""} />
             </button>
+            <Link
+              href="/admin/questions/bulk-upload"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13.5px] font-semibold no-underline"
+              style={{ background: "var(--surface2)", color: "var(--text2)", border: "1px solid var(--border2)" }}
+            >
+              <Upload size={15} />
+              <span className="hidden sm:inline">Bulk Upload</span>
+            </Link>
             <button
               onClick={() => setAddOpen(o => !o)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-[13.5px] font-semibold border-none cursor-pointer"
