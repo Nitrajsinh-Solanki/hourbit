@@ -1,12 +1,8 @@
 // app/layout.tsx
-
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Navbar from "./components/Navbar";
-import Footer from "./components/Footer";
 import { ReactNode } from "react";
 import { Toaster } from "react-hot-toast";
-
 
 export const viewport: Viewport = {
   themeColor: "#0a0a0f",
@@ -33,9 +29,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col bg-[#0a0a0f] text-[#e8e8f0]">
-        <Navbar />
-        <main className="grow">{children}</main>
-        <Footer />
+        {children}
         <Toaster position="top-right" />
       </body>
     </html>

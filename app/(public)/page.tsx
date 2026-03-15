@@ -1,8 +1,8 @@
 // app/page.tsx
 
 import type { Metadata } from "next";
-import HomePage from "./components/HomePage";
-import AutoRedirect from "./components/AutoRedirect";
+import HomePage from "../components/HomePage";
+import AutoRedirect from "../components/AutoRedirect";
 
 export const metadata: Metadata = {
   title: "Hour Bit — Free Work Hours Tracker & Leave Time Calculator",
