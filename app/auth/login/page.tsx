@@ -18,13 +18,17 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [checking, setChecking]         = useState(true);
 
-  // ── Auto-login: if valid token exists, go straight to dashboard ──
+  // ── Auto-login: if valid token exists, route by role ──────────────────────
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((data) => {
         if (data.success) {
-          router.replace("/dashboard");
+          if (data.user?.role === "admin") {
+            router.replace("/admin");
+          } else {
+            router.replace("/dashboard");
+          }
         } else {
           setChecking(false);
         }
@@ -58,9 +62,18 @@ export default function LoginPage() {
 
       toast.success("Login successful");
 
+      // ── Fetch role after login and redirect accordingly ───────────────────
+      const meRes  = await fetch("/api/auth/me");
+      const meData = await meRes.json();
+
       setTimeout(() => {
-        router.push("/dashboard");
+        if (meData.success && meData.user?.role === "admin") {
+          router.push("/admin");
+        } else {
+          router.push("/dashboard");
+        }
       }, 1000);
+
     } catch {
       toast.error("Login failed");
     } finally {

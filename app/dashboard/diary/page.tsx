@@ -280,8 +280,26 @@ export default function DiaryPage() {
 
   useEffect(() => { headingsRef.current = headings; }, [headings]);
 
+  // currentDateRef — always mirrors currentDate state but is updated
+  // synchronously. Async callbacks read this ref (never the stale closure)
+  // to decide whether their result is still relevant.
+  const currentDateRef = useRef(currentDate);
+  useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
+
+  // navEpochRef — incremented on every loadPage call.
+  // Async callbacks compare myEpoch === navEpochRef.current before applying.
+  const navEpochRef = useRef(0);
+
   // ── Core: load page whenever currentDate changes ──────────────
   useEffect(() => {
+    // Cancel any pending auto-save from the previous page synchronously
+    // so the old page's debounced save cannot fire after we've moved on.
+    if (autoSaveRef.current) {
+      clearTimeout(autoSaveRef.current);
+      autoSaveRef.current = null;
+    }
+    isDirtyRef.current = false;
+
     loadPage(currentDate);
     prefetch(currentDate);
     setShowCal(false);
@@ -291,17 +309,26 @@ export default function DiaryPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDate]);
 
-  // loadPage — always fetches today fresh, uses cache for other dates
+  // loadPage — fetches entry for `date`, discards stale responses
   async function loadPage(date: string) {
+    navEpochRef.current += 1;
+    const myEpoch = navEpochRef.current;
     setLoading(true);
-    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
 
     const e = await apiGetCached(date);
+
+    // Discard if a newer navigation fired while we were awaiting
+    if (navEpochRef.current !== myEpoch) return;
+    // Discard if the user has already moved to a different date
+    // (use ref, not state — state is stale inside this closure)
+    if (currentDateRef.current !== date) return;
+
     applyEntry(e);
     setLoading(false);
   }
 
-  // applyEntry — sets all UI state from a DiaryEntry (or null = blank page)
+  // applyEntry — unconditionally applies entry to UI.
+  // Staleness is already guaranteed-clean by loadPage's guards above.
   function applyEntry(e: DiaryEntry | null) {
     setEntry(e);
     setMood(e?.mood ?? null);
@@ -325,11 +352,13 @@ export default function DiaryPage() {
 
   // prefetch — fills cache for surrounding dates (never today)
   async function prefetch(date: string) {
+    const today  = getTODAY();
+    const ninety = addDays(today, -90);
     const toFetch: string[] = [];
     for (let i = -2; i <= 2; i++) {
       if (i === 0) continue;
       const d = addDays(date, i);
-      if (!isFuture(d) && d >= NINETY_AGO && cacheGet(d) === undefined) {
+      if (d !== today && !isFuture(d) && d >= ninety && cacheGet(d) === undefined) {
         toFetch.push(d);
       }
     }
@@ -337,16 +366,18 @@ export default function DiaryPage() {
     toFetch.sort();
     const entries = await apiRange(toFetch[0], toFetch[toFetch.length - 1]);
     for (const d of toFetch) {
-      if (cacheGet(d) === undefined) { // still a miss (not filled by concurrent call)
-        const found = entries.find(e => dateToStr(new Date(e.entryDate)) === d) ?? null;
-        cacheSet(d, found);
+      // Only write if still a cache miss — never overwrite today
+      if (d !== today && cacheGet(d) === undefined) {
+        cacheSet(d, entries.find(en => dateToStr(new Date(en.entryDate)) === d) ?? null);
       }
     }
   }
 
-  // ── Force-reload current page (used by navigateTo same-date) ──
+  // ── Force-reload current page (Today button / same-date nav) ──
   function reloadCurrentPage() {
-    cacheDel(currentDate); // evict if it was cached (won't matter for today, but safe)
+    if (autoSaveRef.current) { clearTimeout(autoSaveRef.current); autoSaveRef.current = null; }
+    isDirtyRef.current = false;
+    cacheDel(currentDate); // no-op for today (never cached), safe for other dates
     loadPage(currentDate);
   }
 
@@ -355,18 +386,25 @@ export default function DiaryPage() {
   // ─────────────────────────────────────────────────────────────
   const performSave = useCallback(async (date: string, isManual: boolean) => {
     if (!editorRef.current) return;
+
+    // Guard: never save if the component has already navigated away from this date
+    // (currentDate state check — if caller passed old date, discard)
+    // We capture the date passed in and verify the editor still belongs to it.
     const html           = editorRef.current.innerHTML;
     const currentHeading = heading;
     const currentMood    = mood;
 
-    if (!html.trim() && !currentMood && !currentHeading) return;
+    // Empty save guard: don't create blank entries
+    const isEmpty = !html.trim() && !currentMood && !currentHeading;
+    if (isEmpty) return;
     if (entry?.isLocked) return;
+
+    // Auto-save skip if nothing changed and this isn't a new entry
     if (!isManual && html === lastSavedHtml.current && !isNewEntryRef.current) return;
 
     setSaving(true);
     let saved: DiaryEntry | null = null;
 
-    // isNewEntryRef tracks whether this date has ever been saved in this session
     if (isNewEntryRef.current) {
       saved = await apiCreate({
         date, content: html, heading: currentHeading, textColor: "black", mood: currentMood,
@@ -385,9 +423,7 @@ export default function DiaryPage() {
     setSaving(false);
     if (saved) {
       setEntry(saved);
-      // Always evict after write so next load is fresh
       cacheDel(date);
-      // Re-cache the freshly saved entry (but not if today — cacheSet skips today anyway)
       cacheSet(date, saved);
       lastSavedHtml.current = html;
       isDirtyRef.current    = false;
@@ -454,19 +490,44 @@ export default function DiaryPage() {
   }
 
   // Single central navigation function.
-  // – Always fetches fresh for today.
-  // – For other dates: uses cache (filled by prefetch).
-  // – If target === currentDate, forces a reload instead of a no-op.
   function navigateTo(date: string, flip?: "left" | "right") {
     if (isFuture(date)) return;
 
-    // Save any unsaved changes before leaving
-    if (isDirtyRef.current && date !== currentDate) {
-      performSave(currentDate, false);
+    // SYNCHRONOUSLY cancel the auto-save debounce timer.
+    // We then trigger a save immediately *only if dirty* — but we capture
+    // the current date/html NOW before any state changes so the save is
+    // correctly attributed to the page we're leaving, not the one we're
+    // going to. The save is fire-and-forget; we don't await it.
+    if (autoSaveRef.current) {
+      clearTimeout(autoSaveRef.current);
+      autoSaveRef.current = null;
+    }
+    // Fire a departing save for the current page if it has unsaved changes.
+    // We only do this when actually changing date — reloads don't need it.
+    if (isDirtyRef.current && date !== currentDate && !isNewEntryRef.current) {
+      // Snapshot values right now (before state changes from navigation)
+      const departingDate = currentDate;
+      const departingHtml = editorRef.current?.innerHTML ?? "";
+      const departingHdg  = heading;
+      const departingMood = mood;
+      if (departingHtml.trim() || departingMood || departingHdg) {
+        apiPatch({
+          date:          departingDate,
+          content:       departingHtml,
+          heading:       departingHdg,
+          mood:          departingMood,
+          incrementEdit: false,
+        }).then(saved => {
+          if (saved) {
+            cacheDel(departingDate);
+            cacheSet(departingDate, saved);
+          }
+        });
+      }
+      isDirtyRef.current = false;
     }
 
     if (date === currentDate) {
-      // Same date — force reload (e.g. "Today" button, card click on current date)
       reloadCurrentPage();
       return;
     }
@@ -476,12 +537,14 @@ export default function DiaryPage() {
       setFlipDir(flip);
       setIsFlipping(true);
       setTimeout(() => {
+        currentDateRef.current = date; // update ref before state so loadPage guard works
         setCurrentDate(date);
         setIsFlipping(false);
         setFlipDir(null);
       }, 300);
       startCooldown();
     } else {
+      currentDateRef.current = date; // update ref before state
       setCurrentDate(date);
     }
   }

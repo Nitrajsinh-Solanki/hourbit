@@ -1,10 +1,11 @@
 // app/components/AutoRedirect.tsx
-// ─────────────────────────────────────────────────────────────
-// Drop this into any public page (home, login).
-// On mount it calls /api/auth/me — if the token is valid
-// (user remembered login), it redirects straight to /dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+// On mount it calls /api/auth/me — if the token is valid, it redirects based
+// on the user's role:
+//   - role === "admin"    → /admin
+//   - role === "employee" → /dashboard
 // Renders nothing visible — purely a redirect side-effect.
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 "use client";
 
@@ -16,10 +17,14 @@ export default function AutoRedirect() {
 
   useEffect(() => {
     fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((data) => {
+      .then(r => r.json())
+      .then(data => {
         if (data.success) {
-          router.replace("/dashboard");
+          if (data.user?.role === "admin") {
+            router.replace("/admin");
+          } else {
+            router.replace("/dashboard");
+          }
         }
       })
       .catch(() => {
