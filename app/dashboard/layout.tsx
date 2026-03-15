@@ -530,12 +530,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     fetch("/api/auth/me")
-      .then(r => r.json())
-      .then(data => {
-        if (data.success) setFullName(data.user.fullName || data.user.email);
-        else router.push("/auth/login");
+      .then(r => {
+        // 401 = no token / expired
+        // 403 = banned / suspended / device-banned
+        // Both must force logout immediately
+        if (r.status === 401 || r.status === 403) {
+          router.replace("/auth/login");
+          return null;
+        }
+        return r.json();
       })
-      .catch(() => router.push("/auth/login"));
+      .then(data => {
+        if (!data) return; // already redirected above
+        if (!data.success) {
+          router.replace("/auth/login");
+          return;
+        }
+        setFullName(data.user.fullName || data.user.email || "");
+      })
+      .catch(() => router.replace("/auth/login"));
   }, [router]);
 
   // Close mobile sidebar on resize to desktop

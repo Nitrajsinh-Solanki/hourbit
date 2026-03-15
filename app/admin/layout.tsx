@@ -356,23 +356,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [collapsed,  setCollapsed]  = useState(false);
 
   // Auth check — only allow role === "admin"
-  useEffect(() => {
-    fetch("/api/auth/me")
-      .then(r => r.json())
-      .then(data => {
-        if (!data.success) {
-          router.replace("/auth/login");
-          return;
-        }
-        if (data.user.role !== "admin") {
-          router.replace("/dashboard");
-          return;
-        }
-        setFullName(data.user.fullName || "Admin");
-        setLoading(false);
-      })
-      .catch(() => router.replace("/auth/login"));
-  }, [router]);
+ // UPDATED useEffect — handles 401 and 403 (ban) by status code
+useEffect(() => {
+  fetch("/api/auth/me")
+    .then(r => {
+      if (r.status === 401 || r.status === 403) {
+        router.replace("/auth/login");
+        return null;
+      }
+      return r.json();
+    })
+    .then(data => {
+      if (!data) return;
+      if (!data.success) {
+        router.replace("/auth/login");
+        return;
+      }
+      if (data.user.role !== "admin") {
+        router.replace("/dashboard");
+        return;
+      }
+      setFullName(data.user.fullName || "Admin");
+      setLoading(false);
+    })
+    .catch(() => router.replace("/auth/login"));
+}, [router]);
 
   if (loading) {
     return (
