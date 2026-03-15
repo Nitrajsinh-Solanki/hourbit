@@ -3,12 +3,15 @@
 // ROOT of the hierarchy:  Category → Subcategory → Level → Question
 //
 // CASCADE DELETION:
-//   When a Category document is deleted via findByIdAndDelete() / deleteOne(),
-//   its post-hook fires and deletes all child Subcategories one-by-one.
-//   Each Subcategory's own post-hook then cascades to Levels → Questions.
+//   When a Category document is deleted via findByIdAndDelete() the
+//   "findOneAndDelete" post-hook fires and deletes all child Subcategories
+//   one-by-one, each of which fires its own hook cascading to Levels → Questions.
 //
 // SLUG:
 //   Auto-generated from name on every save if no slug is provided.
+//   unique:true is set inline on the field — do NOT add a separate
+//   CategorySchema.index({ slug: 1 }) call or Mongoose will warn about
+//   a duplicate index.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import mongoose, { Schema, Document, Model } from "mongoose";
@@ -50,7 +53,7 @@ const CategorySchema = new Schema<ICategory>(
 
     slug: {
       type:      String,
-      unique:    true,
+      unique:    true,   // ← index declared HERE — no separate schema.index({ slug:1 }) needed
       lowercase: true,
       trim:      true,
     },
@@ -77,14 +80,14 @@ const CategorySchema = new Schema<ICategory>(
 );
 
 // ── Indexes ───────────────────────────────────────────────────────────────────
+// NOTE: slug unique index is already created by `unique: true` on the field above.
+//       Do NOT repeat it here — that causes the Mongoose duplicate-index warning.
 
-CategorySchema.index({ slug: 1 },                    { unique: true });
 CategorySchema.index({ status: 1 });
 CategorySchema.index({ displayOrder: 1 });
 CategorySchema.index({ status: 1, displayOrder: 1 });
 
 // ── Pre-save: auto-generate slug from name ────────────────────────────────────
-// Pattern matches exactly: DiaryEntrySchema.pre("save", function () { ... })
 
 CategorySchema.pre("save", function () {
   const doc = this as any;
@@ -93,16 +96,15 @@ CategorySchema.pre("save", function () {
   }
 });
 
-// ── Post findOneAndDelete CASCADE → delete all child Subcategories ─────────────
-// Uses "findOneAndDelete" which fires when findByIdAndDelete() is called.
+// ── Post findOneAndDelete CASCADE → delete all child Subcategories ────────────
+// Fires when findByIdAndDelete() is called from the API route.
 
 CategorySchema.post("findOneAndDelete", async function (doc: any) {
   if (!doc) return;
   const { Subcategory } = await import("./Subcategory");
   const subcategories = await Subcategory.find({ categoryId: doc._id });
   for (const sub of subcategories) {
-    // Call deleteOne() on each document so Subcategory's own cascade hook fires
-    await (sub as any).deleteOne();
+    await (sub as any).deleteOne();  // triggers Subcategory's own cascade → Levels → Questions
   }
 });
 
