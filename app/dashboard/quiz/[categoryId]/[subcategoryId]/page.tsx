@@ -56,7 +56,11 @@ export default function LevelSelectionPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchLevels(); }, [subcategoryId]);
+  useEffect(() => {
+    const handleFocus = () => fetchLevels();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [subcategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStart = (level: Level) => {
     if (!level.isUnlocked) {

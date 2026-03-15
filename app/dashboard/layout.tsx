@@ -591,6 +591,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     refreshXp();
+
+    // Full re-fetch after quiz submit/complete
+    window.addEventListener("xp-updated", refreshXp);
+
+    // Instant local deduction when hint is clicked — no DB round-trip needed
+    const handleDeduct = (e: Event) => {
+      const amount = (e as CustomEvent<{ amount: number }>).detail?.amount ?? 0;
+      if (amount > 0) {
+        setTotalXp(prev => Math.max(0, prev - amount));
+      }
+    };
+    window.addEventListener("xp-deduct", handleDeduct);
+
+    return () => {
+      window.removeEventListener("xp-updated", refreshXp);
+      window.removeEventListener("xp-deduct", handleDeduct);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  useEffect(() => {
+    refreshXp();
     // Re-fetch whenever a quiz is completed
     window.addEventListener("xp-updated", refreshXp);
     return () => window.removeEventListener("xp-updated", refreshXp);

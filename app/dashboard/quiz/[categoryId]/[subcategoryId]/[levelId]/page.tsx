@@ -356,6 +356,10 @@ export default function QuizPage() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ sessionId, questionId: q._id }),
       });
+      // ── Fire XP refresh immediately so navbar updates live ──
+      window.dispatchEvent(new CustomEvent("xp-deduct", {
+        detail: { amount: q.hintXpPenalty }
+      }));
     } catch {
       // Silent — client-side state still updated
     }
