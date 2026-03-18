@@ -1,20 +1,13 @@
 // app/api/quiz/session/route.ts
 //
-// POST — starts a new quiz attempt (creates UserLevelSession + bumps attemptsUsed)
-// GET  — returns current active session for a level if one exists (resume support)
+// POST — starts a new quiz attempt
+// GET  — returns current active session for a level (resume support)
 //
-// SECURITY FIX:
-//   hintText and hintXpPenalty are NO LONGER sent to the client in the questions
-//   payload.  The client has no need for them until the user explicitly clicks
-//   "Show Hint", at which point POST /api/quiz/hint returns those fields.
-//   Sending them upfront let anyone inspect the network tab and read all hints
-//   before clicking the button — defeating the XP-penalty system entirely.
-//
-//   Fields stripped from client payload:
-//     - hintText        ← was visible in questions array
-//     - hintXpPenalty   ← was visible in questions array
-//     - correctOption   ← already stripped (kept)
-//     - acceptedAnswers ← already stripped (kept)
+// SECURITY DESIGN:
+//   hintText        → NOT sent to client (reveals hint for free before XP penalty)
+//   hintXpPenalty   → SENT to client (not sensitive — just a number, shows cost on button)
+//   correctOption   → NOT sent
+//   acceptedAnswers → NOT sent
 
 import { NextRequest, NextResponse }                    from "next/server";
 import { connectDB }                                    from "@/app/lib/mongodb";
@@ -23,26 +16,19 @@ import { Level, UserLevelProgress, UserLevelSession }   from "@/app/models/brain
 import { Question }                                     from "@/app/models/brain/Question";
 import mongoose                                         from "mongoose";
 
-// ── GET — check if an active session exists for this level ───────────────────
+// ── GET — check if an active session exists ───────────────────────────────────
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
   if (!auth.ok) {
-    return NextResponse.json(
-      { success: false, message: auth.message },
-      { status: auth.status }
-    );
+    return NextResponse.json({ success: false, message: auth.message }, { status: auth.status });
   }
 
   const levelId = new URL(req.url).searchParams.get("levelId");
   if (!levelId) {
-    return NextResponse.json(
-      { success: false, message: "levelId required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, message: "levelId required" }, { status: 400 });
   }
 
   await connectDB();
-
   const userId = auth.payload.userId;
 
   const session = await UserLevelSession.findOne({
@@ -57,12 +43,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, session: null });
   }
 
-  // Check if the timer has expired for this session
+  // Check timer expiry
   const level = await Level.findById(levelId).lean();
   if (level && level.timeLimitMinutes > 0) {
     const elapsedSecs = (Date.now() - new Date(session.startedAt).getTime()) / 1000;
-    const limitSecs   = level.timeLimitMinutes * 60;
-    if (elapsedSecs >= limitSecs) {
+    if (elapsedSecs >= level.timeLimitMinutes * 60) {
       await UserLevelSession.findByIdAndUpdate(session._id, {
         status:      "abandoned",
         abandonedAt: new Date(),
@@ -81,39 +66,29 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// ── POST — start a new quiz attempt ─────────────────────────────────────────
+// ── POST — start a new quiz attempt ──────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const auth = await requireAuth();
   if (!auth.ok) {
-    return NextResponse.json(
-      { success: false, message: auth.message },
-      { status: auth.status }
-    );
+    return NextResponse.json({ success: false, message: auth.message }, { status: auth.status });
   }
 
   const { levelId } = await req.json();
   if (!levelId) {
-    return NextResponse.json(
-      { success: false, message: "levelId required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, message: "levelId required" }, { status: 400 });
   }
 
   await connectDB();
-
   const userId = auth.payload.userId;
 
   const level = await Level.findById(levelId).lean();
   if (!level || level.status !== "active") {
-    return NextResponse.json(
-      { success: false, message: "Level not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ success: false, message: "Level not found" }, { status: 404 });
   }
 
   let progress = await UserLevelProgress.findOne({ userId, levelId });
 
-  // Check unlock — find this level's position in subcategory
+  // Check unlock position in subcategory
   const allLevels = await Level.find({
     subcategoryId: level.subcategoryId,
     status:        "active",
@@ -122,30 +97,20 @@ export async function POST(req: NextRequest) {
     .select("_id")
     .lean();
 
-  const levelIndex = allLevels.findIndex(
-    l => String(l._id) === String(levelId)
-  );
+  const levelIndex = allLevels.findIndex(l => String(l._id) === String(levelId));
 
   if (levelIndex > 0) {
     const prevLevelId  = allLevels[levelIndex - 1]._id;
-    const prevProgress = await UserLevelProgress.findOne({
-      userId,
-      levelId: prevLevelId,
-    }).lean();
-
-    const isUnlocked = prevProgress?.isCompleted || prevProgress?.isExhausted;
+    const prevProgress = await UserLevelProgress.findOne({ userId, levelId: prevLevelId }).lean();
+    const isUnlocked   = prevProgress?.isCompleted || prevProgress?.isExhausted;
     if (!isUnlocked) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "This level is locked. Complete the previous level first.",
-        },
+        { success: false, message: "This level is locked. Complete the previous level first." },
         { status: 403 }
       );
     }
   }
 
-  // Check attempts / completion
   if (progress) {
     if (progress.attemptsUsed >= level.maxAttempts && !progress.isCompleted) {
       return NextResponse.json(
@@ -161,13 +126,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Abandon any stale started session for this user+level
+  // Abandon any stale sessions
   await UserLevelSession.updateMany(
     { userId, levelId, status: "started" },
     { $set: { status: "abandoned", abandonedAt: new Date() } }
   );
 
-  // Create new session — attempt counted immediately (anti-cheat)
+  // Create session — attempt counted immediately (anti-cheat)
   const session = await UserLevelSession.create({
     userId,
     levelId,
@@ -176,7 +141,6 @@ export async function POST(req: NextRequest) {
     answers:   {},
   });
 
-  // Upsert progress doc — bump attemptsUsed
   if (!progress) {
     progress = await UserLevelProgress.create({
       userId,
@@ -196,26 +160,17 @@ export async function POST(req: NextRequest) {
     await progress.save();
   }
 
-  const isNowExhausted =
-    progress.attemptsUsed >= level.maxAttempts && !progress.isCompleted;
+  const isNowExhausted = progress.attemptsUsed >= level.maxAttempts && !progress.isCompleted;
 
-  // ── SECURITY: Strip hint fields and correct-answer fields from client payload ──
-  // hintText / hintXpPenalty are returned ONLY via POST /api/quiz/hint when the
-  // user explicitly clicks "Show Hint".  Sending them here lets anyone read all
-  // hints from the network tab before paying the XP penalty.
-  const questions = await Question.find({
-    levelId,
-    status: "published",
-  })
+  // ── Fetch questions ───────────────────────────────────────────────────────
+  // SECURITY:
+  //   hintText        → STRIPPED  (reading hint for free before penalty)
+  //   correctOption   → STRIPPED  (answer cheat)
+  //   acceptedAnswers → STRIPPED  (answer cheat)
+  //   hintXpPenalty   → INCLUDED  (not sensitive — just a cost number shown on button)
+  const questions = await Question.find({ levelId, status: "published" })
     .sort({ displayOrder: 1 })
-    .select(
-      // Explicitly list safe fields — do NOT include:
-      //   correctOption   (answer cheat)
-      //   acceptedAnswers (answer cheat)
-      //   hintText        (hint cheat — NEW FIX)
-      //   hintXpPenalty   (hint cheat — NEW FIX)
-      "_id questionType questionContent optionA optionB optionC optionD displayOrder"
-    )
+    .select("_id questionType questionContent optionA optionB optionC optionD hintXpPenalty displayOrder")
     .lean();
 
   return NextResponse.json({
@@ -239,15 +194,11 @@ export async function POST(req: NextRequest) {
   });
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function resolveCategoryId(
-  subcategoryId: mongoose.Types.ObjectId | string
-) {
+async function resolveCategoryId(subcategoryId: mongoose.Types.ObjectId | string) {
   const { Subcategory } = await import("@/app/models/brain/Subcategory");
-  const sub = await Subcategory.findById(subcategoryId)
-    .select("categoryId")
-    .lean();
+  const sub = await Subcategory.findById(subcategoryId).select("categoryId").lean();
   return (sub as any)?.categoryId;
 }
 
@@ -255,9 +206,6 @@ async function checkExhaustionUnlock(
   userId: string,
   prevLevelId: mongoose.Types.ObjectId
 ): Promise<boolean> {
-  const prev = await UserLevelProgress.findOne({
-    userId,
-    levelId: prevLevelId,
-  }).lean();
+  const prev = await UserLevelProgress.findOne({ userId, levelId: prevLevelId }).lean();
   return prev?.isExhausted === true && prev?.isCompleted !== true;
 }

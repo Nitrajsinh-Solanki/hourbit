@@ -59,33 +59,14 @@ export default function LevelSelectionPage() {
   };
 
   useEffect(() => {
-    // FIX: call fetchLevels() immediately on mount — the original code ONLY
-    // registered a window "focus" listener and never fetched on first render,
-    // which made the page appear blank / extremely slow to load.
+    // Fetch immediately on mount
     fetchLevels();
 
-    // Re-fetch when the user returns to this tab after completing a quiz
+    // Re-fetch when user returns to this tab after completing a quiz
     const handleFocus = () => fetchLevels();
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [subcategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Navigation ──────────────────────────────────────────────────────────────
-  const handleStart = (level: Level) => {
-    if (!level.isUnlocked) {
-      toast.error("Complete the previous level to unlock this one.");
-      return;
-    }
-    if (level.isCompleted) {
-      toast("You already completed this level!", { icon: "✅" });
-      return;
-    }
-    if (level.attemptsRemaining === 0 && !level.isExhausted) {
-      toast.error("No attempts remaining for this level.");
-      return;
-    }
-    router.push(`/dashboard/quiz/${categoryId}/${subcategoryId}/${level._id}`);
-  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -144,13 +125,15 @@ export default function LevelSelectionPage() {
             const diff   = DIFF_META[level.difficulty] ?? DIFF_META.easy;
             const locked = !level.isUnlocked;
 
-            // ── Button state logic ────────────────────────────────────────────
-            // "View Result" is shown ONLY when all attempts are exhausted
-            // (isExhausted = true, isCompleted = false).
-            // While the user still has attempts remaining, they see "Start →".
-            // Once the level is passed (isCompleted), they see "Completed ✓" (disabled).
-            const showViewResult = level.isExhausted && !level.isCompleted;
+            // ── Button state ─────────────────────────────────────────────────
+            // isCompleted  → "View Result →" (green) — user passed, can review
+            // isExhausted  → "View Result →" (amber) — all attempts used
+            // canStart     → "Start →" / "Retry →"
+            // locked       → "Locked" label
+            const showViewResult = level.isCompleted || level.isExhausted;
             const canStart       = level.isUnlocked && !level.isCompleted && !level.isExhausted && level.attemptsRemaining > 0;
+            // XP the user will receive on exhaustion (admin-configured rate)
+            const exhaustionXp   = Math.floor(level.xpReward * (level.penaltyXpMultiplier ?? 0.30));
 
             return (
               <div
@@ -168,7 +151,7 @@ export default function LevelSelectionPage() {
               >
                 <div className="flex items-start justify-between gap-4">
 
-                  {/* Left info */}
+                  {/* ── Left info ─────────────────────────────────────────── */}
                   <div className="flex items-start gap-4 flex-1 min-w-0">
 
                     {/* Level bubble */}
@@ -197,10 +180,7 @@ export default function LevelSelectionPage() {
                     <div className="flex-1 min-w-0">
                       {/* Title row */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span
-                          className="font-semibold text-[14px]"
-                          style={{ color: "var(--text)" }}
-                        >
+                        <span className="font-semibold text-[14px]" style={{ color: "var(--text)" }}>
                           Level {level.levelNumber}
                           {level.name ? ` — ${level.name}` : ""}
                         </span>
@@ -210,16 +190,12 @@ export default function LevelSelectionPage() {
                         >
                           {diff.label}
                         </span>
-                        {/* Exhaustion-unlock badge: shown only while not yet completed */}
-                        {level.unlockedViaExhaustion && !level.isCompleted && (
+                        {level.unlockedViaExhaustion && !level.isCompleted && !level.isExhausted && (
                           <span
                             className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                            style={{
-                              color:      "var(--amber)",
-                              background: "rgba(245,158,11,0.12)",
-                            }}
+                            style={{ color: "var(--amber)", background: "rgba(245,158,11,0.12)" }}
                           >
-                            ⚠ 30% XP
+                            ⚠ {Math.round((level.penaltyXpMultiplier ?? 0.30) * 100)}% XP if passed
                           </span>
                         )}
                       </div>
@@ -246,14 +222,13 @@ export default function LevelSelectionPage() {
                             {level.questionCount} questions
                           </span>
                         </div>
-                        {/* Attempts counter — only shown when not locked */}
-                        {!locked && !level.isCompleted && (
+                        {!locked && !level.isCompleted && !level.isExhausted && (
                           <div className="flex items-center gap-1.5">
                             <RotateCcw size={11} style={{ color: "var(--text4)" }} />
                             <span
                               className="text-[11px] font-mono"
                               style={{
-                                color: level.attemptsRemaining === 0
+                                color: level.attemptsRemaining <= 1
                                   ? "var(--danger)"
                                   : "var(--text3)",
                               }}
@@ -264,7 +239,7 @@ export default function LevelSelectionPage() {
                         )}
                       </div>
 
-                      {/* Completed: best score + XP earned */}
+                      {/* Completed: score + XP earned */}
                       {level.isCompleted && (
                         <div className="flex items-center gap-3 mt-2">
                           <span className="text-[11px] font-mono" style={{ color: "var(--green)" }}>
@@ -276,12 +251,25 @@ export default function LevelSelectionPage() {
                         </div>
                       )}
 
-                      {/* Exhausted: all attempts used message */}
+                      {/* Exhausted: all attempts used + consolation XP */}
                       {level.isExhausted && !level.isCompleted && (
                         <div className="flex items-center gap-1.5 mt-2">
                           <AlertTriangle size={11} style={{ color: "var(--danger)" }} />
                           <span className="text-[11px] font-mono" style={{ color: "var(--danger)" }}>
-                            All attempts used — +{level.earnedXp} XP awarded
+                            All attempts used
+                          </span>
+                          <span className="text-[11px] font-mono" style={{ color: "var(--amber)" }}>
+                            · +{level.earnedXp} XP ({Math.round((level.penaltyXpMultiplier ?? 0.30) * 100)}% consolation)
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Last attempt warning */}
+                      {!locked && !level.isCompleted && !level.isExhausted && level.attemptsRemaining === 1 && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <AlertTriangle size={11} style={{ color: "var(--amber)" }} />
+                          <span className="text-[11px] font-mono" style={{ color: "var(--amber)" }}>
+                            Last attempt — fail awards {exhaustionXp} XP ({Math.round((level.penaltyXpMultiplier ?? 0.30) * 100)}%)
                           </span>
                         </div>
                       )}
@@ -289,12 +277,10 @@ export default function LevelSelectionPage() {
                   </div>
 
                   {/* ── Action button ─────────────────────────────────────────
-                      LOGIC:
-                        locked              → grey "Locked" label
-                        isCompleted         → green "Completed ✓" (disabled)
-                        isExhausted         → amber "View Result →" (all attempts done)
-                        attemptsRemaining>0 → purple "Start →" / "Retry →"
-                        else                → shouldn't happen, but grey label
+                      COMPLETED  → green "View Result →" (user passed)
+                      EXHAUSTED  → amber "View Result →" (all attempts used)
+                      CAN START  → purple "Start →" / "Retry →"
+                      LOCKED     → grey "Locked" label
                   ─────────────────────────────────────────────────────────── */}
                   <div className="shrink-0">
                     {locked ? (
@@ -305,19 +291,8 @@ export default function LevelSelectionPage() {
                         Locked
                       </div>
 
-                    ) : level.isCompleted ? (
-                      <div
-                        className="px-4 py-2 rounded-xl text-[12px] font-mono font-semibold"
-                        style={{
-                          color:      "var(--green)",
-                          background: "rgba(34,211,160,0.12)",
-                        }}
-                      >
-                        Completed ✓
-                      </div>
-
                     ) : showViewResult ? (
-                      // All attempts exhausted — user can now view result
+                      // COMPLETED or EXHAUSTED — show "View Result"
                       <button
                         onClick={() =>
                           router.push(
@@ -326,18 +301,26 @@ export default function LevelSelectionPage() {
                         }
                         className="px-4 py-2 rounded-xl text-[12px] font-mono font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"
                         style={{
-                          color:      "var(--amber)",
-                          background: "rgba(245,158,11,0.12)",
-                          border:     "1px solid rgba(245,158,11,0.25)",
+                          color:      level.isCompleted ? "var(--green)" : "var(--amber)",
+                          background: level.isCompleted
+                            ? "rgba(34,211,160,0.12)"
+                            : "rgba(245,158,11,0.12)",
+                          border: level.isCompleted
+                            ? "1px solid rgba(34,211,160,0.30)"
+                            : "1px solid rgba(245,158,11,0.25)",
                         }}
                       >
-                        View Result →
+                        {level.isCompleted ? "View Result ✓" : "View Result →"}
                       </button>
 
                     ) : canStart ? (
-                      // Still has attempts — start / retry
+                      // HAS ATTEMPTS — Start / Retry
                       <button
-                        onClick={() => handleStart(level)}
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/quiz/${categoryId}/${subcategoryId}/${level._id}`
+                          )
+                        }
                         className="px-5 py-2 rounded-xl text-[12px] font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"
                         style={{
                           background: "var(--accent)",

@@ -14,8 +14,8 @@ import toast from "react-hot-toast";
 
 type QuestionType = "option" | "text";
 
-// hintText / hintXpPenalty are NOT in this type.
-// They are fetched on-demand via POST /api/quiz/hint when user clicks Show Hint.
+// hintXpPenalty is included — it's not sensitive (just a cost number).
+// hintText is NOT included — it would let users read hints for free before paying.
 type Question = {
   _id:             string;
   questionType:    QuestionType;
@@ -24,10 +24,11 @@ type Question = {
   optionB:         string;
   optionC:         string;
   optionD:         string;
+  hintXpPenalty:   number;   // cost shown on button BEFORE clicking
   displayOrder:    number;
 };
 
-// Populated lazily from POST /api/quiz/hint on first click per question
+// Populated lazily: only hintText comes from the server on first "Show Hint" click
 type HintData = {
   hintText:      string;
   hintXpPenalty: number;
@@ -115,9 +116,14 @@ export default function QuizPage() {
   const [currentIdx,        setCurrentIdx]        = useState(0);
   const [answers,           setAnswers]           = useState<Record<string, AnswerState>>({});
 
-  // hintCache: Map<questionId, HintData> — populated lazily from server
-  const [hintCache,   setHintCache]   = useState<Map<string, HintData>>(new Map());
+  // hintCache: only stores hintText per questionId.
+  // hintXpPenalty is already on each Question object from the session payload.
+  const [hintCache,   setHintCache]   = useState<Map<string, string>>(new Map());
   const [hintLoading, setHintLoading] = useState(false);
+
+  // totalXp fetched from DB — used for XP sufficiency check on hint button
+  const [totalXp, setTotalXp] = useState<number>(0);
+  const xpLoadedRef = useRef(false);
 
   const [timeLeft,     setTimeLeft]     = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -129,13 +135,33 @@ export default function QuizPage() {
   const questionStartRef = useRef<number>(Date.now());
   const submitCalledRef  = useRef(false);
 
-  // ── Anti-cheat: block copy/paste/screenshot/devtools during quiz ──────────
+  // ── Fetch current XP from DB once on mount ────────────────────────────────
+  // Used to show balance on hint button and block hint if insufficient.
+  // Re-fetched after xp-updated (post submit).
+  const fetchTotalXp = useCallback(() => {
+    fetch("/api/quiz/xp")
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setTotalXp(d.totalXp ?? 0);
+          xpLoadedRef.current = true;
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchTotalXp();
+    const handleUpdated = () => fetchTotalXp();
+    window.addEventListener("xp-updated", handleUpdated);
+    return () => window.removeEventListener("xp-updated", handleUpdated);
+  }, [fetchTotalXp]);
+
+  // ── Anti-cheat ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (screen !== "quiz") return;
 
-    const BLOCKED = [
-      "copy", "cut", "paste", "contextmenu", "selectstart", "dragstart",
-    ] as const;
+    const BLOCKED = ["copy","cut","paste","contextmenu","selectstart","dragstart"] as const;
     const blockEvent = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
     const blockKey   = (e: KeyboardEvent) => {
       if (e.key === "PrintScreen") { e.preventDefault(); navigator.clipboard?.writeText("").catch(() => {}); return; }
@@ -149,27 +175,26 @@ export default function QuizPage() {
 
     BLOCKED.forEach(ev => document.addEventListener(ev, blockEvent, true));
     document.addEventListener("keydown", blockKey, true);
-    document.body.style.userSelect                  = "none";
-    (document.body.style as any).webkitUserSelect   = "none";
-    (document.body.style as any).MozUserSelect      = "none";
-    (document.body.style as any).msUserSelect       = "none";
+    document.body.style.userSelect                = "none";
+    (document.body.style as any).webkitUserSelect = "none";
+    (document.body.style as any).MozUserSelect    = "none";
+    (document.body.style as any).msUserSelect     = "none";
 
     return () => {
       BLOCKED.forEach(ev => document.removeEventListener(ev, blockEvent, true));
       document.removeEventListener("keydown", blockKey, true);
-      document.body.style.userSelect                  = "";
-      (document.body.style as any).webkitUserSelect   = "";
-      (document.body.style as any).MozUserSelect      = "";
-      (document.body.style as any).msUserSelect       = "";
+      document.body.style.userSelect                = "";
+      (document.body.style as any).webkitUserSelect = "";
+      (document.body.style as any).MozUserSelect    = "";
+      (document.body.style as any).msUserSelect     = "";
     };
   }, [screen]);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
-  // ── Load level info on mount ──────────────────────────────────────────────
+  // ── Load level info ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!levelId || !subcategoryId) return;
 
@@ -177,17 +202,12 @@ export default function QuizPage() {
       .then(r => r.json())
       .then(d => {
         if (!d.success) { setScreen("error"); return; }
-
         const found: LevelInfo = d.levels.find((l: any) => l._id === levelId);
         if (!found) { setScreen("error"); return; }
 
         setLevelInfo(found);
         setAttemptsRemaining(found.attemptsRemaining);
 
-        // Routing:
-        //   isCompleted || isExhausted → show past result
-        //   isUnlocked + attempts > 0  → confirm screen
-        //   locked                     → bounce back
         if (found.isCompleted || found.isExhausted) {
           loadPastResult();
           return;
@@ -257,10 +277,7 @@ export default function QuizPage() {
       setResult(data.result);
       setReview(data.review);
       if (data.progress) setAttemptsRemaining(data.progress.attemptsRemaining ?? 0);
-
       setScreen("result");
-
-      // Full XP re-fetch from DB so navbar is accurate after submission
       window.dispatchEvent(new CustomEvent("xp-updated"));
     } catch {
       toast.error("Submission failed. Please try again.");
@@ -269,7 +286,6 @@ export default function QuizPage() {
     }
   }, [questions, currentIdx, answers, sessionId]);
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
   const startTimer = useCallback((seconds: number) => {
     setTimeLeft(seconds);
     if (timerRef.current) clearInterval(timerRef.current);
@@ -302,7 +318,7 @@ export default function QuizPage() {
       }
 
       setSessionId(data.sessionId);
-      setQuestions(data.questions);
+      setQuestions(data.questions);           // hintXpPenalty is in each question
       setAttemptsRemaining(data.attemptsRemaining);
       setCurrentIdx(0);
       setAnswers({});
@@ -311,7 +327,6 @@ export default function QuizPage() {
       questionStartRef.current = Date.now();
 
       if (data.level.timeLimitMinutes > 0) startTimer(data.level.timeLimitMinutes * 60);
-
       setScreen("quiz");
     } catch {
       toast.error("Failed to start quiz.");
@@ -319,7 +334,6 @@ export default function QuizPage() {
     }
   };
 
-  // ── Answer ────────────────────────────────────────────────────────────────
   const saveAnswer = (questionId: string, value: string) => {
     setAnswers(prev => ({
       ...prev,
@@ -331,17 +345,21 @@ export default function QuizPage() {
     }));
   };
 
-  // ── Show hint — fetches from server, never from session payload ───────────
-  // FIX 1 (DB XP): the hint route now deducts earnedXp in UserLevelProgress
-  //   so GET /api/quiz/xp always returns the correct post-hint value from DB.
-  // FIX 2 (button text): XP cost is shown on the button only after the first
-  //   fetch — before that we show a generic label since we don't know the cost.
-  //   To show the cost before clicking, the session route would need to expose
-  //   hintXpPenalty — which is a security tradeoff. Current approach: show
-  //   "Show Hint (costs XP)" before first fetch, cost shown once revealed.
+  // ── Show hint ─────────────────────────────────────────────────────────────
+  // hintXpPenalty is already known from the question object (sent by session route).
+  // We only call the hint API to get hintText — the server records the usage and
+  // deducts XP from DB at the same time.
   const handleShowHint = async () => {
     const q = questions[currentIdx];
     if (!q || hintCache.has(q._id) || hintLoading) return;
+
+    const penalty = q.hintXpPenalty ?? 0;
+
+    // Block if user doesn't have enough XP
+    if (penalty > 0 && totalXp < penalty) {
+      toast.error(`Not enough XP. You need ${penalty} XP but have ${totalXp} XP.`, { duration: 4000 });
+      return;
+    }
 
     setHintLoading(true);
     try {
@@ -353,16 +371,18 @@ export default function QuizPage() {
       const data = await res.json();
 
       if (!data.success) {
-        toast.error(data.message || "Could not load hint.");
+        if (data.notEnoughXp) {
+          toast.error(data.message, { duration: 4000 });
+        } else {
+          toast.error(data.message || "Could not load hint.");
+        }
         return;
       }
 
-      const hintText      = (data.hintText      ?? "") as string;
-      const hintXpPenalty = (data.hintXpPenalty ?? 0)  as number;
-
+      // Cache only hintText — hintXpPenalty is already on the question object
       setHintCache(prev => {
         const next = new Map(prev);
-        next.set(q._id, { hintText, hintXpPenalty });
+        next.set(q._id, data.hintText ?? "");
         return next;
       });
 
@@ -375,15 +395,14 @@ export default function QuizPage() {
         },
       }));
 
-      // Instant navbar visual deduction (DB is already updated by the hint route)
-      if (!data.alreadyUsed && hintXpPenalty > 0) {
-        window.dispatchEvent(new CustomEvent("xp-deduct", {
-          detail: { amount: hintXpPenalty },
-        }));
-        toast(`−${hintXpPenalty} XP hint penalty`, { icon: "💡" });
+      // Instant visual deduction — DB already updated by hint route
+      if (!data.alreadyUsed && penalty > 0) {
+        setTotalXp(prev => Math.max(0, prev - penalty));
+        window.dispatchEvent(new CustomEvent("xp-deduct", { detail: { amount: penalty } }));
+        toast(`−${penalty} XP hint penalty`, { icon: "💡" });
       }
     } catch {
-      toast.error("Failed to load hint. Try again.");
+      toast.error("Failed to load hint. Please try again.");
     } finally {
       setHintLoading(false);
     }
@@ -441,6 +460,9 @@ export default function QuizPage() {
 
   // ── CONFIRM SCREEN ────────────────────────────────────────────────────────
   if (screen === "confirm" && levelInfo) {
+    const penaltyPct   = Math.round((levelInfo.penaltyXpMultiplier ?? 0.30) * 100);
+    const exhaustionXp = Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.30));
+
     return (
       <div className="max-w-[500px] mx-auto flex flex-col gap-5 py-8">
         <button onClick={() => router.back()}
@@ -458,8 +480,7 @@ export default function QuizPage() {
           <div className="text-center">
             <div className="text-[42px] mb-3">🧠</div>
             <h1 className="text-[20px] font-bold" style={{ color: "var(--text)" }}>
-              Level {levelInfo.levelNumber}
-              {levelInfo.name ? ` — ${levelInfo.name}` : ""}
+              Level {levelInfo.levelNumber}{levelInfo.name ? ` — ${levelInfo.name}` : ""}
             </h1>
             <p className="text-[13px] mt-1 font-mono" style={{ color: "var(--text3)" }}>
               You must answer ALL questions correctly to pass.
@@ -480,9 +501,7 @@ export default function QuizPage() {
             ].map(s => (
               <div key={s.label} className="rounded-xl p-3 text-center"
                 style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
-                <p className="text-[20px] font-bold font-mono" style={{ color: s.color }}>
-                  {s.value}
-                </p>
+                <p className="text-[20px] font-bold font-mono" style={{ color: s.color }}>{s.value}</p>
                 <p className="text-[10px] font-mono uppercase tracking-wider mt-1"
                   style={{ color: "var(--text4)" }}>{s.label}</p>
               </div>
@@ -502,12 +521,10 @@ export default function QuizPage() {
                 : "There is no time limit for this level.",
               "You must get ALL questions correct to pass.",
               attemptsRemaining === 1
-                ? `⚠ This is your LAST attempt. Failing will award ${Math.round((levelInfo.penaltyXpMultiplier ?? 0.3) * 100)}% XP (${Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.3))} XP).`
+                ? `⚠ Last attempt — failing awards ${penaltyPct}% XP (${exhaustionXp} XP) as consolation.`
                 : "",
             ].filter(Boolean).map((rule, i) => (
-              <p key={i} className="text-[12px] font-mono" style={{ color: "var(--text3)" }}>
-                • {rule}
-              </p>
+              <p key={i} className="text-[12px] font-mono" style={{ color: "var(--text3)" }}>• {rule}</p>
             ))}
           </div>
 
@@ -527,11 +544,14 @@ export default function QuizPage() {
     const ans        = answers[q._id];
     const userAnswer = ans?.userAnswer ?? "";
     const isLast     = currentIdx === questions.length - 1;
-    const hintData   = hintCache.get(q._id);
+
+    // hintText is in cache after first click; hintXpPenalty is always on the question
+    const hintText    = hintCache.get(q._id);        // undefined = not yet revealed
+    const hintPenalty = q.hintXpPenalty ?? 0;
+    const canAffordHint = hintPenalty === 0 || totalXp >= hintPenalty;
 
     const timerPct   = levelInfo?.timeLimitMinutes
-      ? (timeLeft / (levelInfo.timeLimitMinutes * 60)) * 100
-      : 100;
+      ? (timeLeft / (levelInfo.timeLimitMinutes * 60)) * 100 : 100;
     const timerColor = timeLeft < 60 ? "var(--danger)" : timeLeft < 180 ? "var(--amber)" : "var(--green)";
 
     return (
@@ -599,24 +619,11 @@ export default function QuizPage() {
                       border:     selected ? "1.5px solid rgba(124,110,243,0.55)" : "1.5px solid var(--border)",
                       color:      "var(--text)",
                     }}
-                    onMouseEnter={e => {
-                      if (!selected) {
-                        (e.currentTarget as HTMLElement).style.background  = "var(--bg)";
-                        (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.30)";
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!selected) {
-                        (e.currentTarget as HTMLElement).style.background  = "var(--surface2)";
-                        (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
-                      }
-                    }}
+                    onMouseEnter={e => { if (!selected) { (e.currentTarget as HTMLElement).style.background = "var(--bg)"; (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.30)"; } }}
+                    onMouseLeave={e => { if (!selected) { (e.currentTarget as HTMLElement).style.background = "var(--surface2)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; } }}
                   >
                     <span className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-bold shrink-0"
-                      style={{
-                        background: selected ? "var(--accent)" : "var(--surface)",
-                        color:      selected ? "#fff" : "var(--text3)",
-                      }}>
+                      style={{ background: selected ? "var(--accent)" : "var(--surface)", color: selected ? "#fff" : "var(--text3)" }}>
                       {opt.key}
                     </span>
                     <span className="text-[14px]">{text}</span>
@@ -636,10 +643,7 @@ export default function QuizPage() {
                 onPaste={e => e.preventDefault()} onCopy={e => e.preventDefault()}
                 onCut={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
                 className="w-full px-4 py-3 rounded-xl text-[14px] font-mono border-none outline-none"
-                style={{
-                  background: "var(--surface2)", color: "var(--text)",
-                  border: "1.5px solid var(--border2)", userSelect: "text",
-                }}
+                style={{ background: "var(--surface2)", color: "var(--text)", border: "1.5px solid var(--border2)", userSelect: "text" }}
                 onFocus={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.55)"; }}
                 onBlur={e  => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)"; }}
               />
@@ -647,61 +651,74 @@ export default function QuizPage() {
           )}
 
           {/* ── HINT SECTION ────────────────────────────────────────────────
-              FIX 2: The button now shows the XP cost ONCE the hint has been
-              fetched (hintData.hintXpPenalty). Before fetching we show
-              "Show Hint (costs XP)" since we don't have the penalty amount yet
-              without sending it in the session payload (security tradeoff).
-              Once revealed the cost is shown in the hint header.
+              BEFORE CLICK:
+                Button shows exact XP cost: "💡 Show Hint  −10 XP"
+                Greyed + blocked if user can't afford it.
+              AFTER CLICK:
+                Reveals hintText from server response.
+                Shows cost in header: "Hint (−10 XP deducted)".
+              hintXpPenalty comes from question object (session payload).
+              hintText comes from server on first click (hint route).
+              No question has a hint if hintXpPenalty === 0 AND hintText is "".
           ─────────────────────────────────────────────────────────────────── */}
-          <div>
-            {hintData ? (
-              // Hint already revealed — show it with the cost in the header
-              <div className="rounded-xl p-3 flex items-start gap-2"
-                style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)" }}>
-                <span style={{ color: "var(--amber)", flexShrink: 0 }}>💡</span>
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider mb-1"
-                    style={{ color: "var(--amber)" }}>
-                    Hint{" "}
-                    <span style={{ color: "var(--text4)", fontWeight: 400 }}>
-                      (−{hintData.hintXpPenalty} XP deducted)
-                    </span>
-                  </p>
-                  <p className="text-[13px]" style={{ color: "var(--text2)" }}>{hintData.hintText}</p>
+          {hintPenalty > 0 && (
+            <div>
+              {hintText !== undefined ? (
+                /* Hint revealed */
+                <div className="rounded-xl p-3 flex items-start gap-2"
+                  style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                  <span style={{ color: "var(--amber)", flexShrink: 0 }}>💡</span>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider mb-1"
+                      style={{ color: "var(--amber)" }}>
+                      Hint{" "}
+                      <span style={{ color: "var(--text4)", fontWeight: 400 }}>
+                        (−{hintPenalty} XP deducted)
+                      </span>
+                    </p>
+                    <p className="text-[13px]" style={{ color: "var(--text2)" }}>{hintText}</p>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              // Hint not yet revealed — show button with XP cost label
-              <button onClick={handleShowHint} disabled={hintLoading}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-mono font-semibold border-none cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  background: "rgba(245,158,11,0.08)",
-                  border:     "1px solid rgba(245,158,11,0.22)",
-                  color:      "var(--amber)",
-                }}
-                onMouseEnter={e => {
-                  if (!hintLoading) {
-                    (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.16)";
-                    (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.40)";
-                  }
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.08)";
-                  (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.22)";
-                }}
-              >
-                {hintLoading ? (
-                  <>
-                    <div className="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin"
-                      style={{ borderColor: "var(--amber)", borderTopColor: "transparent" }} />
-                    Loading hint…
-                  </>
-                ) : (
-                  <>💡 Show Hint <span style={{ opacity: 0.6, fontWeight: 400 }}>(costs XP)</span></>
-                )}
-              </button>
-            )}
-          </div>
+              ) : (
+                /* Show hint button with exact cost */
+                <button
+                  onClick={handleShowHint}
+                  disabled={hintLoading || !canAffordHint}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-mono font-semibold border-none cursor-pointer transition-all"
+                  style={{
+                    background: canAffordHint ? "rgba(245,158,11,0.08)" : "rgba(100,100,100,0.08)",
+                    border:     canAffordHint ? "1px solid rgba(245,158,11,0.22)" : "1px solid rgba(100,100,100,0.20)",
+                    color:      canAffordHint ? "var(--amber)" : "var(--text4)",
+                    opacity:    hintLoading ? 0.6 : 1,
+                    cursor:     (!canAffordHint || hintLoading) ? "not-allowed" : "pointer",
+                  }}
+                  onMouseEnter={e => {
+                    if (canAffordHint && !hintLoading) {
+                      (e.currentTarget as HTMLElement).style.background   = "rgba(245,158,11,0.16)";
+                      (e.currentTarget as HTMLElement).style.borderColor  = "rgba(245,158,11,0.40)";
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as HTMLElement).style.background  = canAffordHint ? "rgba(245,158,11,0.08)" : "rgba(100,100,100,0.08)";
+                    (e.currentTarget as HTMLElement).style.borderColor = canAffordHint ? "rgba(245,158,11,0.22)" : "rgba(100,100,100,0.20)";
+                  }}
+                >
+                  {hintLoading ? (
+                    <>
+                      <div className="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin"
+                        style={{ borderColor: "var(--amber)", borderTopColor: "transparent" }} />
+                      Loading hint…
+                    </>
+                  ) : !canAffordHint ? (
+                    <>🚫 Hint unavailable — need {hintPenalty} XP (you have {totalXp} XP)</>
+                  ) : (
+                    // Shows exact XP deduction on the button
+                    <>💡 Show Hint <span style={{ opacity: 0.7, fontWeight: 400 }}>−{hintPenalty} XP</span></>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Navigation */}
@@ -712,17 +729,15 @@ export default function QuizPage() {
             <ChevronLeft size={15} /> Prev
           </button>
 
-          {/* Question dots */}
           <div className="flex items-center gap-1.5 overflow-x-auto">
             {questions.map((_, i) => {
-              const a      = answers[questions[i]._id]?.userAnswer ?? "";
-              const filled = a.trim() !== "";
+              const a = answers[questions[i]._id]?.userAnswer ?? "";
               return (
                 <button key={i}
                   onClick={() => { setCurrentIdx(i); questionStartRef.current = Date.now(); }}
                   className="w-2.5 h-2.5 rounded-full shrink-0 border-none cursor-pointer transition-all"
                   style={{
-                    background: i === currentIdx ? "var(--accent)" : filled ? "var(--green)" : "var(--border2)",
+                    background: i === currentIdx ? "var(--accent)" : a.trim() ? "var(--green)" : "var(--border2)",
                     transform:  i === currentIdx ? "scale(1.35)" : "scale(1)",
                   }} />
               );
@@ -747,24 +762,14 @@ export default function QuizPage() {
     );
   }
 
-  // ── RESULT SCREEN ─────────────────────────────────────────────────────────
-  // FIX 3 (next level unlock without refresh):
-  //   After a passing or exhaustion result, the "Continue →" / "Back to Levels"
-  //   button navigates to the levels list page.  That page now calls fetchLevels()
-  //   on mount, so navigating to it always shows the freshly-unlocked next level.
-  //   No window.focus hack needed.
-  //
-  // FIX 4 (XP breakdown display):
-  //   - On PASS: show base XP, hint deduction, exhaustion-unlock penalty if any
-  //   - On EXHAUSTION (all attempts used, not passed): show base XP, 30% rate
-  //   - On NON-LAST FAIL: show "0 XP — attempt not last"
+  // ── RESULT SCREEN (fresh + past) ──────────────────────────────────────────
   const ResultView = ({ res, isPast }: { res: ResultData; isPast?: boolean }) => {
     const mins = Math.floor(res.timeTakenSecs / 60);
     const secs = res.timeTakenSecs % 60;
 
-    // Determine if this is an exhaustion result (all attempts used, not passed)
     const isExhaustionResult = !res.isPassing && res.earnedXp > 0;
     const isNoXpResult       = !res.isPassing && res.earnedXp === 0;
+    const penaltyPct         = Math.round((res.penaltyMultiplier ?? 0) * 100);
 
     return (
       <div className="max-w-[560px] mx-auto flex flex-col gap-5 py-8">
@@ -793,7 +798,7 @@ export default function QuizPage() {
           {isPast && (
             <p className="text-[11px] font-mono font-bold uppercase tracking-wider mb-2"
               style={{ color: "var(--text4)" }}>
-              {res.isPassing ? "Completed" : "All Attempts Used"}
+              {res.isPassing ? "Level Completed" : "All Attempts Used"}
             </p>
           )}
           <div className="text-[52px] font-bold font-mono"
@@ -825,18 +830,13 @@ export default function QuizPage() {
           ))}
         </div>
 
-        {/* ── XP Breakdown ──────────────────────────────────────────────────
-            FIX 4: Three distinct breakdown displays:
-            1. PASS — show base, hint penalty, exhaustion-unlock multiplier if any
-            2. EXHAUSTION FAIL — show base, 30% rate, final = floor(base * 0.30)
-            3. NON-LAST FAIL — show "No XP this attempt" message
-        ─────────────────────────────────────────────────────────────────── */}
+        {/* XP Breakdown — PASS with deductions */}
         {res.isPassing && (res.hintXpDeduction > 0 || res.wasExhaustionUnlock) && (
-          // CASE 1: Pass with deductions
           <div className="rounded-xl p-4 flex flex-col gap-2"
             style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
-            <p className="text-[11px] font-bold uppercase tracking-wider"
-              style={{ color: "var(--text4)" }}>XP Breakdown</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
+              XP Breakdown
+            </p>
             <div className="flex justify-between text-[13px] font-mono">
               <span style={{ color: "var(--text3)" }}>Base XP</span>
               <span style={{ color: "var(--text)" }}>+{res.baseXp}</span>
@@ -849,9 +849,7 @@ export default function QuizPage() {
             )}
             {res.wasExhaustionUnlock && (
               <div className="flex justify-between text-[13px] font-mono">
-                <span style={{ color: "var(--text3)" }}>
-                  Exhaustion-Unlock Penalty (×{res.penaltyMultiplier})
-                </span>
+                <span style={{ color: "var(--text3)" }}>Exhaustion-Unlock Penalty (×{res.penaltyMultiplier})</span>
                 <span style={{ color: "var(--amber)" }}>applied</span>
               </div>
             )}
@@ -863,42 +861,40 @@ export default function QuizPage() {
           </div>
         )}
 
+        {/* XP Breakdown — EXHAUSTION consolation (admin-configured %) */}
         {isExhaustionResult && (
-          // CASE 2: All attempts exhausted — 30% consolation XP
           <div className="rounded-xl p-4 flex flex-col gap-2"
             style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.30)" }}>
-            <p className="text-[11px] font-bold uppercase tracking-wider"
-              style={{ color: "var(--amber)" }}>XP Breakdown — Consolation Award</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--amber)" }}>
+              XP Breakdown — Consolation Award
+            </p>
             <div className="flex justify-between text-[13px] font-mono">
               <span style={{ color: "var(--text3)" }}>Base XP (admin set)</span>
               <span style={{ color: "var(--text)" }}>+{res.baseXp}</span>
             </div>
             <div className="flex justify-between text-[13px] font-mono">
               <span style={{ color: "var(--text3)" }}>
-                Exhaustion Rate (×{res.penaltyMultiplier} = {Math.round(res.penaltyMultiplier * 100)}%)
+                Consolation Rate ×{res.penaltyMultiplier} ({penaltyPct}%)
               </span>
               <span style={{ color: "var(--amber)" }}>applied</span>
             </div>
             <div className="border-t pt-2 flex justify-between text-[14px] font-bold font-mono"
               style={{ borderColor: "var(--border)" }}>
-              <span style={{ color: "var(--text)" }}>
-                Total XP ({Math.round(res.penaltyMultiplier * 100)}% of {res.baseXp})
-              </span>
+              <span style={{ color: "var(--text)" }}>Total XP ({penaltyPct}% of {res.baseXp})</span>
               <span style={{ color: "var(--amber)" }}>+{res.earnedXp}</span>
             </div>
             <p className="text-[11px] font-mono mt-1" style={{ color: "var(--text4)" }}>
-              Hints are not deducted from exhaustion awards.
+              Hint penalties are not applied to consolation awards.
             </p>
           </div>
         )}
 
+        {/* No XP — non-last fail */}
         {isNoXpResult && !isPast && (
-          // CASE 3: Failed but still has attempts left — no XP
           <div className="rounded-xl p-3"
             style={{ background: "rgba(124,110,243,0.06)", border: "1px solid rgba(124,110,243,0.18)" }}>
             <p className="text-[12px] font-mono" style={{ color: "var(--text3)" }}>
-              💡 No XP awarded for failed attempts. Complete the level or use all
-              attempts to earn XP.
+              💡 No XP for failed attempts. Pass the level or use all attempts to earn XP.
             </p>
           </div>
         )}
@@ -911,7 +907,7 @@ export default function QuizPage() {
               You need 100% to pass.{" "}
               {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining.
               {attemptsRemaining === 1 && levelInfo
-                ? ` Last attempt awards ${Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.3))} XP if failed.`
+                ? ` Last attempt awards ${Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.3))} XP (${Math.round((levelInfo.penaltyXpMultiplier ?? 0.3) * 100)}%) if failed.`
                 : ""}
             </p>
           </div>
@@ -920,8 +916,7 @@ export default function QuizPage() {
         {/* Actions */}
         <div className="flex gap-3">
           {res.canReview && (
-            <button
-              onClick={() => { setScreen("review"); setReviewIdx(0); }}
+            <button onClick={() => { setScreen("review"); setReviewIdx(0); }}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-semibold border-none cursor-pointer transition-all"
               style={{ background: "var(--surface2)", color: "var(--text2)" }}>
               <BookOpen size={15} /> Review Answers
@@ -1004,10 +999,7 @@ export default function QuizPage() {
                       border:     isCorrect ? "1.5px solid rgba(34,211,160,0.40)" : isWrong ? "1.5px solid rgba(248,113,113,0.30)" : "1.5px solid var(--border)",
                     }}>
                     <span className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-bold shrink-0"
-                      style={{
-                        background: isCorrect ? "var(--green)" : isWrong ? "var(--danger)" : "var(--surface)",
-                        color:      (isCorrect || isWrong) ? "#fff" : "var(--text3)",
-                      }}>
+                      style={{ background: isCorrect ? "var(--green)" : isWrong ? "var(--danger)" : "var(--surface)", color: (isCorrect || isWrong) ? "#fff" : "var(--text3)" }}>
                       {opt.key}
                     </span>
                     <span className="text-[13px]" style={{ color: "var(--text)" }}>{text}</span>
@@ -1022,25 +1014,17 @@ export default function QuizPage() {
           {q.questionType === "text" && (
             <div className="flex flex-col gap-2">
               <div className="rounded-xl px-4 py-3"
-                style={{
-                  background: q.isCorrect ? "rgba(34,211,160,0.10)" : "rgba(248,113,113,0.08)",
-                  border:     q.isCorrect ? "1px solid rgba(34,211,160,0.30)" : "1px solid rgba(248,113,113,0.25)",
-                }}>
-                <p className="text-[11px] font-bold uppercase tracking-wider mb-1"
-                  style={{ color: "var(--text4)" }}>Your Answer</p>
-                <p className="text-[14px] font-mono"
-                  style={{ color: q.isCorrect ? "var(--green)" : "var(--danger)" }}>
+                style={{ background: q.isCorrect ? "rgba(34,211,160,0.10)" : "rgba(248,113,113,0.08)", border: q.isCorrect ? "1px solid rgba(34,211,160,0.30)" : "1px solid rgba(248,113,113,0.25)" }}>
+                <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--text4)" }}>Your Answer</p>
+                <p className="text-[14px] font-mono" style={{ color: q.isCorrect ? "var(--green)" : "var(--danger)" }}>
                   {q.userAnswer || "(no answer)"}
                 </p>
               </div>
               {!q.isCorrect && q.acceptedAnswers && (
                 <div className="rounded-xl px-4 py-3"
                   style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}>
-                  <p className="text-[11px] font-bold uppercase tracking-wider mb-1"
-                    style={{ color: "var(--green)" }}>Accepted Answers</p>
-                  <p className="text-[13px] font-mono" style={{ color: "var(--text)" }}>
-                    {q.acceptedAnswers.join(" / ")}
-                  </p>
+                  <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--green)" }}>Accepted Answers</p>
+                  <p className="text-[13px] font-mono" style={{ color: "var(--text)" }}>{q.acceptedAnswers.join(" / ")}</p>
                 </div>
               )}
             </div>
@@ -1049,8 +1033,7 @@ export default function QuizPage() {
           {q.hintUsed && q.hintText && (
             <div className="rounded-xl p-3"
               style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.22)" }}>
-              <p className="text-[11px] font-bold uppercase tracking-wider mb-1"
-                style={{ color: "var(--amber)" }}>Hint You Used</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--amber)" }}>Hint You Used</p>
               <p className="text-[13px]" style={{ color: "var(--text2)" }}>{q.hintText}</p>
             </div>
           )}
@@ -1058,8 +1041,7 @@ export default function QuizPage() {
           {q.explanation && (
             <div className="rounded-xl p-3"
               style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.20)" }}>
-              <p className="text-[11px] font-bold uppercase tracking-wider mb-1"
-                style={{ color: "var(--accent)" }}>Explanation</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--accent)" }}>Explanation</p>
               <p className="text-[13px] leading-[1.65]" style={{ color: "var(--text2)" }}>{q.explanation}</p>
             </div>
           )}

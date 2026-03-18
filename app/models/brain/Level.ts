@@ -15,9 +15,12 @@
 //                           abandoned sessions count as a used attempt
 //
 // BUSINESS RULES encoded as schema fields:
-//   xpReward             — full XP for a clean completion
-//   penaltyXpMultiplier  — 0.30 by default; applied when user unlocked via exhaustion
-//   maxAttempts          — once attemptsUsed >= maxAttempts, level is force-unlocked
+//   xpReward             — full XP for a clean completion (admin-set)
+//   penaltyXpMultiplier  — admin-set rate (e.g. 0.30 = 30%) applied when user
+//                          exhausts all attempts without passing OR when level
+//                          was unlocked via exhaustion of the previous level
+//   maxAttempts          — once attemptsUsed >= maxAttempts without pass,
+//                          level is force-unlocked for the next level
 //   timeLimitMinutes     — 0 = no time limit
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -106,14 +109,17 @@ const LevelSchema = new Schema<ILevel>(
       default: "easy",
     },
 
-    /* ── XP rules ── */
+    /* ── XP rules (admin-configured) ── */
     xpReward: {
       type:    Number,
       default: 100,
       min:     0,
     },
 
-    // 0.30 = 30% — applied when user unlocks next level via exhaustion
+    // Admin-set multiplier applied in two scenarios:
+    //   a) User exhausted all attempts without passing (consolation XP)
+    //   b) This level was unlocked because previous level was exhausted
+    // Default 0.30 = 30% of xpReward
     penaltyXpMultiplier: {
       type:    Number,
       default: 0.30,
@@ -156,9 +162,8 @@ const LevelSchema = new Schema<ILevel>(
   { timestamps: true }
 );
 
-// ── Indexes ───────────────────────────────────────────────────────────────────
+// ── Level indexes ─────────────────────────────────────────────────────────────
 
-// Level number must be unique within a subcategory
 LevelSchema.index({ subcategoryId: 1, levelNumber: 1 }, { unique: true });
 LevelSchema.index({ subcategoryId: 1, displayOrder: 1 });
 LevelSchema.index({ subcategoryId: 1, status: 1 });
@@ -182,14 +187,17 @@ const UserLevelProgressSchema = new Schema<IUserLevelProgress>(
       type:     Schema.Types.ObjectId,
       ref:      "User",
       required: true,
-      index:    true,
+      // FIX: removed `index: true` here — the compound index below covers
+      // single-field userId lookups and avoids the Mongoose duplicate-index warning.
     },
 
     levelId: {
       type:     Schema.Types.ObjectId,
       ref:      "Level",
       required: true,
-      index:    true,
+      // FIX: removed `index: true` here — the standalone { levelId: 1 } index
+      // below replaces this, eliminating the Mongoose duplicate-index warning:
+      //   "Duplicate schema index on {"levelId":1} for model UserLevelProgress"
     },
 
     /* Denormalized for fast dashboard / analytics queries */
@@ -252,9 +260,9 @@ const UserLevelProgressSchema = new Schema<IUserLevelProgress>(
   { timestamps: true }
 );
 
-// ── Indexes ───────────────────────────────────────────────────────────────────
-
-// Primary: one progress doc per user per level (enforces no duplicates)
+// ── UserLevelProgress indexes ─────────────────────────────────────────────────
+//
+// PRIMARY: one progress doc per user per level (unique constraint)
 UserLevelProgressSchema.index({ userId: 1, levelId: 1 }, { unique: true });
 
 // Dashboard / subcategory progress page
@@ -264,34 +272,18 @@ UserLevelProgressSchema.index({ userId: 1, subcategoryId: 1 });
 UserLevelProgressSchema.index({ userId: 1, categoryId: 1 });
 
 // Admin / analytics: all progress for a level across all users
+// FIX: levelId field no longer has `index: true` so this is the ONLY
+// index definition for { levelId: 1 } — eliminates the duplicate warning.
 UserLevelProgressSchema.index({ levelId: 1 });
 
-// ── NEW INDEXES (fix slow XP fetch + slow categories/subcategories routes) ────
-//
-// WHY THESE ARE NEEDED:
-//
-// GET /api/quiz/xp runs this aggregation:
-//   { $match: { userId, $or: [{ isCompleted: true }, { isExhausted: true }] } }
-// Without a covering index on (userId + isCompleted) and (userId + isExhausted),
-// MongoDB does a full collection scan filtered only by userId, then discards docs
-// where both flags are false.  With these indexes it hits only the matching docs.
-//
-// GET /api/quiz/categories and GET /api/quiz/subcategories count completed levels:
-//   { userId, categoryId, isCompleted: true }
-//   { userId, subcategoryId, isCompleted: true }
-// The existing { userId, categoryId } and { userId, subcategoryId } indexes cover
-// the first two fields but MongoDB still must scan every doc in that userId+category
-// bucket to filter isCompleted.  The compound 3-field indexes below make these
-// counts instant index seeks instead of partial scans.
-
-// Fast $or: [isCompleted, isExhausted] lookup for XP aggregation
+// NEW: fast $or: [isCompleted, isExhausted] lookup used by GET /api/quiz/xp
 UserLevelProgressSchema.index({ userId: 1, isCompleted: 1 });
 UserLevelProgressSchema.index({ userId: 1, isExhausted: 1 });
 
-// Fast completedLevels count per category (categories listing page)
+// NEW: fast completedLevels count per category (categories listing page)
 UserLevelProgressSchema.index({ userId: 1, categoryId: 1,    isCompleted: 1 });
 
-// Fast completedLevels count per subcategory (subcategories listing page)
+// NEW: fast completedLevels count per subcategory (subcategories listing page)
 UserLevelProgressSchema.index({ userId: 1, subcategoryId: 1, isCompleted: 1 });
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -354,8 +346,6 @@ const UserLevelSessionSchema = new Schema<IUserLevelSession>(
 UserLevelSessionSchema.index({ userId: 1, levelId: 1, status: 1 });
 
 // TTL index: auto-expire documents from MongoDB 24 h after they were created.
-// The application layer marks them "abandoned" before this fires — this is just
-// a safety cleanup for truly orphaned sessions.
 UserLevelSessionSchema.index({ startedAt: 1 }, { expireAfterSeconds: 86400 });
 
 // ── Models ────────────────────────────────────────────────────────────────────
