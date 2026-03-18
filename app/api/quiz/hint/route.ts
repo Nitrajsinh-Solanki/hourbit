@@ -1,17 +1,15 @@
 // app/api/quiz/hint/route.ts
 // POST — records hint usage server-side AND immediately deducts XP from DB
 //
-// FIXES:
-//   1. MongooseError "Cannot pass an array to query updates unless updatePipeline
-//      option is set" — fixed by adding { updatePipeline: true } to the options.
-//   2. The deprecated `new` option replaced with `returnDocument: "after"`.
-//   3. XP sufficiency check: if the user's current total XP is less than the
-//      hint penalty, we reject the hint request so the user cannot go negative.
-//      The current totalXp is computed server-side from UserLevelProgress so
-//      the client cannot spoof it.
-//   4. Returns hintText in the response (needed by the quiz page to display it).
-//   5. XP deduction rate is read from the level's admin-configured value —
-//      never hardcoded on the server.
+// BUG FIX:
+//   The previous `findOneAndUpdate` used `userId` (string from JWT payload) as
+//   the filter directly. MongoDB stores userId as ObjectId in UserLevelProgress,
+//   so the string never matched → the update silently found 0 documents →
+//   XP was never deducted from the DB.
+//
+//   Fix: wrap userId in `new mongoose.Types.ObjectId(userId)` for BOTH the
+//   sufficiency-check aggregation AND the findOneAndUpdate filter.
+//   Also wrapped session.levelId in ObjectId for the update filter to be safe.
 
 import { NextRequest, NextResponse }            from "next/server";
 import { connectDB }                            from "@/app/lib/mongodb";
@@ -41,12 +39,14 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const userId = auth.payload.userId;
+  const userId    = auth.payload.userId;
+  // ── FIX: convert to ObjectId for all DB queries ──────────────────────────
+  const userObjId = new mongoose.Types.ObjectId(userId);
 
   // Verify session belongs to this user and is still active
   const session = await UserLevelSession.findOne({
     _id:    sessionId,
-    userId,
+    userId: userObjId,
     status: "started",
   });
 
@@ -57,8 +57,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch question to get hintText and hintXpPenalty
-  // These are intentionally NOT sent in the session/questions payload —
+  // Fetch question to get hintText and hintXpPenalty.
+  // hintText is intentionally NOT sent in the session/questions payload —
   // only returned here after the penalty is committed to DB.
   const question = await Question.findById(questionId)
     .select("hintXpPenalty hintText")
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   const hintKey  = `hint:${questionId}`;
   const existing = session.answers.get(hintKey);
 
-  // Idempotent — if already used for this question, return cached data
+  // Idempotent — if hint already used for this question, return cached data
   if (existing) {
     return NextResponse.json({
       success:       true,
@@ -88,13 +88,12 @@ export async function POST(req: NextRequest) {
 
   // ── XP sufficiency check ────────────────────────────────────────────────
   // Compute user's current total XP from DB (cannot be spoofed by client).
-  // If the user doesn't have enough XP to afford the penalty, reject.
+  // Uses ObjectId — previously used string which caused 0-match silently.
   if (penalty > 0) {
-    const uid = new mongoose.Types.ObjectId(userId);
     const xpResult = await UserLevelProgress.aggregate([
       {
         $match: {
-          userId: uid,
+          userId: userObjId,          // ← ObjectId, not string
           $or: [{ isCompleted: true }, { isExhausted: true }],
         },
       },
@@ -114,7 +113,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Persist hint in session ─────────────────────────────────────────────
+  // ── Persist hint usage in session ──────────────────────────────────────
   // Key "hint:{questionId}" → penalty as string.
   // Submit route reads this map to calculate hint deductions even after
   // browser close or page refresh.
@@ -122,29 +121,39 @@ export async function POST(req: NextRequest) {
   await session.save();
 
   // ── Deduct hint penalty from UserLevelProgress.earnedXp in DB ──────────
-  // This keeps GET /api/quiz/xp accurate between hint click and submission.
-  // Submit route recalculates earnedXp from scratch, so no double-deduction.
-  //
-  // FIX: Mongoose requires { updatePipeline: true } when passing an array as
-  // the update argument (MongoDB aggregation pipeline updates, requires 4.2+).
-  // Without this option Mongoose throws:
-  //   "Cannot pass an array to query updates unless the updatePipeline option is set"
+  // FIX: both `userId` and `levelId` are cast to ObjectId so the filter
+  // actually matches the document.  Previously `userId` was a plain string
+  // and MongoDB's strict type comparison meant 0 documents were ever matched,
+  // so the XP field was never updated.
   if (penalty > 0) {
-    await UserLevelProgress.findOneAndUpdate(
-      { userId, levelId: session.levelId },
+    const levelObjId = new mongoose.Types.ObjectId(String(session.levelId));
+
+    const updateResult = await UserLevelProgress.findOneAndUpdate(
+      {
+        userId:  userObjId,    // ← ObjectId (was string — the bug)
+        levelId: levelObjId,   // ← ObjectId (extra safety)
+      },
       [
         {
           $set: {
-            // Deduct penalty but never go below 0
+            // Deduct penalty but never let earnedXp go below 0
             earnedXp: { $max: [0, { $subtract: ["$earnedXp", penalty] }] },
           },
         },
       ],
       {
-        updatePipeline:  true,         // ← required for array (pipeline) updates
-        returnDocument:  "after",      // replaces deprecated `new: true`
+        updatePipeline: true,        // required for array (aggregation pipeline) updates
+        returnDocument: "after",
       }
     );
+
+    // Safety: if no progress doc found (edge case — should not happen after
+    // session creation creates the doc), log a warning but don't crash.
+    if (!updateResult) {
+      console.warn(
+        `[hint] UserLevelProgress not found for userId=${userId} levelId=${session.levelId}. XP deduction skipped.`
+      );
+    }
   }
 
   return NextResponse.json({

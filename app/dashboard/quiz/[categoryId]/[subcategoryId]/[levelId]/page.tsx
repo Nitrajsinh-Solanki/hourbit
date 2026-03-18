@@ -14,8 +14,6 @@ import toast from "react-hot-toast";
 
 type QuestionType = "option" | "text";
 
-// hintXpPenalty is included — it's not sensitive (just a cost number).
-// hintText is NOT included — it would let users read hints for free before paying.
 type Question = {
   _id:             string;
   questionType:    QuestionType;
@@ -24,11 +22,10 @@ type Question = {
   optionB:         string;
   optionC:         string;
   optionD:         string;
-  hintXpPenalty:   number;   // cost shown on button BEFORE clicking
+  hintXpPenalty:   number;
   displayOrder:    number;
 };
 
-// Populated lazily: only hintText comes from the server on first "Show Hint" click
 type HintData = {
   hintText:      string;
   hintXpPenalty: number;
@@ -116,12 +113,9 @@ export default function QuizPage() {
   const [currentIdx,        setCurrentIdx]        = useState(0);
   const [answers,           setAnswers]           = useState<Record<string, AnswerState>>({});
 
-  // hintCache: only stores hintText per questionId.
-  // hintXpPenalty is already on each Question object from the session payload.
   const [hintCache,   setHintCache]   = useState<Map<string, string>>(new Map());
   const [hintLoading, setHintLoading] = useState(false);
 
-  // totalXp fetched from DB — used for XP sufficiency check on hint button
   const [totalXp, setTotalXp] = useState<number>(0);
   const xpLoadedRef = useRef(false);
 
@@ -131,13 +125,16 @@ export default function QuizPage() {
   const [review,       setReview]       = useState<ReviewQuestion[]>([]);
   const [reviewIdx,    setReviewIdx]    = useState(0);
 
+  // ── FIX BUG 2: track whether result came from a fresh submission ──────────
+  // We need this to know if "Back" on result screen means "past_result" or "result"
+  // AND to show correct button labels after an exhaustion submit.
+  const [isExhaustedAfterSubmit, setIsExhaustedAfterSubmit] = useState(false);
+
   const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionStartRef = useRef<number>(Date.now());
   const submitCalledRef  = useRef(false);
 
-  // ── Fetch current XP from DB once on mount ────────────────────────────────
-  // Used to show balance on hint button and block hint if insufficient.
-  // Re-fetched after xp-updated (post submit).
+  // ── Fetch current XP from DB ──────────────────────────────────────────────
   const fetchTotalXp = useCallback(() => {
     fetch("/api/quiz/xp")
       .then(r => r.json())
@@ -208,6 +205,9 @@ export default function QuizPage() {
         setLevelInfo(found);
         setAttemptsRemaining(found.attemptsRemaining);
 
+        // ── FIX BUG 2: isExhausted (all attempts used, not passed) also goes
+        // directly to past_result view — same as isCompleted.
+        // Previously this was already here but ensure it stays intact.
         if (found.isCompleted || found.isExhausted) {
           loadPastResult();
           return;
@@ -232,6 +232,7 @@ export default function QuizPage() {
         setReview(data.review);
         setScreen("past_result");
       } else {
+        // No result found yet (edge case) — go to confirm if still unlocked
         setScreen("confirm");
       }
     } catch {
@@ -274,9 +275,18 @@ export default function QuizPage() {
         return;
       }
 
+      const newAttemptsRemaining = data.progress?.attemptsRemaining ?? 0;
       setResult(data.result);
       setReview(data.review);
-      if (data.progress) setAttemptsRemaining(data.progress.attemptsRemaining ?? 0);
+      if (data.progress) setAttemptsRemaining(newAttemptsRemaining);
+
+      // ── FIX BUG 2: detect exhaustion on THIS submission ───────────────
+      // willBeExhausted = last attempt just used AND not passing.
+      // data.progress.isExhausted is the server-authoritative flag.
+      const justExhausted =
+        data.progress?.isExhausted === true && !data.result?.isPassing;
+      setIsExhaustedAfterSubmit(justExhausted);
+
       setScreen("result");
       window.dispatchEvent(new CustomEvent("xp-updated"));
     } catch {
@@ -302,6 +312,7 @@ export default function QuizPage() {
     if (!levelId) return;
     setScreen("loading");
     submitCalledRef.current = false;
+    setIsExhaustedAfterSubmit(false);
 
     try {
       const res  = await fetch("/api/quiz/session", {
@@ -318,7 +329,7 @@ export default function QuizPage() {
       }
 
       setSessionId(data.sessionId);
-      setQuestions(data.questions);           // hintXpPenalty is in each question
+      setQuestions(data.questions);
       setAttemptsRemaining(data.attemptsRemaining);
       setCurrentIdx(0);
       setAnswers({});
@@ -346,16 +357,12 @@ export default function QuizPage() {
   };
 
   // ── Show hint ─────────────────────────────────────────────────────────────
-  // hintXpPenalty is already known from the question object (sent by session route).
-  // We only call the hint API to get hintText — the server records the usage and
-  // deducts XP from DB at the same time.
   const handleShowHint = async () => {
     const q = questions[currentIdx];
     if (!q || hintCache.has(q._id) || hintLoading) return;
 
     const penalty = q.hintXpPenalty ?? 0;
 
-    // Block if user doesn't have enough XP
     if (penalty > 0 && totalXp < penalty) {
       toast.error(`Not enough XP. You need ${penalty} XP but have ${totalXp} XP.`, { duration: 4000 });
       return;
@@ -379,7 +386,6 @@ export default function QuizPage() {
         return;
       }
 
-      // Cache only hintText — hintXpPenalty is already on the question object
       setHintCache(prev => {
         const next = new Map(prev);
         next.set(q._id, data.hintText ?? "");
@@ -545,8 +551,7 @@ export default function QuizPage() {
     const userAnswer = ans?.userAnswer ?? "";
     const isLast     = currentIdx === questions.length - 1;
 
-    // hintText is in cache after first click; hintXpPenalty is always on the question
-    const hintText    = hintCache.get(q._id);        // undefined = not yet revealed
+    const hintText    = hintCache.get(q._id);
     const hintPenalty = q.hintXpPenalty ?? 0;
     const canAffordHint = hintPenalty === 0 || totalXp >= hintPenalty;
 
@@ -650,21 +655,10 @@ export default function QuizPage() {
             </div>
           )}
 
-          {/* ── HINT SECTION ────────────────────────────────────────────────
-              BEFORE CLICK:
-                Button shows exact XP cost: "💡 Show Hint  −10 XP"
-                Greyed + blocked if user can't afford it.
-              AFTER CLICK:
-                Reveals hintText from server response.
-                Shows cost in header: "Hint (−10 XP deducted)".
-              hintXpPenalty comes from question object (session payload).
-              hintText comes from server on first click (hint route).
-              No question has a hint if hintXpPenalty === 0 AND hintText is "".
-          ─────────────────────────────────────────────────────────────────── */}
+          {/* Hint section */}
           {hintPenalty > 0 && (
             <div>
               {hintText !== undefined ? (
-                /* Hint revealed */
                 <div className="rounded-xl p-3 flex items-start gap-2"
                   style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.25)" }}>
                   <span style={{ color: "var(--amber)", flexShrink: 0 }}>💡</span>
@@ -680,7 +674,6 @@ export default function QuizPage() {
                   </div>
                 </div>
               ) : (
-                /* Show hint button with exact cost */
                 <button
                   onClick={handleShowHint}
                   disabled={hintLoading || !canAffordHint}
@@ -694,8 +687,8 @@ export default function QuizPage() {
                   }}
                   onMouseEnter={e => {
                     if (canAffordHint && !hintLoading) {
-                      (e.currentTarget as HTMLElement).style.background   = "rgba(245,158,11,0.16)";
-                      (e.currentTarget as HTMLElement).style.borderColor  = "rgba(245,158,11,0.40)";
+                      (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.16)";
+                      (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.40)";
                     }
                   }}
                   onMouseLeave={e => {
@@ -712,7 +705,6 @@ export default function QuizPage() {
                   ) : !canAffordHint ? (
                     <>🚫 Hint unavailable — need {hintPenalty} XP (you have {totalXp} XP)</>
                   ) : (
-                    // Shows exact XP deduction on the button
                     <>💡 Show Hint <span style={{ opacity: 0.7, fontWeight: 400 }}>−{hintPenalty} XP</span></>
                   )}
                 </button>
@@ -763,6 +755,7 @@ export default function QuizPage() {
   }
 
   // ── RESULT SCREEN (fresh + past) ──────────────────────────────────────────
+  // ── FIX BUG 2: isPast flag + isExhaustedAfterSubmit drive correct labels ──
   const ResultView = ({ res, isPast }: { res: ResultData; isPast?: boolean }) => {
     const mins = Math.floor(res.timeTakenSecs / 60);
     const secs = res.timeTakenSecs % 60;
@@ -770,6 +763,20 @@ export default function QuizPage() {
     const isExhaustionResult = !res.isPassing && res.earnedXp > 0;
     const isNoXpResult       = !res.isPassing && res.earnedXp === 0;
     const penaltyPct         = Math.round((res.penaltyMultiplier ?? 0) * 100);
+
+    // ── FIX BUG 2: "all attempts used" = isPast exhaustion OR fresh exhaustion
+    // In both cases: no "Try Again" button; always show "Back to Levels".
+    const isAllAttemptsUsed =
+      isPast                                        // came from past_result (already exhausted/completed)
+      || isExhaustedAfterSubmit                     // just exhausted on THIS submission
+      || attemptsRemaining <= 0;                    // safety: no attempts left
+
+    // The bottom-right action button label and destination
+    const actionLabel = res.isPassing
+      ? isPast ? "Back to Levels" : "Continue →"
+      : isAllAttemptsUsed
+        ? "Back to Levels"
+        : "Try Again →";
 
     return (
       <div className="max-w-[560px] mx-auto flex flex-col gap-5 py-8">
@@ -795,10 +802,15 @@ export default function QuizPage() {
               ? "1px solid rgba(34,211,160,0.30)"
               : "1px solid rgba(248,113,113,0.25)",
           }}>
-          {isPast && (
+          {/* ── FIX BUG 2: show correct status label for exhaustion on fresh result too */}
+          {(isPast || isExhaustedAfterSubmit) && (
             <p className="text-[11px] font-mono font-bold uppercase tracking-wider mb-2"
               style={{ color: "var(--text4)" }}>
-              {res.isPassing ? "Level Completed" : "All Attempts Used"}
+              {res.isPassing
+                ? "Level Completed"
+                : isAllAttemptsUsed
+                  ? "All Attempts Used"
+                  : ""}
             </p>
           )}
           <div className="text-[52px] font-bold font-mono"
@@ -861,7 +873,7 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* XP Breakdown — EXHAUSTION consolation (admin-configured %) */}
+        {/* XP Breakdown — EXHAUSTION consolation */}
         {isExhaustionResult && (
           <div className="rounded-xl p-4 flex flex-col gap-2"
             style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.30)" }}>
@@ -890,7 +902,7 @@ export default function QuizPage() {
         )}
 
         {/* No XP — non-last fail */}
-        {isNoXpResult && !isPast && (
+        {isNoXpResult && !isPast && !isExhaustedAfterSubmit && (
           <div className="rounded-xl p-3"
             style={{ background: "rgba(124,110,243,0.06)", border: "1px solid rgba(124,110,243,0.18)" }}>
             <p className="text-[12px] font-mono" style={{ color: "var(--text3)" }}>
@@ -899,8 +911,8 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* Retry message */}
-        {!res.isPassing && attemptsRemaining > 0 && !isPast && (
+        {/* Retry message — only when attempts remain AND not exhausted */}
+        {!res.isPassing && attemptsRemaining > 0 && !isPast && !isExhaustedAfterSubmit && (
           <div className="rounded-xl p-3 text-center"
             style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.20)" }}>
             <p className="text-[13px] font-mono" style={{ color: "var(--accent)" }}>
@@ -913,7 +925,19 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* Actions */}
+        {/* ── FIX BUG 2: Actions ─────────────────────────────────────────────
+            canReview comes from server: true if isPassing OR isExhausted.
+            The "Review Answers" button therefore correctly appears for BOTH:
+              • fresh pass       (isPassing=true, canReview=true)
+              • fresh exhaustion (isExhausted=true, canReview=true)
+              • past pass        (isPassing=true, canReview=true)
+              • past exhaustion  (isExhausted=true, canReview=true)
+
+            The right-side action button:
+              • Pass        → "Continue →" (fresh) or "Back to Levels" (past)
+              • Exhausted   → "Back to Levels" (no more retries)
+              • Has retries → "Try Again →"
+        ─────────────────────────────────────────────────────────────────── */}
         <div className="flex gap-3">
           {res.canReview && (
             <button onClick={() => { setScreen("review"); setReviewIdx(0); }}
@@ -926,7 +950,7 @@ export default function QuizPage() {
             onClick={() => router.push(`/dashboard/quiz/${categoryId}/${subcategoryId}`)}
             className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"
             style={{ background: "var(--accent)", color: "#fff" }}>
-            {isPast ? "Back to Levels" : res.isPassing ? "Continue →" : "Try Again →"}
+            {actionLabel}
           </button>
         </div>
       </div>
