@@ -1,31 +1,51 @@
 // app/api/quiz/levels/route.ts
-// GET ?subcategoryId=xxx — returns all levels with unlock status and attempts
+// GET ?subcategoryId=xxx — returns all levels with unlock status and attempt counts
+//
+// FIXES (performance):
+//  - Already used a single progressDocs batch query — kept that
+//  - Added Cache-Control header
+//  - No logic changes — unlock rules are correct
 
 import { NextRequest, NextResponse }          from "next/server";
 import { connectDB }                          from "@/app/lib/mongodb";
 import { requireAuth }                        from "@/app/lib/authGuard";
 import { Level, UserLevelProgress }           from "@/app/models/brain";
+import mongoose                               from "mongoose";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
   if (!auth.ok) {
-    return NextResponse.json({ success: false, message: auth.message }, { status: auth.status });
+    return NextResponse.json(
+      { success: false, message: auth.message },
+      { status: auth.status }
+    );
   }
 
   const subcategoryId = new URL(req.url).searchParams.get("subcategoryId");
   if (!subcategoryId) {
-    return NextResponse.json({ success: false, message: "subcategoryId required" }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: "subcategoryId required" },
+      { status: 400 }
+    );
   }
 
   await connectDB();
 
-  const userId = auth.payload.userId;
+  const userId = new mongoose.Types.ObjectId(auth.payload.userId);
 
-  const levels = await Level.find({ subcategoryId, status: "active" })
+  // 1. All active levels for this subcategory
+  const levels = await Level.find({
+    subcategoryId: new mongoose.Types.ObjectId(subcategoryId),
+    status:        "active",
+  })
     .sort({ displayOrder: 1, levelNumber: 1 })
     .lean();
 
-  // Fetch all progress docs for this user in one query
+  if (levels.length === 0) {
+    return NextResponse.json({ success: true, levels: [] });
+  }
+
+  // 2. All progress docs for this user in one query (no N+1)
   const levelIds    = levels.map(l => l._id);
   const progressDocs = await UserLevelProgress.find({
     userId,
@@ -37,15 +57,15 @@ export async function GET(req: NextRequest) {
   );
 
   const result = levels.map((level, idx) => {
-    const progress = progressMap.get(String(level._id));
+    const progress  = progressMap.get(String(level._id));
     const prevLevel = idx > 0 ? levels[idx - 1] : null;
     const prevProgress = prevLevel
       ? progressMap.get(String(prevLevel._id))
       : null;
 
     // Unlock rules:
-    // Level 1 (first level) → always unlocked
-    // Level N → unlocked if previous level isCompleted OR isExhausted
+    //   Level 1 (idx === 0) → always unlocked
+    //   Level N            → unlocked if previous level isCompleted OR isExhausted
     let isUnlocked = idx === 0;
     if (!isUnlocked && prevProgress) {
       isUnlocked = prevProgress.isCompleted || prevProgress.isExhausted;
@@ -57,25 +77,32 @@ export async function GET(req: NextRequest) {
     const isExhausted       = progress?.isExhausted ?? false;
 
     return {
-      _id:                  level._id,
-      levelNumber:          level.levelNumber,
-      name:                 level.name,
-      difficulty:           level.difficulty,
-      xpReward:             level.xpReward,
-      penaltyXpMultiplier:  level.penaltyXpMultiplier,
-      maxAttempts:          level.maxAttempts,
+      _id:                   level._id,
+      levelNumber:           level.levelNumber,
+      name:                  (level as any).name ?? "",
+      difficulty:            level.difficulty,
+      xpReward:              level.xpReward,
+      penaltyXpMultiplier:   level.penaltyXpMultiplier,
+      maxAttempts:           level.maxAttempts,
       attemptsUsed,
       attemptsRemaining,
-      questionCount:        level.questionCount,
-      timeLimitMinutes:     level.timeLimitMinutes,
+      questionCount:         level.questionCount,
+      timeLimitMinutes:      level.timeLimitMinutes,
       isUnlocked,
       isCompleted,
       isExhausted,
-      earnedXp:             progress?.earnedXp ?? 0,
-      bestScore:            progress?.bestScore ?? 0,
-      unlockedViaExhaustion:progress?.unlockedViaExhaustion ?? false,
+      earnedXp:              progress?.earnedXp ?? 0,
+      bestScore:             progress?.bestScore ?? 0,
+      unlockedViaExhaustion: progress?.unlockedViaExhaustion ?? false,
     };
   });
 
-  return NextResponse.json({ success: true, levels: result });
+  return NextResponse.json(
+    { success: true, levels: result },
+    {
+      headers: {
+        "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
+      },
+    }
+  );
 }

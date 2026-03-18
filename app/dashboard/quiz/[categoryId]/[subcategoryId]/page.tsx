@@ -10,23 +10,23 @@ import {
 import toast from "react-hot-toast";
 
 type Level = {
-  _id:                  string;
-  levelNumber:          number;
-  name:                 string;
-  difficulty:           "easy" | "medium" | "hard" | "expert";
-  xpReward:             number;
-  penaltyXpMultiplier:  number;
-  maxAttempts:          number;
-  attemptsUsed:         number;
-  attemptsRemaining:    number;
-  questionCount:        number;
-  timeLimitMinutes:     number;
-  isUnlocked:           boolean;
-  isCompleted:          boolean;
-  isExhausted:          boolean;
-  earnedXp:             number;
-  bestScore:            number;
-  unlockedViaExhaustion:boolean;
+  _id:                   string;
+  levelNumber:           number;
+  name:                  string;
+  difficulty:            "easy" | "medium" | "hard" | "expert";
+  xpReward:              number;
+  penaltyXpMultiplier:   number;
+  maxAttempts:           number;
+  attemptsUsed:          number;
+  attemptsRemaining:     number;
+  questionCount:         number;
+  timeLimitMinutes:      number;
+  isUnlocked:            boolean;
+  isCompleted:           boolean;
+  isExhausted:           boolean;
+  earnedXp:              number;
+  bestScore:             number;
+  unlockedViaExhaustion: boolean;
 };
 
 const DIFF_META = {
@@ -38,11 +38,13 @@ const DIFF_META = {
 
 export default function LevelSelectionPage() {
   const router = useRouter();
-  const { categoryId, subcategoryId } = useParams<{ categoryId: string; subcategoryId: string }>();
+  const { categoryId, subcategoryId } =
+    useParams<{ categoryId: string; subcategoryId: string }>();
 
   const [levels,  setLevels]  = useState<Level[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ── Fetch levels ────────────────────────────────────────────────────────────
   const fetchLevels = () => {
     if (!subcategoryId) return;
     setLoading(true);
@@ -57,11 +59,18 @@ export default function LevelSelectionPage() {
   };
 
   useEffect(() => {
+    // FIX: call fetchLevels() immediately on mount — the original code ONLY
+    // registered a window "focus" listener and never fetched on first render,
+    // which made the page appear blank / extremely slow to load.
+    fetchLevels();
+
+    // Re-fetch when the user returns to this tab after completing a quiz
     const handleFocus = () => fetchLevels();
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [subcategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Navigation ──────────────────────────────────────────────────────────────
   const handleStart = (level: Level) => {
     if (!level.isUnlocked) {
       toast.error("Complete the previous level to unlock this one.");
@@ -71,7 +80,7 @@ export default function LevelSelectionPage() {
       toast("You already completed this level!", { icon: "✅" });
       return;
     }
-    if (level.attemptsRemaining === 0) {
+    if (level.attemptsRemaining === 0 && !level.isExhausted) {
       toast.error("No attempts remaining for this level.");
       return;
     }
@@ -93,11 +102,13 @@ export default function LevelSelectionPage() {
           <ChevronLeft size={15} /> Back to Subcategories
         </button>
 
-        <div className="rounded-2xl px-6 py-5"
+        <div
+          className="rounded-2xl px-6 py-5"
           style={{
             background: "linear-gradient(135deg, rgba(124,110,243,0.10), rgba(245,158,11,0.06))",
             border:     "1px solid rgba(124,110,243,0.22)",
-          }}>
+          }}
+        >
           <h1 className="text-[20px] font-bold" style={{ color: "var(--text)" }}>
             Select Level
           </h1>
@@ -107,16 +118,22 @@ export default function LevelSelectionPage() {
         </div>
       </div>
 
+      {/* Level list */}
       {loading ? (
         <div className="flex flex-col gap-3">
-          {[1,2,3].map(i => (
-            <div key={i} className="rounded-2xl h-28 animate-pulse"
-              style={{ background: "var(--surface)", border: "1px solid var(--border2)" }} />
+          {[1, 2, 3].map(i => (
+            <div
+              key={i}
+              className="rounded-2xl h-28 animate-pulse"
+              style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+            />
           ))}
         </div>
       ) : levels.length === 0 ? (
-        <div className="rounded-2xl py-16 text-center"
-          style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
+        <div
+          className="rounded-2xl py-16 text-center"
+          style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+        >
           <p className="font-mono text-[13px]" style={{ color: "var(--text3)" }}>
             No levels available.
           </p>
@@ -124,16 +141,23 @@ export default function LevelSelectionPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {levels.map(level => {
-            const diff    = DIFF_META[level.difficulty] ?? DIFF_META.easy;
-            const locked  = !level.isUnlocked;
-            const canStart = level.isUnlocked && !level.isCompleted && level.attemptsRemaining > 0;
+            const diff   = DIFF_META[level.difficulty] ?? DIFF_META.easy;
+            const locked = !level.isUnlocked;
+
+            // ── Button state logic ────────────────────────────────────────────
+            // "View Result" is shown ONLY when all attempts are exhausted
+            // (isExhausted = true, isCompleted = false).
+            // While the user still has attempts remaining, they see "Start →".
+            // Once the level is passed (isCompleted), they see "Completed ✓" (disabled).
+            const showViewResult = level.isExhausted && !level.isCompleted;
+            const canStart       = level.isUnlocked && !level.isCompleted && !level.isExhausted && level.attemptsRemaining > 0;
 
             return (
               <div
                 key={level._id}
                 className="rounded-2xl p-5 transition-all"
                 style={{
-                  background: locked ? "var(--surface)" : "var(--surface)",
+                  background: "var(--surface)",
                   border:     level.isCompleted
                     ? "1px solid rgba(34,211,160,0.35)"
                     : locked
@@ -143,9 +167,11 @@ export default function LevelSelectionPage() {
                 }}
               >
                 <div className="flex items-start justify-between gap-4">
+
                   {/* Left info */}
                   <div className="flex items-start gap-4 flex-1 min-w-0">
-                    {/* Level number bubble */}
+
+                    {/* Level bubble */}
                     <div
                       className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 font-bold text-[15px]"
                       style={{
@@ -169,19 +195,30 @@ export default function LevelSelectionPage() {
                     </div>
 
                     <div className="flex-1 min-w-0">
+                      {/* Title row */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-[14px]" style={{ color: "var(--text)" }}>
+                        <span
+                          className="font-semibold text-[14px]"
+                          style={{ color: "var(--text)" }}
+                        >
                           Level {level.levelNumber}
                           {level.name ? ` — ${level.name}` : ""}
                         </span>
                         <span
                           className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                          style={{ color: diff.color, background: diff.bg }}>
+                          style={{ color: diff.color, background: diff.bg }}
+                        >
                           {diff.label}
                         </span>
+                        {/* Exhaustion-unlock badge: shown only while not yet completed */}
                         {level.unlockedViaExhaustion && !level.isCompleted && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                            style={{ color: "var(--amber)", background: "rgba(245,158,11,0.12)" }}>
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                            style={{
+                              color:      "var(--amber)",
+                              background: "rgba(245,158,11,0.12)",
+                            }}
+                          >
                             ⚠ 30% XP
                           </span>
                         )}
@@ -209,75 +246,96 @@ export default function LevelSelectionPage() {
                             {level.questionCount} questions
                           </span>
                         </div>
-                        {!locked && (
+                        {/* Attempts counter — only shown when not locked */}
+                        {!locked && !level.isCompleted && (
                           <div className="flex items-center gap-1.5">
                             <RotateCcw size={11} style={{ color: "var(--text4)" }} />
-                            <span className="text-[11px] font-mono"
+                            <span
+                              className="text-[11px] font-mono"
                               style={{
                                 color: level.attemptsRemaining === 0
                                   ? "var(--danger)"
                                   : "var(--text3)",
-                              }}>
+                              }}
+                            >
                               {level.attemptsRemaining}/{level.maxAttempts} attempts left
                             </span>
                           </div>
                         )}
                       </div>
 
-                      {/* Best score + XP earned */}
+                      {/* Completed: best score + XP earned */}
                       {level.isCompleted && (
                         <div className="flex items-center gap-3 mt-2">
-                          <span className="text-[11px] font-mono"
-                            style={{ color: "var(--green)" }}>
+                          <span className="text-[11px] font-mono" style={{ color: "var(--green)" }}>
                             ✓ Score: {level.bestScore}%
                           </span>
-                          <span className="text-[11px] font-mono"
-                            style={{ color: "var(--amber)" }}>
+                          <span className="text-[11px] font-mono" style={{ color: "var(--amber)" }}>
                             +{level.earnedXp} XP earned
                           </span>
                         </div>
                       )}
 
-                      {/* Exhaustion warning */}
+                      {/* Exhausted: all attempts used message */}
                       {level.isExhausted && !level.isCompleted && (
                         <div className="flex items-center gap-1.5 mt-2">
                           <AlertTriangle size={11} style={{ color: "var(--danger)" }} />
-                          <span className="text-[11px] font-mono"
-                            style={{ color: "var(--danger)" }}>
-                            All attempts used
+                          <span className="text-[11px] font-mono" style={{ color: "var(--danger)" }}>
+                            All attempts used — +{level.earnedXp} XP awarded
                           </span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Action button */}
+                  {/* ── Action button ─────────────────────────────────────────
+                      LOGIC:
+                        locked              → grey "Locked" label
+                        isCompleted         → green "Completed ✓" (disabled)
+                        isExhausted         → amber "View Result →" (all attempts done)
+                        attemptsRemaining>0 → purple "Start →" / "Retry →"
+                        else                → shouldn't happen, but grey label
+                  ─────────────────────────────────────────────────────────── */}
                   <div className="shrink-0">
                     {locked ? (
-                      <div className="px-4 py-2 rounded-xl text-[12px] font-mono"
-                        style={{ color: "var(--text4)", background: "var(--surface2)" }}>
+                      <div
+                        className="px-4 py-2 rounded-xl text-[12px] font-mono"
+                        style={{ color: "var(--text4)", background: "var(--surface2)" }}
+                      >
                         Locked
                       </div>
+
                     ) : level.isCompleted ? (
-                      <button
-                        onClick={() => handleStart(level)}
-                        className="px-4 py-2 rounded-xl text-[12px] font-mono font-semibold border-none cursor-not-allowed"
+                      <div
+                        className="px-4 py-2 rounded-xl text-[12px] font-mono font-semibold"
                         style={{
                           color:      "var(--green)",
                           background: "rgba(34,211,160,0.12)",
                         }}
-                        disabled
                       >
                         Completed ✓
+                      </div>
+
+                    ) : showViewResult ? (
+                      // All attempts exhausted — user can now view result
+                      <button
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/quiz/${categoryId}/${subcategoryId}/${level._id}`
+                          )
+                        }
+                        className="px-4 py-2 rounded-xl text-[12px] font-mono font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"
+                        style={{
+                          color:      "var(--amber)",
+                          background: "rgba(245,158,11,0.12)",
+                          border:     "1px solid rgba(245,158,11,0.25)",
+                        }}
+                      >
+                        View Result →
                       </button>
-                    ) :level.attemptsRemaining === 0 ? (
-                        <button
-                          onClick={() => router.push(`/dashboard/quiz/${categoryId}/${subcategoryId}/${level._id}`)}
-                          className="px-4 py-2 rounded-xl text-[12px] font-mono font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"
-                          style={{ color: "var(--amber)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
-                          View Result →
-                        </button>
-                    ) : (
+
+                    ) : canStart ? (
+                      // Still has attempts — start / retry
                       <button
                         onClick={() => handleStart(level)}
                         className="px-5 py-2 rounded-xl text-[12px] font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"
@@ -287,10 +345,19 @@ export default function LevelSelectionPage() {
                           boxShadow:  "0 0 16px rgba(124,110,243,0.30)",
                         }}
                       >
-                        Start →
+                        {level.attemptsUsed > 0 ? "Retry →" : "Start →"}
                       </button>
+
+                    ) : (
+                      <div
+                        className="px-4 py-2 rounded-xl text-[12px] font-mono"
+                        style={{ color: "var(--text4)", background: "var(--surface2)" }}
+                      >
+                        Unavailable
+                      </div>
                     )}
                   </div>
+
                 </div>
               </div>
             );

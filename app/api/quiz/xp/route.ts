@@ -1,4 +1,10 @@
 // app/api/quiz/xp/route.ts
+// GET — returns total XP earned by authenticated user
+// Only counts COMPLETED or EXHAUSTED levels — never partial attempts
+//
+// FIXES:
+//  - Added Cache-Control header so repeated navigations are instant
+//  - Single aggregation pipeline (already correct) — no N+1 queries
 
 import { NextResponse }      from "next/server";
 import { connectDB }         from "@/app/lib/mongodb";
@@ -23,16 +29,27 @@ export async function GET() {
     {
       $match: {
         userId,
-        // Only count XP from levels that are completed OR exhausted
         $or: [{ isCompleted: true }, { isExhausted: true }],
       },
     },
     {
-      $group: { _id: null, totalXp: { $sum: "$earnedXp" } },
+      $group: {
+        _id:     null,
+        totalXp: { $sum: "$earnedXp" },
+      },
     },
   ]);
 
   const totalXp = result[0]?.totalXp ?? 0;
 
-  return NextResponse.json({ success: true, totalXp });
+  return NextResponse.json(
+    { success: true, totalXp },
+    {
+      headers: {
+        // Cache on the client for 30 s — stale-while-revalidate means the
+        // browser serves the cached value instantly while fetching a fresh one.
+        "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
+      },
+    }
+  );
 }

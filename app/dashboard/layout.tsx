@@ -122,10 +122,8 @@ function useTheme() {
 // ── Sidebar ────────────────────────────────────────────────────
 function Sidebar({
   fullName,
-  // mobile
   mobileOpen,
   onMobileClose,
-  // desktop
   collapsed,
   onToggleCollapse,
 }: {
@@ -156,7 +154,7 @@ function Sidebar({
         />
       )}
 
-      {/* ── MOBILE sidebar (full width, overlay) ── */}
+      {/* ── MOBILE sidebar ── */}
       <aside
         className={`
           fixed top-0 left-0 h-screen z-40 flex flex-col md:hidden
@@ -181,7 +179,7 @@ function Sidebar({
         />
       </aside>
 
-      {/* ── DESKTOP sidebar (fixed, collapsible) ── */}
+      {/* ── DESKTOP sidebar ── */}
       <aside
         className="hidden md:flex fixed top-0 left-0 h-screen z-40 flex-col transition-all duration-300 ease-in-out"
         style={{
@@ -206,7 +204,7 @@ function Sidebar({
   );
 }
 
-// ── Sidebar inner content (shared between mobile/desktop) ──────
+// ── Sidebar inner content ──────────────────────────────────────
 function SidebarContent({
   fullName,
   pathname,
@@ -297,31 +295,28 @@ function SidebarContent({
               title={collapsed ? label : undefined}
               className="flex items-center gap-3 rounded-xl text-[13px] font-medium transition-all duration-150 no-underline"
               style={{
-                background: active ? "rgba(124,110,243,0.14)" : "transparent",
-                border:     active ? "1px solid rgba(124,110,243,0.22)" : "1px solid transparent",
-                color:      active ? "var(--text)" : "var(--text2)",
-                padding:    collapsed ? "10px 0" : "10px 12px",
+                background:     active ? "rgba(124,110,243,0.14)" : "transparent",
+                border:         active ? "1px solid rgba(124,110,243,0.22)" : "1px solid transparent",
+                color:          active ? "var(--text)" : "var(--text2)",
+                padding:        collapsed ? "10px 0" : "10px 12px",
                 justifyContent: collapsed ? "center" : "flex-start",
               }}
               onMouseEnter={e => {
                 if (!active) {
                   (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
-                  (e.currentTarget as HTMLElement).style.color = "var(--text)";
+                  (e.currentTarget as HTMLElement).style.color      = "var(--text)";
                 }
               }}
               onMouseLeave={e => {
                 if (!active) {
                   (e.currentTarget as HTMLElement).style.background = "transparent";
-                  (e.currentTarget as HTMLElement).style.color = "var(--text2)";
+                  (e.currentTarget as HTMLElement).style.color      = "var(--text2)";
                 }
               }}
             >
               <Icon
                 size={16}
-                style={{
-                  color:     active ? "#7c6ef3" : "var(--text3)",
-                  flexShrink: 0,
-                }}
+                style={{ color: active ? "#7c6ef3" : "var(--text3)", flexShrink: 0 }}
               />
               {!collapsed && label}
             </Link>
@@ -388,7 +383,6 @@ function DashNavbar({
     >
       {/* Left: hamburger (mobile) + logo */}
       <div className="flex items-center gap-3">
-        {/* Mobile hamburger */}
         <button
           onClick={onMobileMenuToggle}
           className="md:hidden p-1.5 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
@@ -398,7 +392,6 @@ function DashNavbar({
           {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
 
-        {/* Logo — on desktop, indent it to sit inside the sidebar region */}
         <div
           className="hidden md:flex transition-all duration-300"
           style={{ width: `${leftOffset - 20}px`, overflow: "hidden" }}
@@ -408,7 +401,6 @@ function DashNavbar({
           </Link>
         </div>
 
-        {/* Mobile logo */}
         <Link href="/dashboard/today" className="md:hidden flex items-center">
           <Logo />
         </Link>
@@ -417,7 +409,7 @@ function DashNavbar({
       {/* Right controls */}
       <div className="flex items-center gap-3">
 
-        {/* XP badge — navigates to quiz on click */}
+        {/* XP badge */}
         <button
           onClick={() => router.push("/dashboard/quiz")}
           title="Your Brain XP — click to visit Quiz"
@@ -495,7 +487,6 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
         backdropFilter: "blur(12px)",
       }}
     >
-      {/* Inject a scoped style so the footer left edge tracks the sidebar on md+ without touching window */}
       <style>{`
         @media (min-width: 768px) {
           .dash-footer { left: ${leftOffset}px !important; }
@@ -535,16 +526,13 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { dark, toggle } = useTheme();
 
-  // Mobile sidebar open/close
-  const [mobileOpen,      setMobileOpen]      = useState(false);
-  // Desktop sidebar collapsed
+  const [mobileOpen,       setMobileOpen]       = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  const [fullName, setFullName] = useState("");
-  const [totalXp,  setTotalXp]  = useState(0);
+  const [fullName,         setFullName]         = useState("");
+  const [totalXp,          setTotalXp]          = useState(0);
   const router = useRouter();
 
-  // Persist collapse preference
+  // Persist sidebar collapse preference
   useEffect(() => {
     const stored = localStorage.getItem("hb-sidebar-collapsed");
     if (stored !== null) setSidebarCollapsed(stored === "true");
@@ -558,12 +546,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   };
 
+  // Auth check on mount
   useEffect(() => {
     fetch("/api/auth/me")
       .then(r => {
-        // 401 = no token / expired
-        // 403 = banned / suspended / device-banned
-        // Both must force logout immediately
         if (r.status === 401 || r.status === 403) {
           router.replace("/auth/login");
           return null;
@@ -571,17 +557,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return r.json();
       })
       .then(data => {
-        if (!data) return; // already redirected above
-        if (!data.success) {
-          router.replace("/auth/login");
-          return;
-        }
+        if (!data) return;
+        if (!data.success) { router.replace("/auth/login"); return; }
         setFullName(data.user.fullName || data.user.email || "");
       })
       .catch(() => router.replace("/auth/login"));
   }, [router]);
 
-  // Fetch total XP — non-blocking, silent on failure
+  // ── XP: single consolidated effect ────────────────────────────
+  // FIX: The original file had TWO separate useEffect blocks both calling
+  // refreshXp() on mount and both registering "xp-updated" listeners.
+  // This caused double DB round-trips on every mount and double XP fetches
+  // after every quiz completion. Consolidated into one block below.
   const refreshXp = () => {
     fetch("/api/quiz/xp")
       .then(r => r.json())
@@ -590,39 +577,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   useEffect(() => {
+    // Initial fetch on mount
     refreshXp();
 
-    // Full re-fetch after quiz submit/complete
-    window.addEventListener("xp-updated", refreshXp);
+    // "xp-updated" → full re-fetch after quiz submit/complete
+    const handleUpdated = () => refreshXp();
 
-    // Instant local deduction when hint is clicked — no DB round-trip needed
+    // "xp-deduct" → instant local deduction when hint is clicked
+    // No DB round-trip needed here — submit route recalculates from scratch
     const handleDeduct = (e: Event) => {
       const amount = (e as CustomEvent<{ amount: number }>).detail?.amount ?? 0;
-      if (amount > 0) {
-        setTotalXp(prev => Math.max(0, prev - amount));
-      }
+      if (amount > 0) setTotalXp(prev => Math.max(0, prev - amount));
     };
-    window.addEventListener("xp-deduct", handleDeduct);
+
+    window.addEventListener("xp-updated", handleUpdated);
+    window.addEventListener("xp-deduct",  handleDeduct);
 
     return () => {
-      window.removeEventListener("xp-updated", refreshXp);
-      window.removeEventListener("xp-deduct", handleDeduct);
+      window.removeEventListener("xp-updated", handleUpdated);
+      window.removeEventListener("xp-deduct",  handleDeduct);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-
-  useEffect(() => {
-    refreshXp();
-    // Re-fetch whenever a quiz is completed
-    window.addEventListener("xp-updated", refreshXp);
-    return () => window.removeEventListener("xp-updated", refreshXp);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close mobile sidebar on resize to desktop
   useEffect(() => {
-    const handle = () => {
-      if (window.innerWidth >= 768) setMobileOpen(false);
-    };
+    const handle = () => { if (window.innerWidth >= 768) setMobileOpen(false); };
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
   }, []);
@@ -630,9 +609,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const desktopLeft = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
 
   return (
-    <div
-      style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}
-    >
+    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
       <DashNavbar
         dark={dark}
         onThemeToggle={toggle}
@@ -654,20 +631,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div
         className="transition-all duration-300"
         style={{
-          // On mobile: no left indent (sidebar overlays)
-          // On desktop: shift right by sidebar width
-          marginLeft: "0px",
-          paddingTop: "64px",
+          marginLeft:    "0px",
+          paddingTop:    "64px",
           paddingBottom: "64px",
-          minHeight: "100vh",
+          minHeight:     "100vh",
         }}
       >
-        {/* Desktop left margin via a CSS class trick — use inline for dynamic value */}
         <style>{`
           @media (min-width: 768px) {
-            .dash-content-area {
-              margin-left: ${desktopLeft}px !important;
-            }
+            .dash-content-area { margin-left: ${desktopLeft}px !important; }
           }
         `}</style>
         <div className="dash-content-area transition-all duration-300">

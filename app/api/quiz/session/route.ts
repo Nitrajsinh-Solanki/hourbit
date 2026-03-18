@@ -2,31 +2,49 @@
 //
 // POST — starts a new quiz attempt (creates UserLevelSession + bumps attemptsUsed)
 // GET  — returns current active session for a level if one exists (resume support)
+//
+// SECURITY FIX:
+//   hintText and hintXpPenalty are NO LONGER sent to the client in the questions
+//   payload.  The client has no need for them until the user explicitly clicks
+//   "Show Hint", at which point POST /api/quiz/hint returns those fields.
+//   Sending them upfront let anyone inspect the network tab and read all hints
+//   before clicking the button — defeating the XP-penalty system entirely.
+//
+//   Fields stripped from client payload:
+//     - hintText        ← was visible in questions array
+//     - hintXpPenalty   ← was visible in questions array
+//     - correctOption   ← already stripped (kept)
+//     - acceptedAnswers ← already stripped (kept)
 
 import { NextRequest, NextResponse }                    from "next/server";
 import { connectDB }                                    from "@/app/lib/mongodb";
 import { requireAuth }                                  from "@/app/lib/authGuard";
-import { Level, UserLevelProgress, UserLevelSession }  from "@/app/models/brain";
-import { Question }                                    from "@/app/models/brain/Question";
-import mongoose                                        from "mongoose";
+import { Level, UserLevelProgress, UserLevelSession }   from "@/app/models/brain";
+import { Question }                                     from "@/app/models/brain/Question";
+import mongoose                                         from "mongoose";
 
 // ── GET — check if an active session exists for this level ───────────────────
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
   if (!auth.ok) {
-    return NextResponse.json({ success: false, message: auth.message }, { status: auth.status });
+    return NextResponse.json(
+      { success: false, message: auth.message },
+      { status: auth.status }
+    );
   }
 
   const levelId = new URL(req.url).searchParams.get("levelId");
   if (!levelId) {
-    return NextResponse.json({ success: false, message: "levelId required" }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: "levelId required" },
+      { status: 400 }
+    );
   }
 
   await connectDB();
 
   const userId = auth.payload.userId;
 
-  // Check for an active (started) session that has NOT expired
   const session = await UserLevelSession.findOne({
     userId,
     levelId,
@@ -45,7 +63,6 @@ export async function GET(req: NextRequest) {
     const elapsedSecs = (Date.now() - new Date(session.startedAt).getTime()) / 1000;
     const limitSecs   = level.timeLimitMinutes * 60;
     if (elapsedSecs >= limitSecs) {
-      // Auto-abandon the expired session
       await UserLevelSession.findByIdAndUpdate(session._id, {
         status:      "abandoned",
         abandonedAt: new Date(),
@@ -57,9 +74,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     success: true,
     session: {
-      sessionId:   session._id,
-      startedAt:   session.startedAt,
-      answers:     Object.fromEntries(session.answers as Map<string, string>),
+      sessionId: session._id,
+      startedAt: session.startedAt,
+      answers:   Object.fromEntries(session.answers as Map<string, string>),
     },
   });
 }
@@ -68,25 +85,32 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireAuth();
   if (!auth.ok) {
-    return NextResponse.json({ success: false, message: auth.message }, { status: auth.status });
+    return NextResponse.json(
+      { success: false, message: auth.message },
+      { status: auth.status }
+    );
   }
 
   const { levelId } = await req.json();
   if (!levelId) {
-    return NextResponse.json({ success: false, message: "levelId required" }, { status: 400 });
+    return NextResponse.json(
+      { success: false, message: "levelId required" },
+      { status: 400 }
+    );
   }
 
   await connectDB();
 
   const userId = auth.payload.userId;
 
-  // Fetch level
   const level = await Level.findById(levelId).lean();
   if (!level || level.status !== "active") {
-    return NextResponse.json({ success: false, message: "Level not found" }, { status: 404 });
+    return NextResponse.json(
+      { success: false, message: "Level not found" },
+      { status: 404 }
+    );
   }
 
-  // Fetch or create progress doc
   let progress = await UserLevelProgress.findOne({ userId, levelId });
 
   // Check unlock — find this level's position in subcategory
@@ -98,10 +122,12 @@ export async function POST(req: NextRequest) {
     .select("_id")
     .lean();
 
-  const levelIndex = allLevels.findIndex(l => String(l._id) === String(levelId));
+  const levelIndex = allLevels.findIndex(
+    l => String(l._id) === String(levelId)
+  );
 
   if (levelIndex > 0) {
-    const prevLevelId = allLevels[levelIndex - 1]._id;
+    const prevLevelId  = allLevels[levelIndex - 1]._id;
     const prevProgress = await UserLevelProgress.findOne({
       userId,
       levelId: prevLevelId,
@@ -110,13 +136,16 @@ export async function POST(req: NextRequest) {
     const isUnlocked = prevProgress?.isCompleted || prevProgress?.isExhausted;
     if (!isUnlocked) {
       return NextResponse.json(
-        { success: false, message: "This level is locked. Complete the previous level first." },
+        {
+          success: false,
+          message: "This level is locked. Complete the previous level first.",
+        },
         { status: 403 }
       );
     }
   }
 
-  // Check attempts remaining
+  // Check attempts / completion
   if (progress) {
     if (progress.attemptsUsed >= level.maxAttempts && !progress.isCompleted) {
       return NextResponse.json(
@@ -138,7 +167,7 @@ export async function POST(req: NextRequest) {
     { $set: { status: "abandoned", abandonedAt: new Date() } }
   );
 
-  // Create new session — attempt is counted immediately (anti-cheat)
+  // Create new session — attempt counted immediately (anti-cheat)
   const session = await UserLevelSession.create({
     userId,
     levelId,
@@ -148,52 +177,58 @@ export async function POST(req: NextRequest) {
   });
 
   // Upsert progress doc — bump attemptsUsed
-  const isNewProgress = !progress;
   if (!progress) {
     progress = await UserLevelProgress.create({
       userId,
       levelId,
       subcategoryId:         level.subcategoryId,
-      categoryId:            (level as any).categoryId || await resolveCategoryId(level.subcategoryId),
+      categoryId:            await resolveCategoryId(level.subcategoryId),
       attemptsUsed:          1,
       isCompleted:           false,
       isExhausted:           false,
-      unlockedViaExhaustion: levelIndex > 0
-        ? await checkExhaustionUnlock(userId, allLevels[levelIndex - 1]._id)
-        : false,
+      unlockedViaExhaustion:
+        levelIndex > 0
+          ? await checkExhaustionUnlock(userId, allLevels[levelIndex - 1]._id)
+          : false,
     });
   } else {
     progress.attemptsUsed += 1;
     await progress.save();
   }
 
-  // Check if attempts now exhausted (for UI feedback)
   const isNowExhausted =
     progress.attemptsUsed >= level.maxAttempts && !progress.isCompleted;
 
-  // Fetch published questions for this level (strip correct answers for security)
+  // ── SECURITY: Strip hint fields and correct-answer fields from client payload ──
+  // hintText / hintXpPenalty are returned ONLY via POST /api/quiz/hint when the
+  // user explicitly clicks "Show Hint".  Sending them here lets anyone read all
+  // hints from the network tab before paying the XP penalty.
   const questions = await Question.find({
     levelId,
     status: "published",
   })
     .sort({ displayOrder: 1 })
     .select(
-      // STRIP correctOption and acceptedAnswers — never send to client
-      "_id questionType questionContent optionA optionB optionC optionD hintText hintXpPenalty displayOrder"
+      // Explicitly list safe fields — do NOT include:
+      //   correctOption   (answer cheat)
+      //   acceptedAnswers (answer cheat)
+      //   hintText        (hint cheat — NEW FIX)
+      //   hintXpPenalty   (hint cheat — NEW FIX)
+      "_id questionType questionContent optionA optionB optionC optionD displayOrder"
     )
     .lean();
 
   return NextResponse.json({
-    success: true,
-    sessionId:       session._id,
-    startedAt:       session.startedAt,
-    attemptsUsed:    progress.attemptsUsed,
+    success:           true,
+    sessionId:         session._id,
+    startedAt:         session.startedAt,
+    attemptsUsed:      progress.attemptsUsed,
     attemptsRemaining: Math.max(0, level.maxAttempts - progress.attemptsUsed),
     isNowExhausted,
     level: {
       _id:                 level._id,
       levelNumber:         level.levelNumber,
-      name:                level.name,
+      name:                (level as any).name ?? "",
       timeLimitMinutes:    level.timeLimitMinutes,
       xpReward:            level.xpReward,
       penaltyXpMultiplier: level.penaltyXpMultiplier,
@@ -204,14 +239,18 @@ export async function POST(req: NextRequest) {
   });
 }
 
-// Helper: resolve categoryId from subcategoryId
-async function resolveCategoryId(subcategoryId: mongoose.Types.ObjectId | string) {
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function resolveCategoryId(
+  subcategoryId: mongoose.Types.ObjectId | string
+) {
   const { Subcategory } = await import("@/app/models/brain/Subcategory");
-  const sub = await Subcategory.findById(subcategoryId).select("categoryId").lean();
+  const sub = await Subcategory.findById(subcategoryId)
+    .select("categoryId")
+    .lean();
   return (sub as any)?.categoryId;
 }
 
-// Helper: check if previous level was exhausted (for unlockedViaExhaustion flag)
 async function checkExhaustionUnlock(
   userId: string,
   prevLevelId: mongoose.Types.ObjectId

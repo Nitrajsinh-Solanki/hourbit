@@ -252,11 +252,47 @@ const UserLevelProgressSchema = new Schema<IUserLevelProgress>(
   { timestamps: true }
 );
 
-// One progress doc per user per level
-UserLevelProgressSchema.index({ userId: 1, levelId: 1 },        { unique: true });
+// ── Indexes ───────────────────────────────────────────────────────────────────
+
+// Primary: one progress doc per user per level (enforces no duplicates)
+UserLevelProgressSchema.index({ userId: 1, levelId: 1 }, { unique: true });
+
+// Dashboard / subcategory progress page
 UserLevelProgressSchema.index({ userId: 1, subcategoryId: 1 });
+
+// Category-level progress page
 UserLevelProgressSchema.index({ userId: 1, categoryId: 1 });
+
+// Admin / analytics: all progress for a level across all users
 UserLevelProgressSchema.index({ levelId: 1 });
+
+// ── NEW INDEXES (fix slow XP fetch + slow categories/subcategories routes) ────
+//
+// WHY THESE ARE NEEDED:
+//
+// GET /api/quiz/xp runs this aggregation:
+//   { $match: { userId, $or: [{ isCompleted: true }, { isExhausted: true }] } }
+// Without a covering index on (userId + isCompleted) and (userId + isExhausted),
+// MongoDB does a full collection scan filtered only by userId, then discards docs
+// where both flags are false.  With these indexes it hits only the matching docs.
+//
+// GET /api/quiz/categories and GET /api/quiz/subcategories count completed levels:
+//   { userId, categoryId, isCompleted: true }
+//   { userId, subcategoryId, isCompleted: true }
+// The existing { userId, categoryId } and { userId, subcategoryId } indexes cover
+// the first two fields but MongoDB still must scan every doc in that userId+category
+// bucket to filter isCompleted.  The compound 3-field indexes below make these
+// counts instant index seeks instead of partial scans.
+
+// Fast $or: [isCompleted, isExhausted] lookup for XP aggregation
+UserLevelProgressSchema.index({ userId: 1, isCompleted: 1 });
+UserLevelProgressSchema.index({ userId: 1, isExhausted: 1 });
+
+// Fast completedLevels count per category (categories listing page)
+UserLevelProgressSchema.index({ userId: 1, categoryId: 1,    isCompleted: 1 });
+
+// Fast completedLevels count per subcategory (subcategories listing page)
+UserLevelProgressSchema.index({ userId: 1, subcategoryId: 1, isCompleted: 1 });
 
 // ══════════════════════════════════════════════════════════════════════════════
 // USER LEVEL SESSION SCHEMA  (anti-cheat)

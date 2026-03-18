@@ -1,4 +1,23 @@
 // app/api/quiz/submit/route.ts
+//
+// XP RULES (enforced server-side, cannot be spoofed by client):
+//
+//   PASS (score === 100%):
+//     earnedXp = floor((baseXp - hintDeduction) * exhaustionUnlockMultiplier)
+//     exhaustionUnlockMultiplier = level.penaltyXpMultiplier if THIS level was
+//     unlocked because the PREVIOUS level was exhausted, otherwise 1.0.
+//
+//   FAIL on non-final attempt (attemptsUsed < maxAttempts):
+//     earnedXp = 0   ← NO XP for failed non-last attempts
+//
+//   FAIL on LAST attempt (attemptsUsed >= maxAttempts, level exhausted):
+//     earnedXp = floor(baseXp * level.penaltyXpMultiplier)
+//     i.e. 30% of the base XP set by admin, NO hint deduction applied
+//     (hint penalty only makes sense when the user was trying to pass)
+//
+//   HINT XP deduction:
+//     Deducted from earnedXp ONLY on a PASSING attempt.
+//     On an exhaustion award the base 30% is given as-is — hints are a sunk cost.
 
 import { NextRequest, NextResponse }                   from "next/server";
 import { connectDB }                                   from "@/app/lib/mongodb";
@@ -6,6 +25,8 @@ import { requireAuth }                                 from "@/app/lib/authGuard
 import { Level, UserLevelProgress, UserLevelSession }  from "@/app/models/brain";
 import { Question }                                    from "@/app/models/brain/Question";
 import { QuizAttemptResult }                           from "@/app/models/brain/QuizAttemptResult";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function resolveCategoryId(subcategoryId: any): Promise<any> {
   const { Subcategory } = await import("@/app/models/brain/Subcategory");
@@ -18,13 +39,17 @@ async function unlockNextLevel(
   currentLevel:  any,
   viaExhaustion: boolean
 ): Promise<void> {
-  const { Level: LevelModel, UserLevelProgress: ULP } = await import("@/app/models/brain");
+  const { Level: LevelModel, UserLevelProgress: ULP } =
+    await import("@/app/models/brain");
+
   const nextLevel = await LevelModel.findOne({
     subcategoryId: currentLevel.subcategoryId,
     levelNumber:   currentLevel.levelNumber + 1,
     status:        "active",
   }).lean();
+
   if (!nextLevel) return;
+
   const exists = await ULP.findOne({ userId, levelId: nextLevel._id });
   if (!exists) {
     await ULP.create({
@@ -39,6 +64,8 @@ async function unlockNextLevel(
     });
   }
 }
+
+// ── POST ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const auth = await requireAuth();
@@ -63,6 +90,7 @@ export async function POST(req: NextRequest) {
 
   const userId = auth.payload.userId;
 
+  // Verify session
   const session = await UserLevelSession.findOne({
     _id:    sessionId,
     userId,
@@ -85,21 +113,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Determine outcome (completed vs abandoned by timer)
   let outcome: "completed" | "abandoned" = "completed";
   if (level.timeLimitMinutes > 0) {
-    const elapsedSecs = (Date.now() - new Date(session.startedAt).getTime()) / 1000;
+    const elapsedSecs =
+      (Date.now() - new Date(session.startedAt).getTime()) / 1000;
     if (elapsedSecs > level.timeLimitMinutes * 60 + 30) {
       outcome = "abandoned";
     }
   }
 
+  // Fetch all published questions for this level (server-authoritative grading)
   const questions = await Question.find({ levelId, status: "published" })
     .sort({ displayOrder: 1 })
     .lean();
 
-  // ── FIX PROBLEM 1: Read hint usage from session.answers (server-persisted) ──
-  // The hint route stored "hint:{questionId}" → penalty in the session map.
-  // We combine this with what the client sends — whichever says hint=true wins.
+  // ── Grade answers ────────────────────────────────────────────────────────
   let correctCount         = 0;
   let totalHintXpDeduction = 0;
 
@@ -108,14 +137,17 @@ export async function POST(req: NextRequest) {
     const userAnswer    = (submitted.userAnswer ?? "").toString().trim();
     const timeTakenSecs = Number(submitted.timeTakenSecs ?? 0);
 
-    // ── Hint: trust server-stored hint record first (survives browser close) ──
+    // Server-stored hint record wins (survives browser close)
     const serverHintKey = `hint:${String(q._id)}`;
     const serverHint    = session.answers.get(serverHintKey);
     const hintUsed      = Boolean(serverHint !== undefined || submitted.hintUsed);
     const hintPenalty   = hintUsed
-      ? (serverHint !== undefined ? Number(serverHint) : (q.hintXpPenalty ?? 0))
+      ? serverHint !== undefined
+        ? Number(serverHint)
+        : (q.hintXpPenalty ?? 0)
       : 0;
 
+    // Grade
     let isCorrect = false;
     if (q.questionType === "option") {
       isCorrect = userAnswer.toUpperCase() === q.correctOption;
@@ -150,35 +182,65 @@ export async function POST(req: NextRequest) {
     (Date.now() - new Date(session.startedAt).getTime()) / 1000
   );
 
-  const progress            = await UserLevelProgress.findOne({ userId, levelId });
-  const wasExhaustionUnlock = progress?.unlockedViaExhaustion ?? false;
+  const progress = await UserLevelProgress.findOne({ userId, levelId });
 
-  const baseXp            = level.xpReward;
-  const penaltyMultiplier = wasExhaustionUnlock ? level.penaltyXpMultiplier : 1.0;
+  // ── XP CALCULATION ───────────────────────────────────────────────────────
+  //
+  // attemptsUsed was already incremented when the session was created, so it
+  // reflects the count INCLUDING this attempt.
+  const attemptsUsedNow = progress?.attemptsUsed ?? 1;
 
-  // ── FIX PROBLEM 4: Calculate earnedXp but DON'T assign it yet ──
-  // XP is only awarded when level is truly completed (100%) or exhausted.
-  // We calculate it here for display, but only write it to progress below
-  // under the correct conditions.
-  const calculatedXp = Math.max(
-    0,
-    Math.floor((baseXp - totalHintXpDeduction) * penaltyMultiplier)
-  );
+  // PASS: score === 100%
+  const isPassing = score === 100;
 
-  // 100% required to pass
-  const PASS_THRESHOLD = 100;
-  const isPassing      = score >= PASS_THRESHOLD;
+  // EXHAUSTED: all attempts used up on this submission and level not passed
+  const willBeExhausted = attemptsUsedNow >= level.maxAttempts && !isPassing;
 
-  // Check if this attempt will exhaust the level
-  const attemptsAfterThis = (progress?.attemptsUsed ?? 1);
-  const willBeExhausted   = attemptsAfterThis >= level.maxAttempts && !isPassing;
-
-  // ── FIX PROBLEM 5: canReview = passed OR exhausted (either condition) ──
+  // canReview: the user gets to see correct answers only after passing OR exhaustion
   const canReview = isPassing || willBeExhausted;
 
-  // earnedXp to show in result — 0 if not completed and not exhausted yet
-  const earnedXp = (isPassing || willBeExhausted) ? calculatedXp : 0;
+  // ── Three XP cases ────────────────────────────────────────────────────────
+  //
+  // CASE 1 — PASS
+  //   Full XP minus hint penalties, then apply exhaustion-unlock multiplier
+  //   if THIS level was unlocked via exhaustion of the PREVIOUS level.
+  //   (wasExhaustionUnlock describes how this level was UNLOCKED, not how it ENDED)
+  //
+  // CASE 2 — LAST ATTEMPT FAIL (exhaustion)
+  //   30% of base XP, NO hint deduction.
+  //   The admin sets penaltyXpMultiplier (default 0.30) — this is what's used.
+  //
+  // CASE 3 — NON-LAST ATTEMPT FAIL
+  //   0 XP. User must try again.
 
+  const wasExhaustionUnlock  = progress?.unlockedViaExhaustion ?? false;
+  const baseXp               = level.xpReward;
+  // penaltyXpMultiplier from admin (e.g. 0.30 = 30%)
+  const exhaustionXpRate     = level.penaltyXpMultiplier ?? 0.30;
+
+  let earnedXp:          number;
+  let penaltyMultiplier: number;
+
+  if (isPassing) {
+    // CASE 1: Pass
+    // Apply exhaustion-unlock penalty ONLY if this level was unlocked via
+    // exhaustion of the previous level (admin's "you cheated your way in" tax)
+    penaltyMultiplier = wasExhaustionUnlock ? exhaustionXpRate : 1.0;
+    earnedXp = Math.max(
+      0,
+      Math.floor((baseXp - totalHintXpDeduction) * penaltyMultiplier)
+    );
+  } else if (willBeExhausted) {
+    // CASE 2: Last attempt failed — award 30% of base XP, no hint deduction
+    penaltyMultiplier = exhaustionXpRate; // e.g. 0.30
+    earnedXp = Math.max(0, Math.floor(baseXp * exhaustionXpRate));
+  } else {
+    // CASE 3: Non-last attempt fail — no XP
+    penaltyMultiplier = 1.0;
+    earnedXp = 0;
+  }
+
+  // ── Write QuizAttemptResult ───────────────────────────────────────────────
   await QuizAttemptResult.create({
     sessionId:       session._id,
     userId,
@@ -201,9 +263,9 @@ export async function POST(req: NextRequest) {
     submittedAt:     new Date(),
   });
 
+  // ── Close session ─────────────────────────────────────────────────────────
   session.status      = "submitted";
   session.submittedAt = new Date();
-  // Merge client answers back into session, preserving server-stored hint keys
   const merged = new Map(session.answers);
   for (const [qId, val] of Object.entries(answers || {})) {
     merged.set(qId, String((val as any).userAnswer ?? ""));
@@ -211,35 +273,40 @@ export async function POST(req: NextRequest) {
   session.answers = merged;
   await session.save();
 
+  // ── Update UserLevelProgress ──────────────────────────────────────────────
   if (progress) {
     if (isPassing && !progress.isCompleted) {
+      // Level passed — mark complete, write full XP
       progress.isCompleted = true;
       progress.completedAt = new Date();
       progress.bestScore   = Math.max(progress.bestScore, score);
-      // ── FIX PROBLEM 4: Only write XP on completion ──
       progress.earnedXp    = earnedXp;
     } else {
+      // Non-passing attempt — update best score only
       progress.bestScore = Math.max(progress.bestScore, score);
-      // Do NOT update earnedXp for non-passing attempts
+      // earnedXp stays 0 until completion or exhaustion
     }
 
-    if (progress.attemptsUsed >= level.maxAttempts && !progress.isCompleted) {
+    if (attemptsUsedNow >= level.maxAttempts && !progress.isCompleted) {
+      // All attempts exhausted — award 30% XP
       progress.isExhausted = true;
-      // ── FIX PROBLEM 4: Write reduced XP on exhaustion ──
-      progress.earnedXp    = earnedXp;
+      progress.earnedXp    = earnedXp; // already = floor(baseXp * 0.30)
     }
 
     await progress.save();
 
+    // Unlock next level immediately on pass or exhaustion
     if (progress.isCompleted || progress.isExhausted) {
       await unlockNextLevel(
         userId,
         level,
+        // viaExhaustion flag for the NEXT level's unlock context
         progress.isExhausted && !progress.isCompleted
       );
     }
   }
 
+  // ── Build review payload ──────────────────────────────────────────────────
   const reviewData = questions.map((q, idx) => {
     const detail = answerDetails[idx];
     return {
