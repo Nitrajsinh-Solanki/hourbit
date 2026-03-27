@@ -6,6 +6,7 @@
 //   Step 3 — OTP verified — "Change Password" finalises the update
 //
 // Only one component. No external state needed — everything lives here.
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -43,9 +44,9 @@ function PasswordInput({
   const [show, setShow] = useState(false);
 
   return (
-    <div>
+    <div className="space-y-2">
       <label
-        className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em]"
+        className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em]"
         style={{ color: "var(--text3)" }}
       >
         <KeyRound className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} />
@@ -64,6 +65,15 @@ function PasswordInput({
             background: "var(--surface)",
             border: "1px solid var(--border2)",
             color: "var(--text)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "rgba(124,110,243,0.55)";
+            e.currentTarget.style.boxShadow =
+              "0 0 0 4px rgba(124,110,243,0.08)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border2)";
+            e.currentTarget.style.boxShadow = "none";
           }}
         />
 
@@ -92,8 +102,6 @@ function OtpBoxes({
   disabled: boolean;
 }) {
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
-
-  // Always force exactly 6 visible boxes
   const digits = Array.from({ length: 6 }, (_, i) => value[i] || "");
 
   const handleKey = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -109,6 +117,14 @@ function OtpBoxes({
       }
 
       onChange(next.join(""));
+    }
+
+    if (e.key === "ArrowLeft" && i > 0) {
+      inputs.current[i - 1]?.focus();
+    }
+
+    if (e.key === "ArrowRight" && i < 5) {
+      inputs.current[i + 1]?.focus();
     }
   };
 
@@ -140,7 +156,7 @@ function OtpBoxes({
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-between gap-2 sm:gap-3">
+      <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
         {digits.map((digit, i) => (
           <input
             key={i}
@@ -155,11 +171,11 @@ function OtpBoxes({
             onChange={(e) => handleChange(i, e.target.value)}
             onKeyDown={(e) => handleKey(i, e)}
             onPaste={handlePaste}
-            className="h-14 w-11 sm:w-14 rounded-2xl text-center text-lg font-bold outline-none transition-all disabled:opacity-50"
+            className="h-12 w-11 rounded-2xl text-center text-base font-bold outline-none transition-all disabled:opacity-50 sm:h-14 sm:w-14 sm:text-lg"
             style={{
               background: digit
                 ? "rgba(124,110,243,0.12)"
-                : "var(--surface)",
+                : "var(--surface2)",
               border: digit
                 ? "1.5px solid rgba(124,110,243,0.50)"
                 : "1px solid var(--border2)",
@@ -181,7 +197,7 @@ function OtpBoxes({
         ))}
       </div>
 
-      <p className="text-xs" style={{ color: "var(--text3)" }}>
+      <p className="text-center text-xs sm:text-left" style={{ color: "var(--text3)" }}>
         Enter the 6-digit code from your email.
       </p>
     </div>
@@ -195,6 +211,7 @@ function useCooldown(initial = 0) {
   const start = (seconds: number) => {
     setRemaining(seconds);
     if (ref.current) clearInterval(ref.current);
+
     ref.current = setInterval(() => {
       setRemaining((prev) => {
         if (prev <= 1) {
@@ -215,6 +232,67 @@ function useCooldown(initial = 0) {
   return { remaining, start };
 }
 
+function SecurityStatusCard() {
+  const cardStyle: React.CSSProperties = {
+    background: "var(--surface2)",
+    border: "1px solid var(--border2)",
+  };
+
+  const items = [
+    { label: "Email verified", ok: true },
+    { label: "OTP required", ok: true },
+    { label: "Current password checked", ok: true },
+    { label: "Bcrypt hashed", ok: true },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-[22px] p-4 sm:p-5 lg:p-6" style={cardStyle}>
+        <p
+          className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em]"
+          style={{ color: "var(--text3)" }}
+        >
+          Password Security
+        </p>
+
+        <div className="space-y-3">
+          {items.map(({ label, ok }) => (
+            <div key={label} className="flex items-center gap-3">
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
+                style={{
+                  background: ok
+                    ? "rgba(34,211,160,0.12)"
+                    : "rgba(248,113,113,0.12)",
+                  border: ok
+                    ? "1px solid rgba(34,211,160,0.25)"
+                    : "1px solid rgba(248,113,113,0.25)",
+                }}
+              >
+                {ok ? (
+                  <CheckCircle2
+                    className="h-4 w-4"
+                    style={{ color: "var(--green)" }}
+                  />
+                ) : (
+                  <ShieldX
+                    className="h-4 w-4"
+                    style={{ color: "var(--danger)" }}
+                  />
+                )}
+              </div>
+
+              <p className="text-sm font-medium" style={{ color: "var(--text2)" }}>
+                {label}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SecurityTab({ email }: { email: string }) {
   const [step, setStep] = useState<Step>("form");
 
@@ -228,6 +306,45 @@ export default function SecurityTab({ email }: { email: string }) {
   const [changingPw, setChangingPw] = useState(false);
 
   const cooldown = useCooldown();
+
+  const cardStyle: React.CSSProperties = {
+    background: "var(--surface2)",
+    border: "1px solid var(--border2)",
+  };
+
+  const btnPrimary: React.CSSProperties = {
+    background: "var(--accent)",
+    color: "#fff",
+    border: "none",
+    borderRadius: "16px",
+    padding: "12px 18px",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    minHeight: "46px",
+    width: "100%",
+  };
+
+  const btnSecondary: React.CSSProperties = {
+    background: "var(--surface)",
+    color: "var(--text2)",
+    border: "1px solid var(--border2)",
+    borderRadius: "16px",
+    padding: "12px 18px",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    minHeight: "46px",
+    width: "100%",
+  };
 
   const handleSendOtp = async () => {
     if (!currentPassword.trim()) {
@@ -297,6 +414,7 @@ export default function SecurityTab({ email }: { email: string }) {
     if (cooldown.remaining > 0) return;
 
     setSendingOtp(true);
+
     try {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
@@ -340,6 +458,7 @@ export default function SecurityTab({ email }: { email: string }) {
     }
 
     setVerifyingOtp(true);
+
     try {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
@@ -405,361 +524,371 @@ export default function SecurityTab({ email }: { email: string }) {
     }
   };
 
-  const cardStyle: React.CSSProperties = {
-    background: "var(--surface2)",
-    border: "1px solid var(--border2)",
-  };
-
-  const btnPrimary: React.CSSProperties = {
-    background: "var(--accent)",
-    color: "#fff",
-    border: "none",
-    borderRadius: "14px",
-    padding: "11px 20px",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  };
-
-  const btnSecondary: React.CSSProperties = {
-    background: "var(--surface)",
-    color: "var(--text2)",
-    border: "1px solid var(--border2)",
-    borderRadius: "14px",
-    padding: "11px 20px",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  };
-
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_0.7fr]">
-      <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 md:gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+      <div className="space-y-4 md:space-y-5">
+        {/* FORM STEP */}
         {step === "form" && (
-          <section className="rounded-[22px] p-5 sm:p-6 space-y-5" style={cardStyle}>
-            <div className="flex items-start justify-between">
-              <div>
-                <p
-                  className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                  style={{ color: "var(--text3)" }}
+          <section
+            className="rounded-[22px] p-4 sm:p-5 lg:p-6"
+            style={cardStyle}
+          >
+            <div className="space-y-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p
+                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                    style={{ color: "var(--text3)" }}
+                  >
+                    Password Change
+                  </p>
+                  <h3
+                    className="mt-1 text-base font-semibold sm:text-lg"
+                    style={{ color: "var(--text)" }}
+                  >
+                    Enter current & new password
+                  </h3>
+                </div>
+
+                <div
+                  className="inline-flex w-fit items-center gap-2 rounded-xl px-3 py-1.5 text-xs"
+                  style={{
+                    background: "rgba(124,110,243,0.10)",
+                    color: "var(--accent)",
+                    border: "1px solid rgba(124,110,243,0.18)",
+                  }}
                 >
-                  Password Change
-                </p>
-                <h3
-                  className="mt-1 text-base font-semibold"
-                  style={{ color: "var(--text)" }}
-                >
-                  Enter current & new password
-                </h3>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  OTP protected
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <PasswordInput
+                  label="Current Password"
+                  value={currentPassword}
+                  onChange={setCurrentPassword}
+                  placeholder="Enter your current password"
+                  disabled={sendingOtp}
+                />
+
+                <PasswordInput
+                  label="New Password"
+                  value={newPassword}
+                  onChange={setNewPassword}
+                  placeholder="At least 8 characters"
+                  disabled={sendingOtp}
+                />
+
+                <PasswordInput
+                  label="Confirm New Password"
+                  value={confirmPassword}
+                  onChange={setConfirmPassword}
+                  placeholder="Re-enter your new password"
+                  disabled={sendingOtp}
+                />
               </div>
 
               <div
-                className="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs"
+                className="rounded-2xl p-4"
                 style={{
-                  background: "rgba(124,110,243,0.10)",
-                  color: "var(--accent)",
-                  border: "1px solid rgba(124,110,243,0.18)",
+                  background: "var(--surface)",
+                  border: "1px solid var(--border2)",
                 }}
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                OTP protected
-              </div>
-            </div>
-
-            <PasswordInput
-              label="Current Password"
-              value={currentPassword}
-              onChange={setCurrentPassword}
-              placeholder="Enter your current password"
-              disabled={sendingOtp}
-            />
-
-            <PasswordInput
-              label="New Password"
-              value={newPassword}
-              onChange={setNewPassword}
-              placeholder="At least 8 characters"
-              disabled={sendingOtp}
-            />
-
-            <PasswordInput
-              label="Confirm New Password"
-              value={confirmPassword}
-              onChange={setConfirmPassword}
-              placeholder="Re-enter your new password"
-              disabled={sendingOtp}
-            />
-
-            <p className="text-xs leading-5" style={{ color: "var(--text3)" }}>
-              An OTP will be sent to{" "}
-              <span className="font-semibold" style={{ color: "var(--text2)" }}>
-                {email}
-              </span>
-              . You’ll need to verify it before the password is changed.
-            </p>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={handleSendOtp}
-                disabled={
-                  sendingOtp ||
-                  !currentPassword ||
-                  !newPassword ||
-                  !confirmPassword
-                }
-                style={{
-                  ...btnPrimary,
-                  opacity:
-                    sendingOtp ||
-                    !currentPassword ||
-                    !newPassword ||
-                    !confirmPassword
-                      ? 0.5
-                      : 1,
-                }}
-              >
-                {sendingOtp ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Sending OTP…
-                  </>
-                ) : (
-                  <>
-                    <MailCheck className="h-4 w-4" />
-                    Send OTP
-                  </>
-                )}
-              </button>
-            </div>
-          </section>
-        )}
-
-        {step === "otp" && (
-          <section className="rounded-[22px] p-5 sm:p-6 space-y-5" style={cardStyle}>
-            <div className="flex items-start justify-between">
-              <div>
-                <p
-                  className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                  style={{ color: "var(--text3)" }}
-                >
-                  OTP Verification
-                </p>
-                <h3
-                  className="mt-1 text-base font-semibold"
-                  style={{ color: "var(--text)" }}
-                >
-                  Enter your OTP
-                </h3>
-              </div>
-
-              <button
-                onClick={() => {
-                  setStep("form");
-                  setOtp("");
-                }}
-                style={btnSecondary}
-              >
-                ← Back
-              </button>
-            </div>
-
-            <div
-              className="rounded-[20px] p-5 space-y-4"
-              style={{
-                background: "var(--surface)",
-                border: "1px solid rgba(124,110,243,0.20)",
-              }}
-            >
-              <div
-                className="flex items-center gap-3 rounded-[18px] px-4 py-3"
-                style={{
-                  background: "rgba(34,211,160,0.07)",
-                  border: "1px solid rgba(34,211,160,0.18)",
-                }}
-              >
-                <MailCheck className="h-4 w-4 shrink-0" style={{ color: "var(--green)" }} />
-                <p className="text-sm" style={{ color: "var(--text2)" }}>
-                  We sent a 6-digit OTP to{" "}
-                  <span className="font-semibold" style={{ color: "var(--green)" }}>
+                <p className="text-xs leading-6" style={{ color: "var(--text3)" }}>
+                  An OTP will be sent to{" "}
+                  <span className="font-semibold" style={{ color: "var(--text2)" }}>
                     {email}
                   </span>
-                  . Valid for 10 minutes.
+                  . You’ll need to verify it before the password is changed.
                 </p>
               </div>
 
-              <div>
-                <label
-                  className="mb-3 block text-[11px] font-semibold uppercase tracking-[0.18em]"
-                  style={{ color: "var(--text3)" }}
-                >
-                  Enter OTP
-                </label>
-
-                <OtpBoxes value={otp} onChange={setOtp} disabled={verifyingOtp} />
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <div className="w-full sm:w-auto">
+                  <button
+                    onClick={handleSendOtp}
+                    disabled={
+                      sendingOtp ||
+                      !currentPassword ||
+                      !newPassword ||
+                      !confirmPassword
+                    }
+                    style={{
+                      ...btnPrimary,
+                      opacity:
+                        sendingOtp ||
+                        !currentPassword ||
+                        !newPassword ||
+                        !confirmPassword
+                          ? 0.5
+                          : 1,
+                    }}
+                    className="sm:min-w-[170px]"
+                  >
+                    {sendingOtp ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Sending OTP…
+                      </>
+                    ) : (
+                      <>
+                        <MailCheck className="h-4 w-4" />
+                        Send OTP
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
+          </section>
+        )}
 
-            <div className="flex items-center justify-between">
-              <p className="text-xs" style={{ color: "var(--text3)" }}>
-                Didn’t receive it?
-              </p>
+        {/* OTP STEP */}
+        {step === "otp" && (
+          <section
+            className="rounded-[22px] p-4 sm:p-5 lg:p-6"
+            style={cardStyle}
+          >
+            <div className="space-y-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p
+                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                    style={{ color: "var(--text3)" }}
+                  >
+                    OTP Verification
+                  </p>
+                  <h3
+                    className="mt-1 text-base font-semibold sm:text-lg"
+                    style={{ color: "var(--text)" }}
+                  >
+                    Enter your OTP
+                  </h3>
+                </div>
 
-              {cooldown.remaining > 0 ? (
+                <div className="w-full sm:w-auto">
+                  <button
+                    onClick={() => {
+                      setStep("form");
+                      setOtp("");
+                    }}
+                    style={btnSecondary}
+                    className="sm:min-w-[130px]"
+                  >
+                    ← Back
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className="rounded-[20px] p-4 sm:p-5"
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid rgba(124,110,243,0.20)",
+                }}
+              >
+                <div className="space-y-5">
+                  <div
+                    className="flex items-start gap-3 rounded-[18px] px-4 py-3"
+                    style={{
+                      background: "rgba(34,211,160,0.07)",
+                      border: "1px solid rgba(34,211,160,0.18)",
+                    }}
+                  >
+                    <MailCheck
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      style={{ color: "var(--green)" }}
+                    />
+                    <p className="text-sm leading-6" style={{ color: "var(--text2)" }}>
+                      We sent a 6-digit OTP to{" "}
+                      <span
+                        className="font-semibold break-all"
+                        style={{ color: "var(--green)" }}
+                      >
+                        {email}
+                      </span>
+                      . Valid for 10 minutes.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label
+                      className="block text-[11px] font-semibold uppercase tracking-[0.18em]"
+                      style={{ color: "var(--text3)" }}
+                    >
+                      Enter OTP
+                    </label>
+
+                    <OtpBoxes
+                      value={otp}
+                      onChange={setOtp}
+                      disabled={verifyingOtp}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs" style={{ color: "var(--text3)" }}>
+                  Didn’t receive it?
+                </p>
+
+                {cooldown.remaining > 0 ? (
+                  <div
+                    className="inline-flex w-fit items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold"
+                    style={{
+                      background: "rgba(245,158,11,0.10)",
+                      color: "var(--amber)",
+                      border: "1px solid rgba(245,158,11,0.20)",
+                    }}
+                  >
+                    <Timer className="h-3 w-3" />
+                    Resend in {cooldown.remaining}s
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleResendOtp}
+                    disabled={sendingOtp}
+                    className="inline-flex w-fit items-center gap-1.5 text-xs font-semibold border-none bg-transparent cursor-pointer transition-opacity disabled:opacity-50"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    <RefreshCw
+                      className={`h-3 w-3 ${sendingOtp ? "animate-spin" : ""}`}
+                    />
+                    Resend OTP
+                  </button>
+                )}
+              </div>
+
+              <div className="flex justify-stretch sm:justify-end">
+                <div className="w-full sm:w-auto">
+                  <button
+                    onClick={handleVerifyOtp}
+                    disabled={verifyingOtp || otp.replace(/\D/g, "").length < 6}
+                    style={{
+                      ...btnPrimary,
+                      opacity:
+                        verifyingOtp || otp.replace(/\D/g, "").length < 6
+                          ? 0.5
+                          : 1,
+                    }}
+                    className="sm:min-w-[170px]"
+                  >
+                    {verifyingOtp ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Verifying…
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="h-4 w-4" />
+                        Verify OTP
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* DONE STEP */}
+        {step === "done" && (
+          <section
+            className="rounded-[22px] p-4 sm:p-5 lg:p-6"
+            style={cardStyle}
+          >
+            <div className="space-y-5">
+              <div
+                className="flex items-start gap-4 rounded-[18px] p-4"
+                style={{
+                  background: "rgba(34,211,160,0.08)",
+                  border: "1px solid rgba(34,211,160,0.20)",
+                }}
+              >
                 <div
-                  className="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl"
                   style={{
-                    background: "rgba(245,158,11,0.10)",
-                    color: "var(--amber)",
-                    border: "1px solid rgba(245,158,11,0.20)",
+                    background: "rgba(34,211,160,0.15)",
+                    border: "1px solid rgba(34,211,160,0.25)",
                   }}
                 >
-                  <Timer className="h-3 w-3" />
-                  Resend in {cooldown.remaining}s
+                  <ShieldCheck
+                    className="h-5 w-5"
+                    style={{ color: "var(--green)" }}
+                  />
                 </div>
-              ) : (
-                <button
-                  onClick={handleResendOtp}
-                  disabled={sendingOtp}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold border-none bg-transparent cursor-pointer transition-opacity disabled:opacity-50"
-                  style={{ color: "var(--accent)" }}
-                >
-                  <RefreshCw className={`h-3 w-3 ${sendingOtp ? "animate-spin" : ""}`} />
-                  Resend OTP
-                </button>
-              )}
-            </div>
 
-            <div className="flex justify-end">
-              <button
-                onClick={handleVerifyOtp}
-                disabled={verifyingOtp || otp.replace(/\D/g, "").length < 6}
-                style={{
-                  ...btnPrimary,
-                  opacity:
-                    verifyingOtp || otp.replace(/\D/g, "").length < 6 ? 0.5 : 1,
-                }}
-              >
-                {verifyingOtp ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Verifying…
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="h-4 w-4" />
-                    Verify OTP
-                  </>
-                )}
-              </button>
+                <div>
+                  <p
+                    className="text-sm font-semibold"
+                    style={{ color: "var(--green)" }}
+                  >
+                    OTP Verified ✓
+                  </p>
+                  <p
+                    className="mt-1 text-xs leading-6 sm:text-sm"
+                    style={{ color: "var(--text3)" }}
+                  >
+                    Your identity is verified. Click{" "}
+                    <strong style={{ color: "var(--text2)" }}>
+                      Change Password
+                    </strong>{" "}
+                    to finish.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                <div className="w-full sm:w-auto">
+                  <button
+                    onClick={() => setStep("otp")}
+                    style={btnSecondary}
+                    className="sm:min-w-[150px]"
+                  >
+                    ← Re-enter OTP
+                  </button>
+                </div>
+
+                <div className="w-full sm:w-auto">
+                  <button
+                    onClick={handleChangePassword}
+                    disabled={changingPw}
+                    style={{
+                      ...btnPrimary,
+                      opacity: changingPw ? 0.5 : 1,
+                    }}
+                    className="sm:min-w-[190px]"
+                  >
+                    {changingPw ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Changing…
+                      </>
+                    ) : (
+                      <>
+                        <LockKeyhole className="h-4 w-4" />
+                        Change Password
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
         )}
 
-        {step === "done" && (
-          <section className="rounded-[22px] p-5 sm:p-6 space-y-5" style={cardStyle}>
-            <div
-              className="flex items-start gap-4 rounded-[18px] p-4"
-              style={{
-                background: "rgba(34,211,160,0.08)",
-                border: "1px solid rgba(34,211,160,0.20)",
-              }}
-            >
-              <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl"
-                style={{
-                  background: "rgba(34,211,160,0.15)",
-                  border: "1px solid rgba(34,211,160,0.25)",
-                }}
-              >
-                <ShieldCheck className="h-5 w-5" style={{ color: "var(--green)" }} />
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--green)" }}>
-                  OTP Verified ✓
-                </p>
-                <p className="mt-1 text-xs leading-5" style={{ color: "var(--text3)" }}>
-                  Your identity is verified. Click <strong style={{ color: "var(--text2)" }}>Change Password</strong> to finish.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-between gap-3">
-              <button onClick={() => setStep("otp")} style={btnSecondary}>
-                ← Re-enter OTP
-              </button>
-
-              <button
-                onClick={handleChangePassword}
-                disabled={changingPw}
-                style={{
-                  ...btnPrimary,
-                  opacity: changingPw ? 0.5 : 1,
-                }}
-              >
-                {changingPw ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Changing…
-                  </>
-                ) : (
-                  <>
-                    <LockKeyhole className="h-4 w-4" />
-                    Change Password
-                  </>
-                )}
-              </button>
-            </div>
-          </section>
-        )}
+        {/* MOBILE / TABLET SECURITY CARD */}
+        <div className="block lg:hidden">
+          <SecurityStatusCard />
+        </div>
       </div>
 
-      <div className="space-y-4">
-        <div
-          className="rounded-[22px] p-5"
-          style={cardStyle}
-        >
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.18em] mb-3"
-            style={{ color: "var(--text3)" }}
-          >
-            Password Security
-          </p>
-
-          <div className="space-y-3">
-            {[
-              { label: "Email verified", ok: true },
-              { label: "OTP required", ok: true },
-              { label: "Current password checked", ok: true },
-              { label: "Bcrypt hashed", ok: true },
-            ].map(({ label, ok }) => (
-              <div key={label} className="flex items-center gap-3">
-                <div
-                  className="flex h-6 w-6 items-center justify-center rounded-lg shrink-0"
-                  style={{
-                    background: ok ? "rgba(34,211,160,0.12)" : "rgba(248,113,113,0.12)",
-                    border: ok ? "1px solid rgba(34,211,160,0.25)" : "1px solid rgba(248,113,113,0.25)",
-                  }}
-                >
-                  {ok ? (
-                    <CheckCircle2 className="h-3 w-3" style={{ color: "var(--green)" }} />
-                  ) : (
-                    <ShieldX className="h-3 w-3" style={{ color: "var(--danger)" }} />
-                  )}
-                </div>
-                <p className="text-xs font-medium" style={{ color: "var(--text2)" }}>
-                  {label}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* DESKTOP RIGHT PANEL */}
+      <div className="hidden lg:block">
+        <SecurityStatusCard />
       </div>
     </div>
   );
