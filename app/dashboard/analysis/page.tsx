@@ -24,8 +24,14 @@ interface DayData {
   officeH: number;
   breakH: number;
   requiredH: number;
+
   entryTime: string | null;
   exitTime: string | null;
+
+  // ✅ NEW: clean IST-safe local times from backend
+  entryTimeLocal: string | null;
+  exitTimeLocal: string | null;
+
   notes: string;
   breaks: { type: string; duration: number }[];
 }
@@ -99,10 +105,35 @@ function fmtHLabel(h: number): string {
   return `${hrs}h ${mins}m`;
 }
 
-function to12h(hhmm: string | null): string {
-  if (!hhmm) return "—";
-  const [h, m] = hhmm.split(":").map(Number);
-  return `${pad2(h % 12 || 12)}:${pad2(m)} ${h >= 12 ? "PM" : "AM"}`;
+/**
+ * ONLY handles "HH:mm" now
+ * because Analysis should use clean local time strings from backend
+ */
+function to12h(value: string | null): string {
+  if (!value) return "—";
+
+  const hhmmMatch = value.match(/^(\d{2}):(\d{2})$/);
+  if (!hhmmMatch) return "—";
+
+  const h = Number(hhmmMatch[1]);
+  const m = Number(hhmmMatch[2]);
+
+  return `${pad2(h % 12 || 12)}:${pad2(m)} ${h >= 12 ? "pm" : "am"}`;
+}
+
+/**
+ * Sorting helper for clean "HH:mm"
+ */
+function timeToMinutes(value: string | null): number {
+  if (!value) return 0;
+
+  const hhmmMatch = value.match(/^(\d{2}):(\d{2})$/);
+  if (!hhmmMatch) return 0;
+
+  const h = Number(hhmmMatch[1]);
+  const m = Number(hhmmMatch[2]);
+
+  return h * 60 + m;
 }
 
 function ordinal(n: number) {
@@ -116,12 +147,6 @@ function getScoreMeta(score: number): { label: string; color: string; emoji: str
   if (score >= 75) return { label: "Good",              color: "#7c6ef3", emoji: "✨" };
   if (score >= 60) return { label: "Needs Improvement", color: "#fbbf24", emoji: "📈" };
   return               { label: "Poor",                color: "#f87171", emoji: "⚠️" };
-}
-
-function timeToMinutes(hhmm: string | null): number {
-  if (!hhmm) return 0;
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
 }
 
 function weekOf(day: number): 1 | 2 | 3 | 4 {
@@ -293,7 +318,7 @@ function HeatmapCalendar({ dailyData, year, month, maxH }: {
   dailyData: DayData[]; year: number; month: number; maxH: number;
 }) {
   const [hovered, setHovered] = useState<number | null>(null);
-  const firstDow = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const firstDow = new Date(year, month - 1, 1).getDay();
 
   function getCellBg(d: DayData) {
     if (d.isHoliday)      return "rgba(251,191,36,0.35)";
@@ -334,7 +359,7 @@ function HeatmapCalendar({ dailyData, year, month, maxH }: {
             </p>
             {d.hasEntry && !d.isHoliday && (
               <p className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>
-                {to12h(d.entryTime)} → {to12h(d.exitTime)}
+                {to12h(d.entryTimeLocal)} → {to12h(d.exitTimeLocal)}
               </p>
             )}
           </div>
@@ -356,10 +381,10 @@ function HeatmapCalendar({ dailyData, year, month, maxH }: {
       <div className="flex items-center gap-3 mt-3 flex-wrap">
         {[
           { color: "#7c6ef3",                   label: "Full day"  },
-          { color: "rgba(124,110,243,0.38)",     label: "Partial"  },
-          { color: "rgba(248,113,113,0.25)",     label: "Missed"   },
-          { color: "rgba(251,191,36,0.35)",      label: "Holiday"  },
-          { color: "var(--border)",              label: "Weekend"  },
+          { color: "rgba(124,110,243,0.38)",   label: "Partial"   },
+          { color: "rgba(248,113,113,0.25)",   label: "Missed"    },
+          { color: "rgba(251,191,36,0.35)",    label: "Holiday"   },
+          { color: "var(--border)",            label: "Weekend"   },
         ].map(({ color, label }) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-sm inline-block shrink-0" style={{ background: color }} />
@@ -433,7 +458,7 @@ function BarChart({ data, maxVal, barColor = "#7c6ef3", refColor = "rgba(124,110
 }
 
 // ─────────────────────────────────────────────────────────────────
-// WEEK DETAIL CHART  (shown when a specific week is selected)
+// WEEK DETAIL CHART
 // ─────────────────────────────────────────────────────────────────
 function WeekDetailChart({ days }: { days: DayData[] }) {
   const [hov, setHov] = useState<number | null>(null);
@@ -449,7 +474,6 @@ function WeekDetailChart({ days }: { days: DayData[] }) {
 
   return (
     <div className="space-y-4">
-      {/* Bar chart */}
       <div className="relative" style={{ height: 130 }}>
         <div className="flex items-end gap-2 h-full pb-6">
           {workDays.map((d, i) => {
@@ -463,10 +487,8 @@ function WeekDetailChart({ days }: { days: DayData[] }) {
             return (
               <div key={d.day} className="relative flex-1 flex flex-col justify-end"
                 onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-                {/* ghost required bar */}
                 <div className="absolute bottom-6 left-0 right-0 rounded-sm"
                   style={{ height: Math.max(refH, 2), background: "rgba(124,110,243,0.12)", zIndex: 0 }} />
-                {/* productive bar */}
                 <div className="relative rounded-t-sm transition-all duration-300 mb-6"
                   style={{
                     height: Math.max(barH, d.productiveH > 0 ? 3 : 0),
@@ -497,7 +519,6 @@ function WeekDetailChart({ days }: { days: DayData[] }) {
         </div>
       </div>
 
-      {/* Per-day stat rows */}
       <div className="space-y-1.5">
         {workDays.map(d => {
           const isOver   = d.hasEntry && d.productiveH >= d.requiredH;
@@ -510,7 +531,7 @@ function WeekDetailChart({ days }: { days: DayData[] }) {
                 {DOW_LABELS[d.dow]?.slice(0, 3) ?? ""}
               </span>
               <span className="font-mono text-[10px] w-16 shrink-0" style={{ color: "var(--text3)" }}>
-                {to12h(d.entryTime)}
+                {to12h(d.entryTimeLocal)}
               </span>
               <div className="flex-1">
                 <ProgressBar value={d.productiveH} max={d.requiredH} color={barColor} height={5} />
@@ -699,8 +720,8 @@ function DailyLogTable({ dailyData, year, month, weekFilter }: {
       if (sortKey === "productiveH") { av = a.productiveH; bv = b.productiveH; }
       if (sortKey === "officeH")     { av = a.officeH; bv = b.officeH; }
       if (sortKey === "breakH")      { av = a.breakH; bv = b.breakH; }
-      if (sortKey === "entryTime")   { av = timeToMinutes(a.entryTime); bv = timeToMinutes(b.entryTime); }
-      if (sortKey === "exitTime")    { av = timeToMinutes(a.exitTime);  bv = timeToMinutes(b.exitTime); }
+      if (sortKey === "entryTime")   { av = timeToMinutes(a.entryTimeLocal); bv = timeToMinutes(b.entryTimeLocal); }
+      if (sortKey === "exitTime")    { av = timeToMinutes(a.exitTimeLocal);  bv = timeToMinutes(b.exitTimeLocal); }
       return sortDir === "asc" ? av - bv : bv - av;
     });
   }, [dailyData, rowFilter, sortKey, sortDir, weekFilter]);
@@ -715,10 +736,10 @@ function DailyLogTable({ dailyData, year, month, weekFilter }: {
   );
 
   const filterOpts = [
-    { key: "all" as const,       label: "All Days"    },
-    { key: "logged" as const,    label: "Logged"      },
-    { key: "missed" as const,    label: "Missed"      },
-    { key: "overtime" as const,  label: "Overtime"    },
+    { key: "all" as const,       label: "All Days"     },
+    { key: "logged" as const,    label: "Logged"       },
+    { key: "missed" as const,    label: "Missed"       },
+    { key: "overtime" as const,  label: "Overtime"     },
     { key: "underwork" as const, label: "Under Target" },
   ];
 
@@ -757,7 +778,7 @@ function DailyLogTable({ dailyData, year, month, weekFilter }: {
                 <p className="font-mono text-[13px]" style={{ color: "var(--text4)" }}>No matching days</p>
               </td></tr>
             ) : rows.map((d, idx) => {
-              const dateStr = new Date(Date.UTC(year, month - 1, d.day))
+              const dateStr = new Date(year, month - 1, d.day)
                 .toLocaleDateString("en-IN", { day: "2-digit", month: "short", weekday: "short" });
               const isOT  = d.hasEntry && d.productiveH > d.requiredH;
               const isUW  = d.hasEntry && d.productiveH < d.requiredH;
@@ -769,13 +790,13 @@ function DailyLogTable({ dailyData, year, month, weekFilter }: {
                     {d.isHoliday && <span className="font-mono text-[9px]" style={{ color: "#fbbf24" }}>Holiday</span>}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="font-mono text-[12px]" style={{ color: d.entryTime ? "#7c6ef3" : "var(--text4)" }}>
-                      {to12h(d.entryTime)}
+                    <span className="font-mono text-[12px]" style={{ color: d.entryTimeLocal ? "#7c6ef3" : "var(--text4)" }}>
+                      {to12h(d.entryTimeLocal)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="font-mono text-[12px]" style={{ color: d.exitTime ? "#22d3a0" : "var(--text4)" }}>
-                      {to12h(d.exitTime)}
+                    <span className="font-mono text-[12px]" style={{ color: d.exitTimeLocal ? "#22d3a0" : "var(--text4)" }}>
+                      {to12h(d.exitTimeLocal)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -918,7 +939,7 @@ function PerDayHoursTable({ dailyData, defaultRequiredH, year, month }: {
         {overrideDays.map(d => {
           const pct  = d.requiredH > 0 ? Math.min(100, (d.productiveH / d.requiredH) * 100) : 0;
           const done = pct >= 100;
-          const dateStr = new Date(Date.UTC(year, month - 1, d.day))
+          const dateStr = new Date(year, month - 1, d.day)
             .toLocaleDateString("en-IN", { day: "2-digit", month: "short", weekday: "short" });
           return (
             <div key={d.day} className="flex items-center gap-3 px-4 py-3 rounded-xl"
@@ -997,8 +1018,11 @@ export default function AnalysisPage() {
       const json = await res.json();
       if (json.success) setData(json.data);
       else setError(json.message ?? "Failed to load");
-    } catch { setError("Network error — please try again"); }
-    finally { setLoading(false); }
+    } catch {
+      setError("Network error — please try again");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchData(year, month); }, [year, month, fetchData]);
@@ -1019,7 +1043,6 @@ export default function AnalysisPage() {
     data?.dailyData.some(d => d.hasEntry && Math.abs(d.requiredH - defaultRequiredH) > 0.01) ?? false,
   [data, defaultRequiredH]);
 
-  // Filtered daily data for bar chart (responds to week selector)
   const chartData = useMemo(() => {
     if (!data) return [];
     const days = weekFilter === "all"
@@ -1040,7 +1063,6 @@ export default function AnalysisPage() {
     data?.dailyData.filter(d => d.hasEntry && !d.isWeekend).map(d => d.productiveH) ?? [],
   [data]);
 
-  // Current week's AnalysisData.weeks entry
   const selectedWeekData = useMemo(() => {
     if (!data || weekFilter === "all") return null;
     return data.weeks.find(w => `week${w.weekNum}` === weekFilter) ?? null;
@@ -1050,11 +1072,9 @@ export default function AnalysisPage() {
   const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = getScoreMeta(score);
   const insights = useMemo(() => data ? generateInsights(data) : [], [data]);
 
-  // ─────────────────────────────────────────────────────────────
   return (
     <div className="max-w-6xl mx-auto pb-8 space-y-6">
 
-      {/* ── HEADER ───────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1080,7 +1100,6 @@ export default function AnalysisPage() {
         </button>
       </div>
 
-      {/* ── FILTER BAR ───────────────────────────────────────────── */}
       <div className="rounded-2xl px-5 py-4 flex flex-wrap items-center gap-4"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
         <div className="flex items-center gap-1.5">
@@ -1106,7 +1125,6 @@ export default function AnalysisPage() {
         )}
       </div>
 
-      {/* ── WEEK STATS BANNER ────────────────────────────────────── */}
       {selectedWeekData && weekFilter !== "all" && (
         <div className="rounded-2xl px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4"
           style={{ background: "rgba(124,110,243,0.06)", border: "1px solid rgba(124,110,243,0.25)" }}>
@@ -1143,7 +1161,6 @@ export default function AnalysisPage() {
         </div>
       )}
 
-      {/* ── CONTENT ──────────────────────────────────────────────── */}
       {loading ? <LoadingSpinner /> : error ? (
         <div className="flex items-center gap-3 p-5 rounded-2xl"
           style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }}>
@@ -1153,7 +1170,6 @@ export default function AnalysisPage() {
       ) : !data ? <EmptyState month={month} year={year} /> : (
         <div className="space-y-6">
 
-          {/* Warnings */}
           {data.totalLoggedDays === 0 && (
             <div className="flex items-center gap-3 px-5 py-4 rounded-2xl"
               style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.25)" }}>
@@ -1173,7 +1189,6 @@ export default function AnalysisPage() {
             </div>
           )}
 
-          {/* ══ 1 · STAT CARDS ══════════════════════════════════════ */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             <StatCard label="Days Logged" value={String(data.totalLoggedDays)}
               sub={`of ${data.totalWorkDays} work days`} color="var(--text)" icon={CalendarDays} bg="var(--border)"
@@ -1207,7 +1222,6 @@ export default function AnalysisPage() {
             />
           </div>
 
-          {/* ══ 2 · BAR CHART + HEATMAP ════════════════════════════ */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <Card className="lg:col-span-2">
               <SectionTitle
@@ -1216,7 +1230,6 @@ export default function AnalysisPage() {
                 subtitle="Bars = productive · ghost = required target"
               />
 
-              {/* Full month chart */}
               {weekFilter === "all" && (
                 <>
                   {sparklineData.length > 1 && (
@@ -1253,23 +1266,19 @@ export default function AnalysisPage() {
                 </>
               )}
 
-              {/* Week detail chart */}
               {weekFilter !== "all" && selectedWeekData && (
                 <WeekDetailChart days={selectedWeekData.days} />
               )}
             </Card>
 
-            {/* Heatmap — always full month */}
             <Card>
               <SectionTitle icon={CalendarDays} iconColor="#a78bfa" title="Month Heatmap" subtitle="Daily intensity at a glance" />
               <HeatmapCalendar dailyData={data.dailyData} year={year} month={month} maxH={maxDailyProd} />
             </Card>
           </div>
 
-          {/* Per-day overrides */}
           <PerDayHoursTable dailyData={data.dailyData} defaultRequiredH={defaultRequiredH} year={year} month={month} />
 
-          {/* ══ 3 · WEEK BREAKDOWN + BEST/WORST + STREAK ═══════════ */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <Card>
               <SectionTitle icon={Activity} iconColor="#22d3a0" title="Week-by-Week Breakdown" subtitle="Productive vs required per week" />
@@ -1340,7 +1349,6 @@ export default function AnalysisPage() {
             </div>
           </div>
 
-          {/* ══ 4 · BREAK ANALYSIS + ENTRY/EXIT ═══════════════════ */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <Card>
               <SectionTitle icon={Coffee} iconColor="var(--amber)" title="Break Analysis" subtitle="Tea · Lunch · Custom breakdown" />
@@ -1402,10 +1410,10 @@ export default function AnalysisPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: "Avg Entry",     value: to12h(data.avgEntryTime),  icon: LogIn,  color: "#7c6ef3"  },
-                  { label: "Avg Exit",      value: to12h(data.avgExitTime),   icon: LogOut, color: "#22d3a0"  },
-                  { label: "Earliest Entry",value: to12h(data.earliestEntry), icon: LogIn,  color: "var(--amber)"  },
-                  { label: "Latest Exit",   value: to12h(data.latestExit),    icon: LogOut, color: "#f87171"  },
+                  { label: "Avg Entry",      value: to12h(data.avgEntryTime),  icon: LogIn,  color: "#7c6ef3" },
+                  { label: "Avg Exit",       value: to12h(data.avgExitTime),   icon: LogOut, color: "#22d3a0" },
+                  { label: "Earliest Entry", value: to12h(data.earliestEntry), icon: LogIn,  color: "var(--amber)" },
+                  { label: "Latest Exit",    value: to12h(data.latestExit),    icon: LogOut, color: "#f87171" },
                 ].map(({ label, value, icon: Icon, color }) => (
                   <div key={label} className="rounded-xl p-4"
                     style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
@@ -1420,114 +1428,8 @@ export default function AnalysisPage() {
             </Card>
           </div>
 
-          {/* ══ 5 · CONSISTENCY SCORE + MOM ════════════════════════ */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card>
-              <SectionTitle icon={Target} iconColor={scoreColor} title="Work Consistency Score" subtitle="Productive ÷ Required hours × 100" />
-              <div className="flex flex-col items-center py-4 gap-4">
-                <div className="relative" style={{ width: 160, height: 90 }}>
-                  <svg viewBox="0 0 160 90" className="w-full h-full overflow-visible">
-                    <path d="M 20 85 A 60 60 0 0 1 140 85" fill="none" stroke="var(--border)" strokeWidth="12" strokeLinecap="round" />
-                    <path d="M 20 85 A 60 60 0 0 1 140 85" fill="none" stroke={scoreColor} strokeWidth="12" strokeLinecap="round"
-                      strokeDasharray={`${(score / 100) * 188.5} 188.5`} style={{ transition: "stroke-dasharray 1s ease" }} />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
-                    <span className="text-[18px]">{scoreEmoji}</span>
-                    <span className="font-syne font-extrabold text-[24px] leading-none" style={{ color: scoreColor }}>{score}%</span>
-                  </div>
-                </div>
-                <div className="px-5 py-2.5 rounded-xl" style={{ background: `${scoreColor}18`, border: `1px solid ${scoreColor}40` }}>
-                  <p className="font-syne font-bold text-[15px]" style={{ color: scoreColor }}>{scoreLabel}</p>
-                </div>
-                <div className="w-full grid grid-cols-2 gap-2">
-                  {[
-                    { range: "90–100%", badge: "Excellent",         color: "#22d3a0" },
-                    { range: "75–89%",  badge: "Good",              color: "#7c6ef3" },
-                    { range: "60–74%",  badge: "Needs Improvement", color: "#fbbf24" },
-                    { range: "< 60%",   badge: "Poor",              color: "#f87171" },
-                  ].map(t => {
-                    const isActive = t.badge === scoreLabel;
-                    return (
-                      <div key={t.badge} className="flex items-center gap-2 px-2 py-1.5 rounded-lg"
-                        style={{ background: isActive ? `${t.color}12` : "transparent", border: isActive ? `1px solid ${t.color}40` : "1px solid transparent" }}>
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: t.color }} />
-                        <span className="font-mono text-[10px]" style={{ color: isActive ? t.color : "var(--text4)" }}>
-                          {t.range} · {t.badge}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="w-full grid grid-cols-2 gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                  {[
-                    { label: "Required",   val: data.totalRequiredH,  color: "#7c6ef3"      },
-                    { label: "Productive", val: data.totalProductiveH, color: "var(--accent)" },
-                  ].map(({ label, val, color }) => (
-                    <div key={label} className="rounded-xl p-3 text-center"
-                      style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.2)" }}>
-                      <p className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>{label}</p>
-                      <p className="font-syne font-bold text-[16px] mt-0.5" style={{ color }}>{fmtH(val)}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Card>
-
-            <Card>
-              <SectionTitle icon={TrendingUp} iconColor="var(--accent)" title="Month-over-Month"
-                subtitle={`${MONTH_SHORT[data.prevMonth.month - 1]} ${data.prevMonth.year} vs ${MONTH_SHORT[month - 1]} ${year}`} />
-              <div className="space-y-5">
-                {[
-                  { label: "Productive Hours", prev: data.prevMonth.productiveH, curr: data.totalProductiveH, fmt: fmtH,           color: "var(--accent)" },
-                  { label: "Days Logged",       prev: data.prevMonth.loggedDays,  curr: data.totalLoggedDays,  fmt: (v: number) => `${v}d`, color: "#22d3a0" },
-                ].map(({ label, prev, curr, fmt, color }) => {
-                  const maxV      = Math.max(prev, curr, 1);
-                  const diff      = curr - prev;
-                  const pctChange = prev > 0 ? Math.round((diff / prev) * 100) : 0;
-                  return (
-                    <div key={label}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-mono text-[12px]" style={{ color: "var(--text2)" }}>{label}</span>
-                        <span className="font-mono text-[11px]" style={{ color: diff >= 0 ? "#22d3a0" : "#f87171" }}>
-                          {diff >= 0 ? "+" : ""}{prev > 0 ? `${pctChange}%` : "—"}
-                        </span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {[
-                          { val: prev, lbl: MONTH_SHORT[data.prevMonth.month - 1], opacity: 0.45 },
-                          { val: curr, lbl: MONTH_SHORT[month - 1],                opacity: 1    },
-                        ].map(({ val, lbl, opacity }, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
-                            <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text4)" }}>{lbl}</span>
-                            <div className="flex-1 h-5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-                              <div className="h-full rounded-full transition-all duration-700"
-                                style={{ width: `${(val / maxV) * 100}%`, background: color, opacity }} />
-                            </div>
-                            <span className="font-mono text-[11px] w-10" style={{ color: "var(--text2)" }}>{fmt(val)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-                <div className="grid grid-cols-2 gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                  <div className="rounded-xl p-3" style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.2)" }}>
-                    <p className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>Overtime</p>
-                    <p className="font-syne font-bold text-[17px] mt-0.5" style={{ color: "#22d3a0" }}>+{fmtH(data.overtimeH)}</p>
-                  </div>
-                  <div className="rounded-xl p-3" style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)" }}>
-                    <p className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>Underwork</p>
-                    <p className="font-syne font-bold text-[17px] mt-0.5" style={{ color: "#f87171" }}>-{fmtH(data.underworkH)}</p>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* ══ 6 · DAILY LOG TABLE ════════════════════════════════ */}
           <DailyLogTable dailyData={data.dailyData} year={year} month={month} weekFilter={weekFilter} />
 
-          {/* ══ 7 · SMART INSIGHTS  ← always at the very bottom ═══ */}
           {insights.length > 0 && (
             <Card glow>
               <SectionTitle icon={BrainCircuit} iconColor="#a78bfa" title="Smart Insights"
@@ -1538,10 +1440,10 @@ export default function AnalysisPage() {
                     style={{
                       background: ins.type === "positive" ? "rgba(34,211,160,0.06)"
                         : ins.type === "warning" ? "rgba(248,113,113,0.06)"
-                          : "rgba(124,110,243,0.06)",
+                        : "rgba(124,110,243,0.06)",
                       border: `1px solid ${ins.type === "positive" ? "rgba(34,211,160,0.2)"
                         : ins.type === "warning" ? "rgba(248,113,113,0.2)"
-                          : "rgba(124,110,243,0.2)"}`,
+                        : "rgba(124,110,243,0.2)"}`,
                     }}>
                     <span className="text-[16px] mt-0.5 shrink-0">
                       {ins.type === "positive" ? "✅" : ins.type === "warning" ? "⚠️" : "💡"}
