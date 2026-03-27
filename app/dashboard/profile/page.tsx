@@ -1,8 +1,10 @@
 // app/dashboard/profile/page.tsx
+
+
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, UserCircle2 } from "lucide-react";
+import { Loader2, RefreshCw, ShieldAlert, UserCircle2 } from "lucide-react";
 import { toast } from "react-hot-toast";
 import ProfileHeader from "./_components/ProfileHeader";
 import ProfileTabs from "./_components/ProfileTabs";
@@ -48,41 +50,47 @@ export default function ProfilePage() {
     fetchProfile();
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // LOADING STATE — aligned with HourBit panel style
+  // ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="px-4 py-6 sm:px-6 lg:px-8">
+      <div className="px-4 py-5 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <div className="rounded-3xl border border-black/10 bg-white/80 p-8 shadow-sm dark:border-white/10 dark:bg-[#11131a]">
-            <div className="flex items-center gap-3 text-sm text-neutral-500 dark:text-neutral-400">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading profile...
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+          <div
+            className="rounded-[24px] p-6 sm:p-7"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border2)",
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-2xl"
+                style={{
+                  background: "var(--surface2)",
+                  border: "1px solid var(--border2)",
+                }}
+              >
+                <Loader2
+                  className="h-4 w-4 animate-spin"
+                  style={{ color: "var(--accent)" }}
+                />
+              </div>
 
-  if (!user) {
-    return (
-      <div className="px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-3xl border border-red-200 bg-red-50 p-8 shadow-sm dark:border-red-900/50 dark:bg-red-950/20">
-            <div className="flex items-start gap-3">
-              <UserCircle2 className="mt-0.5 h-5 w-5 text-red-500" />
               <div>
-                <h2 className="text-base font-semibold text-red-700 dark:text-red-300">
-                  Failed to load profile
-                </h2>
-                <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-                  We couldn’t fetch your profile data. Please refresh and try again.
-                </p>
-                <button
-                  onClick={fetchProfile}
-                  className="mt-4 rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 dark:border-red-800 dark:bg-red-950/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                <p
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--text)" }}
                 >
-                  Retry
-                </button>
+                  Loading profile
+                </p>
+                <p
+                  className="text-xs sm:text-sm"
+                  style={{ color: "var(--text3)" }}
+                >
+                  Fetching your account settings and preferences...
+                </p>
               </div>
             </div>
           </div>
@@ -91,20 +99,112 @@ export default function ProfilePage() {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // ERROR / EMPTY STATE
+  // ─────────────────────────────────────────────────────────────
+  if (!user) {
+    return (
+      <div className="px-4 py-5 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div
+            className="rounded-[24px] p-6 sm:p-7"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid rgba(239, 68, 68, 0.18)",
+            }}
+          >
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-4">
+                <div
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"
+                  style={{
+                    background: "rgba(239, 68, 68, 0.10)",
+                    border: "1px solid rgba(239, 68, 68, 0.16)",
+                  }}
+                >
+                  <ShieldAlert className="h-5 w-5 text-red-500" />
+                </div>
+
+                <div>
+                  <h2
+                    className="text-base sm:text-lg font-semibold"
+                    style={{ color: "var(--text)" }}
+                  >
+                    Failed to load profile
+                  </h2>
+                  <p
+                    className="mt-1 max-w-xl text-sm leading-6"
+                    style={{ color: "var(--text3)" }}
+                  >
+                    We couldn’t fetch your profile data right now. This can happen
+                    due to an expired session, network issue, or a temporary API failure.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={fetchProfile}
+                className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all cursor-pointer"
+                style={{
+                  background: "var(--surface2)",
+                  color: "var(--text2)",
+                  border: "1px solid var(--border2)",
+                }}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // MAIN PAGE
+  // ─────────────────────────────────────────────────────────────
   return (
-    <div className="px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        {/* Page Heading */}
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500 dark:text-neutral-400">
-            Account
+    <div className="px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-5 sm:space-y-6">
+        {/* Page Intro */}
+        <div className="space-y-2">
+          <p
+            className="text-[11px] font-semibold uppercase tracking-[0.22em]"
+            style={{ color: "var(--accent)" }}
+          >
+            Account Settings
           </p>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
-            Profile Settings
-          </h1>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Manage your personal information and account preferences.
-          </p>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1
+                className="text-[28px] sm:text-[32px] font-bold tracking-tight leading-[1.05]"
+                style={{ color: "var(--text)" }}
+              >
+                Profile
+              </h1>
+              <p
+                className="mt-2 max-w-2xl text-sm sm:text-[15px] leading-6"
+                style={{ color: "var(--text3)" }}
+              >
+                Manage your personal details, security preferences, and future
+                account insights — all in one place.
+              </p>
+            </div>
+
+            <div
+              className="inline-flex items-center gap-2 self-start rounded-xl px-3 py-2 text-xs font-medium"
+              style={{
+                background: "var(--surface2)",
+                color: "var(--text2)",
+                border: "1px solid var(--border2)",
+              }}
+            >
+              <UserCircle2 className="h-4 w-4" />
+              Personal Account Panel
+            </div>
+          </div>
         </div>
 
         {/* Header */}
@@ -113,47 +213,138 @@ export default function ProfilePage() {
         {/* Tabs */}
         <ProfileTabs activeTab={activeTab} setActiveTab={setActiveTab} />
 
-        {/* Content Card */}
-        <div className="rounded-3xl border border-black/10 bg-white/80 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-[#11131a]">
-          <div className="border-b border-black/5 px-6 py-4 dark:border-white/5">
-            <h2 className="text-base font-semibold text-neutral-900 dark:text-white">
-              {activeTab === "basic" && "Basic Information"}
-              {activeTab === "security" && "Security"}
-              {activeTab === "insights" && "My Insights"}
-            </h2>
-            <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
-              {activeTab === "basic" &&
-                "Update your account details used across HourBit."}
-              {activeTab === "security" &&
-                "Password and account security settings will be available next."}
-              {activeTab === "insights" &&
-                "Your personal productivity and learning analytics will appear here."}
-            </p>
+        {/* Main Content Shell */}
+        <div
+          className="overflow-hidden rounded-[24px]"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border2)",
+          }}
+        >
+          {/* Top section title */}
+          <div
+            className="px-5 py-4 sm:px-6 sm:py-5"
+            style={{
+              borderBottom: "1px solid var(--border2)",
+            }}
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2
+                  className="text-base sm:text-lg font-semibold"
+                  style={{ color: "var(--text)" }}
+                >
+                  {activeTab === "basic" && "Basic Information"}
+                  {activeTab === "security" && "Security"}
+                  {activeTab === "insights" && "My Insights"}
+                </h2>
+
+                <p
+                  className="mt-1 text-sm leading-6"
+                  style={{ color: "var(--text3)" }}
+                >
+                  {activeTab === "basic" &&
+                    "Update the personal account details used throughout HourBit."}
+                  {activeTab === "security" &&
+                    "Manage password protection, verification, and account safety controls."}
+                  {activeTab === "insights" &&
+                    "A future space for your work, typing, diary, and learning performance analytics."}
+                </p>
+              </div>
+
+              <div
+                className="self-start rounded-xl px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em]"
+                style={{
+                  background: "var(--surface2)",
+                  color: "var(--text2)",
+                  border: "1px solid var(--border2)",
+                }}
+              >
+                {activeTab === "basic" && "Editable"}
+                {activeTab === "security" && "Protected"}
+                {activeTab === "insights" && "Upcoming"}
+              </div>
+            </div>
           </div>
 
-          <div className="p-6">
+          {/* Body */}
+          <div className="p-5 sm:p-6">
             {activeTab === "basic" && (
               <BasicInfoTab user={user} setUser={setUser} />
             )}
 
             {activeTab === "security" && (
-              <div className="rounded-2xl border border-dashed border-black/10 bg-neutral-50 p-8 text-center dark:border-white/10 dark:bg-white/[0.03]">
-                <h3 className="text-lg font-semibold text-neutral-900 dark:text-white">
+              <div
+                className="rounded-[22px] p-8 text-center"
+                style={{
+                  background: "var(--surface2)",
+                  border: "1px dashed var(--border2)",
+                }}
+              >
+                <div
+                  className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl"
+                  style={{
+                    background: "rgba(124,110,243,0.10)",
+                    border: "1px solid rgba(124,110,243,0.18)",
+                  }}
+                >
+                  <ShieldAlert
+                    className="h-6 w-6"
+                    style={{ color: "var(--accent)" }}
+                  />
+                </div>
+
+                <h3
+                  className="text-lg font-semibold"
+                  style={{ color: "var(--text)" }}
+                >
                   Security tab is coming next
                 </h3>
-                <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-                  We’ll implement your OTP-based password change flow here in the next step.
+
+                <p
+                  className="mx-auto mt-2 max-w-xl text-sm leading-6"
+                  style={{ color: "var(--text3)" }}
+                >
+                  Your OTP-based password change flow will be implemented here and
+                  aligned with the HourBit dashboard theme.
                 </p>
               </div>
             )}
 
             {activeTab === "insights" && (
-              <div className="rounded-2xl border border-dashed border-black/10 bg-neutral-50 p-8 text-center dark:border-white/10 dark:bg-white/[0.03]">
-                <h3 className="text-lg font-semibold text-neutral-900 dark:text-white">
+              <div
+                className="rounded-[22px] p-8 text-center"
+                style={{
+                  background: "var(--surface2)",
+                  border: "1px dashed var(--border2)",
+                }}
+              >
+                <div
+                  className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl"
+                  style={{
+                    background: "rgba(34,211,160,0.10)",
+                    border: "1px solid rgba(34,211,160,0.18)",
+                  }}
+                >
+                  <UserCircle2
+                    className="h-6 w-6"
+                    style={{ color: "var(--green)" }}
+                  />
+                </div>
+
+                <h3
+                  className="text-lg font-semibold"
+                  style={{ color: "var(--text)" }}
+                >
                   Insights tab is coming next
                 </h3>
-                <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-                  This section will show productivity, typing, diary, and quiz analytics.
+
+                <p
+                  className="mx-auto mt-2 max-w-xl text-sm leading-6"
+                  style={{ color: "var(--text3)" }}
+                >
+                  This section will later show your productivity, typing, diary,
+                  and quiz performance insights in a clean HourBit dashboard format.
                 </p>
               </div>
             )}

@@ -1,9 +1,21 @@
 // app/dashboard/profile/_components/BasicInfoTab.tsx
 
+
+
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Clock3, Mail, Save, Undo2, User2 } from "lucide-react";
+import {
+  Building2,
+  Clock3,
+  Mail,
+  Save,
+  Undo2,
+  User2,
+  Sparkles,
+  BriefcaseBusiness,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 import type { ProfileUser } from "../page";
 
@@ -18,7 +30,6 @@ export default function BasicInfoTab({
     fullName: user.fullName || "",
     email: user.email || "",
     companyName: user.companyName || "",
-    defaultWorkHours: String(user.defaultWorkHours ?? 8.5),
   });
 
   const [saving, setSaving] = useState(false);
@@ -28,7 +39,6 @@ export default function BasicInfoTab({
       fullName: user.fullName || "",
       email: user.email || "",
       companyName: user.companyName || "",
-      defaultWorkHours: String(user.defaultWorkHours ?? 8.5),
     });
   }, [user]);
 
@@ -37,15 +47,13 @@ export default function BasicInfoTab({
       fullName: user.fullName || "",
       email: user.email || "",
       companyName: user.companyName || "",
-      defaultWorkHours: String(user.defaultWorkHours ?? 8.5),
     }),
     [user]
   );
 
   const isDirty =
     form.fullName !== initialSnapshot.fullName ||
-    form.companyName !== initialSnapshot.companyName ||
-    form.defaultWorkHours !== initialSnapshot.defaultWorkHours;
+    form.companyName !== initialSnapshot.companyName;
 
   const handleChange = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({
@@ -61,7 +69,6 @@ export default function BasicInfoTab({
   const handleSave = async () => {
     const fullName = form.fullName.trim();
     const companyName = form.companyName.trim();
-    const defaultWorkHours = Number(form.defaultWorkHours);
 
     if (fullName.length < 2 || fullName.length > 60) {
       toast.error("Full name must be between 2 and 60 characters.");
@@ -70,15 +77,6 @@ export default function BasicInfoTab({
 
     if (companyName.length > 100) {
       toast.error("Company name cannot exceed 100 characters.");
-      return;
-    }
-
-    if (
-      !Number.isFinite(defaultWorkHours) ||
-      defaultWorkHours < 0 ||
-      defaultWorkHours > 24
-    ) {
-      toast.error("Default work hours must be between 0 and 24.");
       return;
     }
 
@@ -93,7 +91,6 @@ export default function BasicInfoTab({
         body: JSON.stringify({
           fullName,
           companyName,
-          defaultWorkHours,
         }),
       });
 
@@ -114,173 +111,190 @@ export default function BasicInfoTab({
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-      {/* Left Form */}
-      <div className="space-y-6">
-        <div className="rounded-2xl border border-black/10 bg-neutral-50/80 p-5 dark:border-white/10 dark:bg-white/[0.03]">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
-            Personal Details
-          </h3>
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      {/* LEFT COLUMN */}
+      <div className="space-y-5">
+        {/* FORM */}
+        <section
+          className="rounded-[22px] p-5 sm:p-6"
+          style={{
+            background: "var(--surface2)",
+            border: "1px solid var(--border2)",
+          }}
+        >
+          <div className="flex justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--text3)" }}>
+                Personal Details
+              </p>
+              <h3 className="mt-1 text-base font-semibold" style={{ color: "var(--text)" }}>
+                Basic profile information
+              </h3>
+            </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-            {/* Full Name */}
-            <div className="md:col-span-2">
-              <label className="mb-2 flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                <User2 className="h-4 w-4" />
-                Full Name
-              </label>
+            <div
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs"
+              style={{
+                background: "rgba(124,110,243,0.10)",
+                color: "var(--accent)",
+                border: "1px solid rgba(124,110,243,0.18)",
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Synced
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
+            <InputField label="Full Name" icon={<User2 className="h-4 w-4" />}>
               <input
                 value={form.fullName}
                 onChange={(e) => handleChange("fullName", e.target.value)}
-                placeholder="Enter your full name"
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-white/10 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-neutral-500 dark:focus:border-white/20 dark:focus:ring-white/10"
+                className="w-full rounded-2xl px-4 py-3 text-sm outline-none"
+                style={inputStyle}
               />
-            </div>
+            </InputField>
 
-            {/* Email */}
-            <div className="md:col-span-2">
-              <label className="mb-2 flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                <Mail className="h-4 w-4" />
-                Email Address
-              </label>
-              <input
-                value={form.email}
-                disabled
-                className="w-full cursor-not-allowed rounded-2xl border border-black/10 bg-neutral-100 px-4 py-3 text-sm text-neutral-500 outline-none dark:border-white/10 dark:bg-[#0d0f14] dark:text-neutral-500"
-              />
-              <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-                Your registered email cannot be changed from here.
-              </p>
-            </div>
-
-            {/* Company Name */}
-            <div>
-              <label className="mb-2 flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                <Building2 className="h-4 w-4" />
-                Company Name
-              </label>
+            <InputField label="Company" icon={<Building2 className="h-4 w-4" />}>
               <input
                 value={form.companyName}
                 onChange={(e) => handleChange("companyName", e.target.value)}
-                placeholder="Enter company name"
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-white/10 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-neutral-500 dark:focus:border-white/20 dark:focus:ring-white/10"
+                className="w-full rounded-2xl px-4 py-3 text-sm outline-none"
+                style={inputStyle}
               />
+            </InputField>
+
+            <div className="md:col-span-2">
+              <InputField label="Email" icon={<Mail className="h-4 w-4" />}>
+                <input
+                  value={form.email}
+                  disabled
+                  className="w-full rounded-2xl px-4 py-3 text-sm"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border2)",
+                    color: "var(--text3)",
+                  }}
+                />
+              </InputField>
             </div>
 
-            {/* Default Work Hours */}
+            {/* READ ONLY WORK HOURS */}
+            <div className="md:col-span-2">
+              <div
+                className="rounded-[18px] p-4"
+                style={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border2)",
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-xl"
+                    style={{
+                      background: "rgba(124,110,243,0.10)",
+                      border: "1px solid rgba(124,110,243,0.16)",
+                      color: "var(--accent)",
+                    }}
+                  >
+                    <Clock3 className="h-4 w-4" />
+                  </div>
+
+                  <div>
+                    <p className="text-[11px] uppercase" style={{ color: "var(--text3)" }}>
+                      Default Work Hours
+                    </p>
+                    <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                      {user.defaultWorkHours ?? 8.5} hrs/day
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text3)" }}>
+                      Managed by system (not editable yet)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ACTION */}
+        <section
+          className="rounded-[22px] p-4"
+          style={{
+            background: "var(--surface2)",
+            border: "1px solid var(--border2)",
+          }}
+        >
+          <div className="flex justify-between items-center">
             <div>
-              <label className="mb-2 flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                <Clock3 className="h-4 w-4" />
-                Default Work Hours
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="24"
-                step="0.5"
-                value={form.defaultWorkHours}
-                onChange={(e) => handleChange("defaultWorkHours", e.target.value)}
-                placeholder="e.g. 8.5"
-                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-white/10 dark:bg-[#0f1117] dark:text-white dark:placeholder:text-neutral-500 dark:focus:border-white/20 dark:focus:ring-white/10"
-              />
-              <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-                Used as your default daily target across work tracking.
+              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Save changes
               </p>
             </div>
-          </div>
-        </div>
 
-        {/* Action Bar */}
-        <div className="flex flex-col gap-3 rounded-2xl border border-black/10 bg-neutral-50/80 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-white/10 dark:bg-white/[0.03]">
-          <div>
-            <p className="text-sm font-medium text-neutral-900 dark:text-white">
-              Save your profile changes
-            </p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Changes will immediately apply across your account.
-            </p>
-          </div>
+            <div className="flex gap-3">
+              <button onClick={handleReset} disabled={!isDirty || saving}>
+                <Undo2 />
+              </button>
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleReset}
-              disabled={!isDirty || saving}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#0f1117] dark:text-neutral-200 dark:hover:bg-white/[0.06]"
-            >
-              <Undo2 className="h-4 w-4" />
-              Reset
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!isDirty || saving}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black"
-            >
-              <Save className="h-4 w-4" />
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
+              <button onClick={handleSave} disabled={!isDirty || saving}>
+                <Save />
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* Right Summary Panel */}
-      <div className="space-y-6">
-        <div className="rounded-2xl border border-black/10 bg-neutral-50/80 p-5 dark:border-white/10 dark:bg-white/[0.03]">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
-            Profile Summary
-          </h3>
-
-          <div className="mt-5 space-y-4">
-            <div className="rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-[#0f1117]">
-              <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Name
-              </p>
-              <p className="mt-1 text-sm font-semibold text-neutral-900 dark:text-white">
-                {form.fullName || "—"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-[#0f1117]">
-              <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Email
-              </p>
-              <p className="mt-1 break-all text-sm font-semibold text-neutral-900 dark:text-white">
-                {form.email || "—"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-[#0f1117]">
-              <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Company
-              </p>
-              <p className="mt-1 text-sm font-semibold text-neutral-900 dark:text-white">
-                {form.companyName || "Not set"}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-[#0f1117]">
-              <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Default Work Hours
-              </p>
-              <p className="mt-1 text-sm font-semibold text-neutral-900 dark:text-white">
-                {form.defaultWorkHours || "8.5"} hrs / day
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-5 dark:border-blue-900/40 dark:bg-blue-950/20">
-          <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-300">
-            Why this matters
-          </h4>
-          <p className="mt-2 text-sm leading-6 text-blue-700 dark:text-blue-200/90">
-            Your profile settings help personalize work tracking and keep your account
-            details consistent across HourBit.
-          </p>
-        </div>
+      {/* RIGHT */}
+      <div className="space-y-5">
+        <section
+          className="rounded-[22px] p-5"
+          style={{
+            background: "var(--surface2)",
+            border: "1px solid var(--border2)",
+          }}
+        >
+          <SummaryCard label="Name" value={form.fullName} />
+          <SummaryCard label="Email" value={form.email} />
+          <SummaryCard label="Company" value={form.companyName || "Not set"} />
+          <SummaryCard
+            label="Work Hours"
+            value={`${user.defaultWorkHours ?? 8.5} hrs/day`}
+          />
+        </section>
       </div>
     </div>
   );
 }
+
+function InputField({
+  label,
+  icon,
+  children,
+}: any) {
+  return (
+    <div>
+      <label style={{ color: "var(--text2)" }} className="flex gap-2 mb-2">
+        {icon}
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value }: any) {
+  return (
+    <div style={{ color: "var(--text)" }} className="mb-3">
+      <p style={{ color: "var(--text3)" }}>{label}</p>
+      <p>{value}</p>
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  background: "var(--surface)",
+  border: "1px solid var(--border2)",
+  color: "var(--text)",
+};

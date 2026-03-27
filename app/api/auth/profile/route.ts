@@ -158,11 +158,11 @@ export async function PATCH(req: NextRequest) {
 
     const fullName =
       typeof body.fullName === "string" ? body.fullName.trim() : "";
+
     const companyName =
       typeof body.companyName === "string" ? body.companyName.trim() : "";
-    const defaultWorkHours = normalizeWorkHours(body.defaultWorkHours);
 
-    // ── Validation ────────────────────────────
+    // ── VALIDATION ────────────────────────────
     if (!fullName || fullName.length < 2 || fullName.length > 60) {
       return NextResponse.json(
         {
@@ -183,16 +183,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    if (defaultWorkHours === null) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Default work hours must be a valid number between 0 and 24.",
-        },
-        { status: 400 }
-      );
-    }
-
     await connectDB();
 
     const user = await User.findById(decoded.userId).select(
@@ -206,7 +196,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // ── Account-level ban check ──
+    // ── BAN CHECK ──
     if (user.status === "banned") {
       return NextResponse.json(
         { success: false, message: "Your account has been permanently banned." },
@@ -214,7 +204,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // ── Account-level suspension check ──
+    // ── SUSPENSION CHECK ──
     if (user.status === "suspended") {
       if (!user.blockedUntil || user.blockedUntil > new Date()) {
         return NextResponse.json(
@@ -223,13 +213,12 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      // suspension expired → silently restore
       user.status = "active";
       user.banReason = "";
       user.blockedUntil = null;
     }
 
-    // ── Device-level ban check ──
+    // ── DEVICE CHECK ──
     if (decoded.deviceId) {
       const device = user.devices?.find(
         (d: any) => d.deviceId === decoded.deviceId
@@ -248,11 +237,10 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // ── Prevent useless DB write ──
+    // ── PREVENT USELESS UPDATE ──
     const noChanges =
       user.fullName === fullName &&
-      (user.companyName ?? "") === companyName &&
-      Number(user.defaultWorkHours ?? 8.5) === defaultWorkHours;
+      (user.companyName ?? "") === companyName;
 
     if (noChanges) {
       return NextResponse.json({
@@ -268,10 +256,9 @@ export async function PATCH(req: NextRequest) {
       });
     }
 
-    // ── Apply updates ──
+    // ── APPLY UPDATE ──
     user.fullName = fullName;
     user.companyName = companyName;
-    user.defaultWorkHours = defaultWorkHours;
 
     await user.save();
 
@@ -282,7 +269,7 @@ export async function PATCH(req: NextRequest) {
         fullName: user.fullName ?? "",
         email: user.email ?? "",
         companyName: user.companyName ?? "",
-        defaultWorkHours: user.defaultWorkHours ?? 8.5,
+        defaultWorkHours: user.defaultWorkHours ?? 8.5, // still returned (read-only)
         role: user.role ?? "employee",
       },
     });
