@@ -10,6 +10,16 @@
 //           • Progress bar on each card shows attempt utilisation
 //           • Breadcrumb back button
 
+// app/dashboard/quiz/[categoryId]/[subcategoryId]/page.tsx
+//
+// FIXES:
+//  FIX 1 — "Unavailable" shown instead of "View Result" when attemptsRemaining === 0
+//           but isExhausted DB flag not yet set. Added isEffectivelyExhausted which
+//           treats a level as exhausted when attemptsRemaining === 0 && !isCompleted.
+//  FIX 2 — XP consolation row now also shows for isEffectivelyExhausted levels.
+//  FIX 3 — Manual Refresh button in header.
+//  FIX 4 — UX: skeleton loaders, progress bars, exhausted border/icon treatment.
+
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -71,12 +81,11 @@ export default function LevelSelectionPage() {
   const { categoryId, subcategoryId } =
     useParams<{ categoryId: string; subcategoryId: string }>();
 
-  const [levels,      setLevels]      = useState<Level[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [refreshing,  setRefreshing]  = useState(false);
-  const [subcatName,  setSubcatName]  = useState<string>("");
+  const [levels,     setLevels]     = useState<Level[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // FIX 3: Reusable fetch function, exposed both to useEffect and Refresh button
+  // FIX 3: Reusable fetch function exposed to both useEffect and Refresh button
   const fetchLevels = useCallback(async (showRefreshSpinner = false) => {
     if (!subcategoryId) return;
     if (showRefreshSpinner) setRefreshing(true);
@@ -87,8 +96,6 @@ export default function LevelSelectionPage() {
       const data = await res.json();
       if (data.success) {
         setLevels(data.levels);
-        // Try to get subcategory name from parent API if needed
-        // (levels API doesn't return it, so we use what we have)
       } else {
         toast.error(data.message || "Failed to load levels");
       }
@@ -102,19 +109,19 @@ export default function LevelSelectionPage() {
 
   useEffect(() => {
     fetchLevels();
-
-    // Re-fetch when user tabs back (e.g. after completing a quiz in the same tab)
+    // Re-fetch when user tabs back (e.g. after completing a quiz)
     const handleFocus = () => fetchLevels(true);
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
   }, [fetchLevels]);
 
-  // Summary stats
+  // Summary stats — use isEffectivelyExhausted for accuracy
   const completedCount = levels.filter(l => l.isCompleted).length;
-  const exhaustedCount = levels.filter(l => l.isExhausted && !l.isCompleted).length;
-  const totalCount     = levels.length;
-  const totalXpAvail   = levels.reduce((sum, l) => sum + l.xpReward, 0);
-  const earnedXpSum    = levels.reduce((sum, l) => sum + (l.earnedXp ?? 0), 0);
+  const exhaustedCount = levels.filter(l =>
+    (l.isExhausted || (l.attemptsRemaining === 0 && !l.isCompleted)) && !l.isCompleted
+  ).length;
+  const totalCount  = levels.length;
+  const earnedXpSum = levels.reduce((sum, l) => sum + (l.earnedXp ?? 0), 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -167,16 +174,13 @@ export default function LevelSelectionPage() {
               (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.25)";
             }}
           >
-            <RefreshCw
-              size={13}
-              className={refreshing ? "animate-spin" : ""}
-            />
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
 
-      {/* ── Progress summary bar (shown when data is loaded) ── */}
+      {/* ── Progress summary bar ── */}
       {!loading && levels.length > 0 && (
         <div className="rounded-xl px-5 py-4 grid grid-cols-4 gap-4"
           style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
@@ -245,12 +249,17 @@ export default function LevelSelectionPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {levels.map((level, idx) => {
+          {levels.map((level) => {
             const diff   = DIFF_META[level.difficulty] ?? DIFF_META.easy;
             const locked = !level.isUnlocked;
 
-            const showViewResult = level.isCompleted || level.isExhausted;
-            const canStart       = level.isUnlocked && !level.isCompleted && !level.isExhausted && level.attemptsRemaining > 0;
+            // ── FIX 1: isEffectivelyExhausted covers the edge case where
+            // attemptsRemaining hit 0 but the isExhausted DB flag wasn't flushed yet.
+            const isEffectivelyExhausted =
+              level.isExhausted || (level.attemptsRemaining === 0 && !level.isCompleted);
+
+            const showViewResult = level.isCompleted || isEffectivelyExhausted;
+            const canStart       = level.isUnlocked && !level.isCompleted && !isEffectivelyExhausted && level.attemptsRemaining > 0;
             const exhaustionXp   = Math.floor(level.xpReward * (level.penaltyXpMultiplier ?? 0.30));
             const attemptsPct    = level.maxAttempts > 0
               ? Math.round((level.attemptsUsed / level.maxAttempts) * 100)
@@ -264,7 +273,7 @@ export default function LevelSelectionPage() {
                   background: "var(--surface)",
                   border: level.isCompleted
                     ? "1px solid rgba(34,211,160,0.35)"
-                    : level.isExhausted
+                    : isEffectivelyExhausted
                     ? "1px solid rgba(248,113,113,0.25)"
                     : locked
                     ? "1px solid var(--border)"
@@ -281,7 +290,7 @@ export default function LevelSelectionPage() {
                 onMouseLeave={e => {
                   (e.currentTarget as HTMLElement).style.borderColor = level.isCompleted
                     ? "rgba(34,211,160,0.35)"
-                    : level.isExhausted
+                    : isEffectivelyExhausted
                     ? "rgba(248,113,113,0.25)"
                     : locked
                     ? "var(--border)"
@@ -293,20 +302,20 @@ export default function LevelSelectionPage() {
                   {/* ── Left ── */}
                   <div className="flex items-start gap-4 flex-1 min-w-0">
 
-                    {/* Level number bubble */}
+                    {/* Level number / status bubble */}
                     <div
                       className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 font-bold text-[15px]"
                       style={{
                         background: level.isCompleted
                           ? "rgba(34,211,160,0.15)"
-                          : level.isExhausted
+                          : isEffectivelyExhausted
                           ? "rgba(248,113,113,0.12)"
                           : locked
                           ? "var(--surface2)"
                           : diff.bg,
                         color: level.isCompleted
                           ? "var(--green)"
-                          : level.isExhausted
+                          : isEffectivelyExhausted
                           ? "var(--danger)"
                           : locked
                           ? "var(--text4)"
@@ -317,7 +326,7 @@ export default function LevelSelectionPage() {
                         ? <Lock size={16} />
                         : level.isCompleted
                         ? <CheckCircle size={16} />
-                        : level.isExhausted
+                        : isEffectivelyExhausted
                         ? <AlertTriangle size={15} />
                         : level.levelNumber}
                     </div>
@@ -336,7 +345,7 @@ export default function LevelSelectionPage() {
                         >
                           {diff.label}
                         </span>
-                        {level.unlockedViaExhaustion && !level.isCompleted && !level.isExhausted && (
+                        {level.unlockedViaExhaustion && !level.isCompleted && !isEffectivelyExhausted && (
                           <span
                             className="text-[10px] font-bold px-2 py-0.5 rounded-full"
                             style={{ color: "var(--amber)", background: "rgba(245,158,11,0.12)" }}
@@ -368,7 +377,7 @@ export default function LevelSelectionPage() {
                             {level.questionCount} questions
                           </span>
                         </div>
-                        {!locked && !level.isCompleted && !level.isExhausted && (
+                        {!locked && !level.isCompleted && !isEffectivelyExhausted && (
                           <div className="flex items-center gap-1.5">
                             <RotateCcw size={11} style={{ color: "var(--text4)" }} />
                             <span
@@ -385,7 +394,7 @@ export default function LevelSelectionPage() {
                         )}
                       </div>
 
-                      {/* Completed: score + XP */}
+                      {/* Completed: best score + XP */}
                       {level.isCompleted && (
                         <div className="flex items-center gap-3 mt-2">
                           <span className="text-[11px] font-mono font-semibold"
@@ -399,23 +408,26 @@ export default function LevelSelectionPage() {
                         </div>
                       )}
 
-                      {/* Exhausted */}
-                      {level.isExhausted && !level.isCompleted && (
-                        <div className="flex items-center gap-1.5 mt-2">
+                      {/* FIX 2: Exhausted — show consolation XP row for BOTH
+                          isExhausted flag AND isEffectivelyExhausted edge case */}
+                      {isEffectivelyExhausted && !level.isCompleted && (
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                           <AlertTriangle size={11} style={{ color: "var(--danger)" }} />
                           <span className="text-[11px] font-mono"
                             style={{ color: "var(--danger)" }}>
                             All {level.maxAttempts} attempts used
                           </span>
-                          <span className="text-[11px] font-mono"
-                            style={{ color: "var(--amber)" }}>
-                            · +{level.earnedXp} XP ({Math.round((level.penaltyXpMultiplier ?? 0.30) * 100)}% consolation)
-                          </span>
+                          {level.earnedXp > 0 && (
+                            <span className="text-[11px] font-mono"
+                              style={{ color: "var(--amber)" }}>
+                              · +{level.earnedXp} XP ({Math.round((level.penaltyXpMultiplier ?? 0.30) * 100)}% consolation)
+                            </span>
+                          )}
                         </div>
                       )}
 
                       {/* Last attempt warning */}
-                      {!locked && !level.isCompleted && !level.isExhausted && level.attemptsRemaining === 1 && (
+                      {!locked && !level.isCompleted && !isEffectivelyExhausted && level.attemptsRemaining === 1 && (
                         <div className="flex items-center gap-1.5 mt-2">
                           <AlertTriangle size={11} style={{ color: "var(--amber)" }} />
                           <span className="text-[11px] font-mono"
@@ -425,8 +437,8 @@ export default function LevelSelectionPage() {
                         </div>
                       )}
 
-                      {/* Attempt progress bar (shown for in-progress levels) */}
-                      {!locked && !level.isCompleted && !level.isExhausted && level.attemptsUsed > 0 && (
+                      {/* Attempt progress bar (in-progress levels only) */}
+                      {!locked && !level.isCompleted && !isEffectivelyExhausted && level.attemptsUsed > 0 && (
                         <div className="mt-3">
                           <div className="flex justify-between items-center mb-1">
                             <span className="text-[10px] font-mono"

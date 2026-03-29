@@ -31,6 +31,23 @@
 //    • Submit button requires confirmation if not all questions answered
 //    • Timer turns red and pulses in last 60 seconds
 //    • Result screen shows XP delta clearly (before → after)
+// app/dashboard/quiz/[categoryId]/[subcategoryId]/[levelId]/page.tsx
+//
+// XP DISPLAY FIX SUMMARY:
+//
+//   The root cause of "XP comes back after submit" was NOT in this file —
+//   it was in the backend (submit route recalculating and overwriting XP,
+//   and xp route aggregating instead of reading the wallet).
+//
+//   With the backend fixed (UserXp wallet model), this file is simplified:
+//
+//   1. fetchTotalXp() reads UserXp.totalXp — always the correct value.
+//   2. After hint: local optimistic deduction (instant UI) + dispatch "xp-deduct"
+//      for the navbar. A 1.5s delayed re-fetch confirms DB write.
+//   3. After submit: dispatch "xp-updated" so layout re-fetches. No local
+//      arithmetic — we just let the server tell us the true balance.
+//   4. No more "xp coming back" because submit route uses $inc (adds) instead
+//      of $set (overwrites) on the UserXp document.
 
 "use client";
 
@@ -131,17 +148,14 @@ const OPTIONS: { key: "A" | "B" | "C" | "D" }[] = [
   { key: "A" }, { key: "B" }, { key: "C" }, { key: "D" },
 ];
 
-// ── Skeleton loader component ─────────────────────────────────────────────────
+// ── Skeleton loader ────────────────────────────────────────────────────────────
 function SkeletonBlock({ h = "h-4", w = "w-full", rounded = "rounded-lg" }: { h?: string; w?: string; rounded?: string }) {
   return (
-    <div
-      className={`${h} ${w} ${rounded} animate-pulse`}
-      style={{ background: "var(--surface2)" }}
-    />
+    <div className={`${h} ${w} ${rounded} animate-pulse`}
+      style={{ background: "var(--surface2)" }} />
   );
 }
 
-// ── Format seconds ────────────────────────────────────────────────────────────
 function fmtTime(secs: number) {
   return `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
 }
@@ -171,9 +185,8 @@ export default function QuizPage() {
   const [hintCache,   setHintCache]   = useState<Map<string, string>>(new Map());
   const [hintLoading, setHintLoading] = useState(false);
 
-  // FIX 1 & 2: Authoritative XP from DB — never drift upward after deductions
-  const [totalXp,     setTotalXp]     = useState<number>(0);
-  const xpLoadedRef                   = useRef(false);
+  // Authoritative XP from UserXp wallet — never drifts back up after deductions
+  const [totalXp, setTotalXp] = useState<number>(0);
 
   const [timeLeft,     setTimeLeft]     = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -181,42 +194,40 @@ export default function QuizPage() {
   const [review,       setReview]       = useState<ReviewQuestion[]>([]);
   const [reviewIdx,    setReviewIdx]    = useState(0);
 
-  // Confirm submit dialog when not all questions answered
-  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-
-  // Score animation state
-  const [displayScore, setDisplayScore] = useState(0);
-
+  const [showSubmitConfirm,      setShowSubmitConfirm]      = useState(false);
+  const [displayScore,           setDisplayScore]           = useState(0);
   const [isExhaustedAfterSubmit, setIsExhaustedAfterSubmit] = useState(false);
 
   const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
   const questionStartRef = useRef<number>(Date.now());
   const submitCalledRef  = useRef(false);
 
-  // ── FIX 1 & 2: Authoritative XP fetch — always reads from DB ─────────────
-  // This is the single source of truth. After hints and after quiz submission,
-  // we call this to sync the displayed value with the real DB value.
+  // ── Fetch authoritative XP from wallet ───────────────────────────────────
   const fetchTotalXp = useCallback(() => {
     fetch("/api/quiz/xp")
       .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setTotalXp(d.totalXp ?? 0);
-          xpLoadedRef.current = true;
-        }
-      })
+      .then(d => { if (d.success) setTotalXp(d.totalXp ?? 0); })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     fetchTotalXp();
-    // Listen for cross-component XP updates (e.g. layout polling)
+    // Listen for cross-component updates (layout polling, other tabs)
     const handleUpdated = () => fetchTotalXp();
+    // Instant local deduction from hint clicks (mirrors layout's handler)
+    const handleDeduct = (e: Event) => {
+      const amount = (e as CustomEvent<{ amount: number }>).detail?.amount ?? 0;
+      if (amount > 0) setTotalXp(prev => Math.max(0, prev - amount));
+    };
     window.addEventListener("xp-updated", handleUpdated);
-    return () => window.removeEventListener("xp-updated", handleUpdated);
+    window.addEventListener("xp-deduct",  handleDeduct);
+    return () => {
+      window.removeEventListener("xp-updated", handleUpdated);
+      window.removeEventListener("xp-deduct",  handleDeduct);
+    };
   }, [fetchTotalXp]);
 
-  // ── Score animation when result screen appears ────────────────────────────
+  // ── Score animation ───────────────────────────────────────────────────────
   useEffect(() => {
     if (screen !== "result" && screen !== "past_result") return;
     if (!result) return;
@@ -232,10 +243,9 @@ export default function QuizPage() {
     return () => clearInterval(id);
   }, [screen, result]);
 
-  // ── Anti-cheat ────────────────────────────────────────────────────────────
+  // ── Anti-cheat (disable copy/paste/screenshot during quiz) ───────────────
   useEffect(() => {
     if (screen !== "quiz") return;
-
     const BLOCKED = ["copy","cut","paste","contextmenu","selectstart","dragstart"] as const;
     const blockEvent = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
     const blockKey   = (e: KeyboardEvent) => {
@@ -245,16 +255,13 @@ export default function QuizPage() {
       if (e.ctrlKey && e.shiftKey && ["i","j","c"].includes(e.key.toLowerCase())) { e.preventDefault(); return; }
       const bl = ["c","v","x","a","u","s","p"];
       if ((e.ctrlKey || e.metaKey) && bl.includes(e.key.toLowerCase())) { e.preventDefault(); return; }
-      if (e.key === "Insert" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); return; }
     };
-
     BLOCKED.forEach(ev => document.addEventListener(ev, blockEvent, true));
     document.addEventListener("keydown", blockKey, true);
     document.body.style.userSelect                = "none";
     (document.body.style as any).webkitUserSelect = "none";
     (document.body.style as any).MozUserSelect    = "none";
     (document.body.style as any).msUserSelect     = "none";
-
     return () => {
       BLOCKED.forEach(ev => document.removeEventListener(ev, blockEvent, true));
       document.removeEventListener("keydown", blockKey, true);
@@ -272,17 +279,14 @@ export default function QuizPage() {
   // ── Load level info ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!levelId || !subcategoryId) return;
-
     fetch(`/api/quiz/levels?subcategoryId=${subcategoryId}`)
       .then(r => r.json())
       .then(d => {
         if (!d.success) { setScreen("error"); return; }
         const found: LevelInfo = d.levels.find((l: any) => l._id === levelId);
         if (!found) { setScreen("error"); return; }
-
         setLevelInfo(found);
         setAttemptsRemaining(found.attemptsRemaining);
-
         if (found.isCompleted || found.isExhausted) {
           loadPastResult();
           return;
@@ -350,10 +354,9 @@ export default function QuizPage() {
         return;
       }
 
-      const newAttemptsRemaining = data.progress?.attemptsRemaining ?? 0;
       setResult(data.result);
       setReview(data.review);
-      if (data.progress) setAttemptsRemaining(newAttemptsRemaining);
+      if (data.progress) setAttemptsRemaining(data.progress.attemptsRemaining ?? 0);
 
       const justExhausted =
         data.progress?.isExhausted === true && !data.result?.isPassing;
@@ -361,16 +364,14 @@ export default function QuizPage() {
 
       setScreen("result");
 
-      // FIX 1: After submit, do an authoritative DB re-fetch of XP.
-      // Small delay ensures the DB write from submit route has settled.
-      // This replaces the "xp-updated" event dispatch that was causing the bug
-      // (the event triggered a re-fetch that sometimes ran before DB committed
-      // the hint deductions, returning the pre-hint XP value).
+      // Re-fetch authoritative XP from wallet after submit.
+      // The submit route has already done $inc on UserXp, so this will show
+      // the correct final balance including any hint deductions.
+      // Small delay to ensure DB write has fully committed.
       setTimeout(() => {
         fetchTotalXp();
-        // Also notify layout to update its XP display
         window.dispatchEvent(new CustomEvent("xp-updated"));
-      }, 800);
+      }, 600);
 
     } catch {
       toast.error("Submission failed. Please try again.");
@@ -421,6 +422,9 @@ export default function QuizPage() {
       setHintLoading(false);
       questionStartRef.current = Date.now();
 
+      // Refresh XP on quiz start to have an accurate baseline
+      fetchTotalXp();
+
       if (data.level.timeLimitMinutes > 0) startTimer(data.level.timeLimitMinutes * 60);
       setScreen("quiz");
     } catch {
@@ -447,8 +451,12 @@ export default function QuizPage() {
 
     const penalty = q.hintXpPenalty ?? 0;
 
+    // Client-side preflight check (server validates too)
     if (penalty > 0 && totalXp < penalty) {
-      toast.error(`Not enough XP. You need ${penalty} XP but only have ${totalXp} XP.`, { duration: 4000 });
+      toast.error(
+        `Not enough XP. You need ${penalty} XP but only have ${totalXp} XP.`,
+        { duration: 4000 }
+      );
       return;
     }
 
@@ -464,6 +472,8 @@ export default function QuizPage() {
       if (!data.success) {
         if (data.notEnoughXp) {
           toast.error(data.message, { duration: 4000 });
+          // Re-fetch to sync any discrepancy between client and server
+          fetchTotalXp();
         } else {
           toast.error(data.message || "Could not load hint.");
         }
@@ -485,19 +495,15 @@ export default function QuizPage() {
         },
       }));
 
-      // FIX 1: Immediately deduct from local display AND dispatch event so
-      // the layout navbar also updates instantly.
       if (!data.alreadyUsed && penalty > 0) {
+        // Optimistic local deduction for instant UI feedback
         setTotalXp(prev => Math.max(0, prev - penalty));
-        // Notify layout to deduct visually from navbar too
+        // Notify navbar to also deduct locally (instant visual)
         window.dispatchEvent(new CustomEvent("xp-deduct", { detail: { amount: penalty } }));
         toast(`−${penalty} XP hint penalty applied`, { icon: "💡", duration: 3000 });
 
-        // FIX 1: After hint, do a delayed authoritative re-fetch to confirm
-        // DB deduction went through (if it fails for some reason, we'll know)
-        setTimeout(() => {
-          fetchTotalXp();
-        }, 1500);
+        // Confirm from DB after a short delay (backend already wrote it)
+        setTimeout(() => fetchTotalXp(), 1500);
       } else if (data.alreadyUsed) {
         toast("Hint already used for this question", { icon: "💡", duration: 2000 });
       }
@@ -523,23 +529,17 @@ export default function QuizPage() {
     questionStartRef.current = Date.now();
   };
 
-  // Count unanswered questions
   const unansweredCount = questions.filter(q => !(answers[q._id]?.userAnswer?.trim())).length;
 
-  // Handle submit click — show confirmation if questions unanswered
   const handleSubmitClick = () => {
-    if (unansweredCount > 0) {
-      setShowSubmitConfirm(true);
-    } else {
-      handleSubmit(false);
-    }
+    if (unansweredCount > 0) setShowSubmitConfirm(true);
+    else handleSubmit(false);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
   // SCREENS
   // ─────────────────────────────────────────────────────────────────────────
 
-  // ── LOADING ───────────────────────────────────────────────────────────────
   if (screen === "loading") {
     return (
       <div className="max-w-[500px] mx-auto flex flex-col gap-5 py-8">
@@ -561,7 +561,6 @@ export default function QuizPage() {
     );
   }
 
-  // ── ERROR ─────────────────────────────────────────────────────────────────
   if (screen === "error") {
     return (
       <div className="flex items-center justify-center min-h-[400px] flex-col gap-4">
@@ -593,10 +592,9 @@ export default function QuizPage() {
     );
   }
 
-  // ── CONFIRM SCREEN ────────────────────────────────────────────────────────
   if (screen === "confirm" && levelInfo) {
-    const penaltyPct   = Math.round((levelInfo.penaltyXpMultiplier ?? 0.30) * 100);
-    const exhaustionXp = Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.30));
+    const penaltyPct    = Math.round((levelInfo.penaltyXpMultiplier ?? 0.30) * 100);
+    const exhaustionXp  = Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.30));
     const isLastAttempt = levelInfo.attemptsRemaining === 1;
     const isRetry       = levelInfo.attemptsUsed > 0;
 
@@ -614,7 +612,6 @@ export default function QuizPage() {
         <div className="rounded-2xl overflow-hidden"
           style={{ border: "1px solid var(--border2)" }}>
 
-          {/* Header band */}
           <div className="px-6 py-5 text-center"
             style={{
               background: isLastAttempt
@@ -633,51 +630,19 @@ export default function QuizPage() {
           </div>
 
           <div className="p-6 flex flex-col gap-5" style={{ background: "var(--surface)" }}>
-
-            {/* Stats grid */}
             <div className="grid grid-cols-2 gap-3">
               {[
-                {
-                  label: "Questions",
-                  value: String(levelInfo.questionCount),
-                  icon:  <Target size={14} />,
-                  color: "var(--accent)",
-                  bg:    "rgba(124,110,243,0.10)",
-                },
-                {
-                  label: "Time Limit",
-                  value: levelInfo.timeLimitMinutes > 0
-                    ? `${levelInfo.timeLimitMinutes} min`
-                    : "No limit",
-                  icon:  <Clock size={14} />,
-                  color: "var(--amber)",
-                  bg:    "rgba(245,158,11,0.10)",
-                },
-                {
-                  label: "XP Reward",
-                  value: `${levelInfo.xpReward} XP`,
-                  icon:  <Zap size={14} />,
-                  color: "var(--amber)",
-                  bg:    "rgba(245,158,11,0.10)",
-                },
-                {
-                  label: "Attempts Left",
-                  value: String(attemptsRemaining),
-                  icon:  <RefreshCw size={14} />,
-                  color: attemptsRemaining <= 1 ? "var(--danger)" : "var(--green)",
-                  bg:    attemptsRemaining <= 1
-                    ? "rgba(248,113,113,0.10)"
-                    : "rgba(34,211,160,0.10)",
-                },
+                { label: "Questions",     value: String(levelInfo.questionCount), icon: <Target size={14} />,   color: "var(--accent)", bg: "rgba(124,110,243,0.10)" },
+                { label: "Time Limit",    value: levelInfo.timeLimitMinutes > 0 ? `${levelInfo.timeLimitMinutes} min` : "No limit", icon: <Clock size={14} />, color: "var(--amber)", bg: "rgba(245,158,11,0.10)" },
+                { label: "XP Reward",     value: `${levelInfo.xpReward} XP`,     icon: <Zap size={14} />,      color: "var(--amber)", bg: "rgba(245,158,11,0.10)" },
+                { label: "Attempts Left", value: String(attemptsRemaining),       icon: <RefreshCw size={14} />, color: attemptsRemaining <= 1 ? "var(--danger)" : "var(--green)", bg: attemptsRemaining <= 1 ? "rgba(248,113,113,0.10)" : "rgba(34,211,160,0.10)" },
               ].map(s => (
                 <div key={s.label} className="rounded-xl p-3 flex flex-col gap-1"
                   style={{ background: s.bg, border: `1px solid ${s.color}22` }}>
                   <div className="flex items-center gap-1.5" style={{ color: s.color }}>
                     {s.icon}
                     <span className="text-[10px] font-bold uppercase tracking-wider"
-                      style={{ color: "var(--text4)" }}>
-                      {s.label}
-                    </span>
+                      style={{ color: "var(--text4)" }}>{s.label}</span>
                   </div>
                   <p className="text-[20px] font-bold font-mono" style={{ color: s.color }}>
                     {s.value}
@@ -686,7 +651,6 @@ export default function QuizPage() {
               ))}
             </div>
 
-            {/* Last attempt warning */}
             {isLastAttempt && (
               <div className="rounded-xl p-3.5 flex items-start gap-3"
                 style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.22)" }}>
@@ -704,7 +668,6 @@ export default function QuizPage() {
               </div>
             )}
 
-            {/* Rules */}
             <div className="rounded-xl p-3.5 flex flex-col gap-2"
               style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
               <p className="text-[11px] font-bold uppercase tracking-wider"
@@ -719,21 +682,17 @@ export default function QuizPage() {
               ].map((rule, i) => (
                 <p key={i} className="text-[12px] font-mono flex items-start gap-2"
                   style={{ color: "var(--text3)" }}>
-                  <span style={{ color: "var(--accent)", flexShrink: 0 }}>›</span>
-                  {rule}
+                  <span style={{ color: "var(--accent)", flexShrink: 0 }}>›</span>{rule}
                 </p>
               ))}
             </div>
 
-            {/* Previous attempt info */}
             {levelInfo.bestScore > 0 && (
               <div className="rounded-xl p-3 flex items-center justify-between"
                 style={{ background: "rgba(124,110,243,0.06)", border: "1px solid rgba(124,110,243,0.18)" }}>
                 <div className="flex items-center gap-2">
                   <TrendingUp size={14} style={{ color: "var(--accent)" }} />
-                  <span className="text-[12px] font-mono" style={{ color: "var(--text3)" }}>
-                    Your best score
-                  </span>
+                  <span className="text-[12px] font-mono" style={{ color: "var(--text3)" }}>Your best score</span>
                 </div>
                 <span className="text-[14px] font-bold font-mono" style={{ color: "var(--accent)" }}>
                   {levelInfo.bestScore}%
@@ -744,13 +703,9 @@ export default function QuizPage() {
             <button onClick={handleStartQuiz}
               className="w-full py-3.5 rounded-xl text-[14px] font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5 active:translate-y-0"
               style={{
-                background:  isLastAttempt
-                  ? "linear-gradient(135deg, #f87171, #ef4444)"
-                  : "var(--accent)",
-                color:       "#fff",
-                boxShadow:   isLastAttempt
-                  ? "0 0 24px rgba(248,113,113,0.35)"
-                  : "0 0 24px rgba(124,110,243,0.35)",
+                background: isLastAttempt ? "linear-gradient(135deg, #f87171, #ef4444)" : "var(--accent)",
+                color:      "#fff",
+                boxShadow:  isLastAttempt ? "0 0 24px rgba(248,113,113,0.35)" : "0 0 24px rgba(124,110,243,0.35)",
               }}>
               {isRetry
                 ? isLastAttempt ? "⚠ Last Attempt — Start Quiz →" : "Retry Quiz →"
@@ -762,7 +717,6 @@ export default function QuizPage() {
     );
   }
 
-  // ── QUIZ SCREEN ───────────────────────────────────────────────────────────
   if (screen === "quiz" && questions.length > 0) {
     const q          = questions[currentIdx];
     const ans        = answers[q._id];
@@ -773,9 +727,7 @@ export default function QuizPage() {
     const hintPenalty = q.hintXpPenalty ?? 0;
     const canAffordHint = hintPenalty === 0 || totalXp >= hintPenalty;
 
-    const timerPct   = levelInfo?.timeLimitMinutes
-      ? (timeLeft / (levelInfo.timeLimitMinutes * 60)) * 100
-      : 100;
+    const timerPct   = levelInfo?.timeLimitMinutes ? (timeLeft / (levelInfo.timeLimitMinutes * 60)) * 100 : 100;
     const isUrgent   = timeLeft > 0 && timeLeft < 60;
     const isWarning  = timeLeft > 0 && timeLeft < 180 && !isUrgent;
     const timerColor = isUrgent ? "var(--danger)" : isWarning ? "var(--amber)" : "var(--green)";
@@ -786,7 +738,7 @@ export default function QuizPage() {
       <div className="max-w-[780px] mx-auto flex flex-col gap-4 py-4"
         style={{ userSelect: "none", WebkitUserSelect: "none" }}>
 
-        {/* ── Top bar ── */}
+        {/* Top bar */}
         <div className="rounded-xl px-4 py-3 flex items-center justify-between gap-4"
           style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
           <div className="flex items-center gap-3 flex-1">
@@ -796,18 +748,12 @@ export default function QuizPage() {
             </span>
             <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
               <div className="h-full rounded-full transition-all duration-300"
-                style={{
-                  width:      `${((answeredCount) / questions.length) * 100}%`,
-                  background: "linear-gradient(to right, var(--accent), var(--accent2))",
-                }} />
+                style={{ width: `${(answeredCount / questions.length) * 100}%`, background: "linear-gradient(to right, var(--accent), var(--accent2))" }} />
             </div>
-            <span className="text-[11px] font-mono whitespace-nowrap"
-              style={{ color: "var(--text4)" }}>
+            <span className="text-[11px] font-mono whitespace-nowrap" style={{ color: "var(--text4)" }}>
               {answeredCount}/{questions.length} answered
             </span>
           </div>
-
-          {/* Timer */}
           {levelInfo?.timeLimitMinutes && levelInfo.timeLimitMinutes > 0 ? (
             <div className={`flex items-center gap-1.5 font-mono font-bold text-[14px] px-3 py-1.5 rounded-lg ${isUrgent ? "animate-pulse" : ""}`}
               style={{
@@ -825,7 +771,6 @@ export default function QuizPage() {
           )}
         </div>
 
-        {/* Timer bar */}
         {levelInfo?.timeLimitMinutes && levelInfo.timeLimitMinutes > 0 && (
           <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
             <div className={`h-full rounded-full transition-all duration-1000 ${isUrgent ? "animate-pulse" : ""}`}
@@ -833,7 +778,6 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* XP display during quiz */}
         <div className="flex items-center justify-between px-1">
           <p className="text-[11px] font-mono" style={{ color: "var(--text4)" }}>
             Level {levelInfo?.levelNumber}{levelInfo?.name ? ` — ${levelInfo.name}` : ""}
@@ -846,7 +790,7 @@ export default function QuizPage() {
           </div>
         </div>
 
-        {/* ── Question card ── */}
+        {/* Question card */}
         <div className="rounded-2xl p-6 flex flex-col gap-5"
           style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
 
@@ -868,7 +812,6 @@ export default function QuizPage() {
             </p>
           </div>
 
-          {/* Options */}
           {q.questionType === "option" ? (
             <div className="flex flex-col gap-2.5">
               {OPTIONS.map(opt => {
@@ -886,28 +829,23 @@ export default function QuizPage() {
                     }}
                     onMouseEnter={e => {
                       if (!selected) {
-                        (e.currentTarget as HTMLElement).style.background    = "var(--bg)";
-                        (e.currentTarget as HTMLElement).style.borderColor   = "rgba(124,110,243,0.30)";
+                        (e.currentTarget as HTMLElement).style.background  = "var(--bg)";
+                        (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.30)";
                       }
                     }}
                     onMouseLeave={e => {
                       if (!selected) {
-                        (e.currentTarget as HTMLElement).style.background    = "var(--surface2)";
-                        (e.currentTarget as HTMLElement).style.borderColor   = "var(--border)";
+                        (e.currentTarget as HTMLElement).style.background  = "var(--surface2)";
+                        (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
                       }
                     }}
                   >
                     <span className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-bold shrink-0 transition-all"
-                      style={{
-                        background: selected ? "var(--accent)" : "var(--surface)",
-                        color:      selected ? "#fff" : "var(--text3)",
-                      }}>
+                      style={{ background: selected ? "var(--accent)" : "var(--surface)", color: selected ? "#fff" : "var(--text3)" }}>
                       {opt.key}
                     </span>
                     <span className="text-[14px]">{text}</span>
-                    {selected && (
-                      <CheckCircle size={14} style={{ color: "var(--accent)", marginLeft: "auto", flexShrink: 0 }} />
-                    )}
+                    {selected && <CheckCircle size={14} style={{ color: "var(--accent)", marginLeft: "auto", flexShrink: 0 }} />}
                   </button>
                 );
               })}
@@ -926,19 +864,14 @@ export default function QuizPage() {
                 onCut={e => e.preventDefault()}
                 onContextMenu={e => e.preventDefault()}
                 className="w-full px-4 py-3 rounded-xl text-[14px] font-mono border-none outline-none"
-                style={{
-                  background: "var(--surface2)",
-                  color:      "var(--text)",
-                  border:     "1.5px solid var(--border2)",
-                  userSelect: "text",
-                }}
+                style={{ background: "var(--surface2)", color: "var(--text)", border: "1.5px solid var(--border2)", userSelect: "text" }}
                 onFocus={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.55)"; }}
                 onBlur={e  => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)"; }}
               />
             </div>
           )}
 
-          {/* ── Hint section ── */}
+          {/* Hint section */}
           {hintPenalty > 0 && (
             <div>
               {hintText !== undefined ? (
@@ -998,7 +931,7 @@ export default function QuizPage() {
           )}
         </div>
 
-        {/* ── Navigation ── */}
+        {/* Navigation */}
         <div className="flex items-center justify-between gap-3">
           <button onClick={() => recordTimeAndGo("prev")} disabled={currentIdx === 0}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-all"
@@ -1006,7 +939,6 @@ export default function QuizPage() {
             <ChevronLeft size={15} /> Prev
           </button>
 
-          {/* Question dots */}
           <div className="flex items-center gap-1.5 overflow-x-auto max-w-[300px]">
             {questions.map((_, i) => {
               const answered = !!(answers[questions[i]._id]?.userAnswer?.trim());
@@ -1014,17 +946,11 @@ export default function QuizPage() {
               return (
                 <button key={i}
                   onClick={() => { setCurrentIdx(i); questionStartRef.current = Date.now(); }}
-                  title={`Q${i+1}${answered ? " ✓" : ""}`}
                   className="shrink-0 border-none cursor-pointer transition-all rounded-full"
                   style={{
                     width:      isActive ? "28px" : "10px",
                     height:     "10px",
-                    background: isActive
-                      ? "var(--accent)"
-                      : answered
-                      ? "var(--green)"
-                      : "var(--border2)",
-                    transform: isActive ? "scaleY(1.1)" : "scale(1)",
+                    background: isActive ? "var(--accent)" : answered ? "var(--green)" : "var(--border2)",
                   }} />
               );
             })}
@@ -1036,15 +962,9 @@ export default function QuizPage() {
               style={{
                 background: unansweredCount > 0 ? "var(--amber)" : "var(--green)",
                 color:      "#fff",
-                boxShadow:  unansweredCount > 0
-                  ? "0 0 16px rgba(245,158,11,0.30)"
-                  : "0 0 16px rgba(34,211,160,0.30)",
+                boxShadow:  unansweredCount > 0 ? "0 0 16px rgba(245,158,11,0.30)" : "0 0 16px rgba(34,211,160,0.30)",
               }}>
-              {isSubmitting
-                ? "Submitting…"
-                : unansweredCount > 0
-                ? `Submit (${unansweredCount} skipped)`
-                : "Submit Quiz ✓"}
+              {isSubmitting ? "Submitting…" : unansweredCount > 0 ? `Submit (${unansweredCount} skipped)` : "Submit Quiz ✓"}
             </button>
           ) : (
             <button onClick={() => recordTimeAndGo("next")}
@@ -1055,7 +975,7 @@ export default function QuizPage() {
           )}
         </div>
 
-        {/* ── Submit confirmation modal ── */}
+        {/* Submit confirmation modal */}
         {showSubmitConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
             style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
@@ -1077,14 +997,12 @@ export default function QuizPage() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={() => setShowSubmitConfirm(false)}
+                <button onClick={() => setShowSubmitConfirm(false)}
                   className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border-none cursor-pointer"
                   style={{ background: "var(--surface2)", color: "var(--text2)" }}>
                   Keep Answering
                 </button>
-                <button
-                  onClick={() => handleSubmit(false)}
+                <button onClick={() => handleSubmit(false)}
                   className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold border-none cursor-pointer"
                   style={{ background: "var(--amber)", color: "#fff" }}>
                   Submit Anyway
@@ -1097,35 +1015,18 @@ export default function QuizPage() {
     );
   }
 
-  // ── RESULT + PAST_RESULT SCREEN ───────────────────────────────────────────
+  // ── RESULT + PAST_RESULT ──────────────────────────────────────────────────
   const ResultView = ({ res, isPast }: { res: ResultData; isPast?: boolean }) => {
-    const mins = Math.floor(res.timeTakenSecs / 60);
-    const secs = res.timeTakenSecs % 60;
-
     const isExhaustionResult = !res.isPassing && res.earnedXp > 0;
     const isNoXpResult       = !res.isPassing && res.earnedXp === 0;
     const penaltyPct         = Math.round((res.penaltyMultiplier ?? 0) * 100);
-
-    const isAllAttemptsUsed =
-      isPast
-      || isExhaustedAfterSubmit
-      || attemptsRemaining <= 0;
-
-    const actionLabel = res.isPassing
-      ? isPast ? "Back to Levels" : "Continue →"
-      : isAllAttemptsUsed
-        ? "Back to Levels"
-        : "Try Again →";
-
-    const scoreColor = res.isPassing
-      ? "var(--green)"
-      : res.score >= 70
-      ? "var(--amber)"
-      : "var(--danger)";
+    const isAllAttemptsUsed  = isPast || isExhaustedAfterSubmit || attemptsRemaining <= 0;
+    const actionLabel        = res.isPassing ? isPast ? "Back to Levels" : "Continue →"
+      : isAllAttemptsUsed ? "Back to Levels" : "Try Again →";
+    const scoreColor = res.isPassing ? "var(--green)" : res.score >= 70 ? "var(--amber)" : "var(--danger)";
 
     return (
       <div className="max-w-[560px] mx-auto flex flex-col gap-5 py-8">
-
         {isPast && (
           <button onClick={() => router.back()}
             className="flex items-center gap-1.5 text-[13px] font-mono cursor-pointer border-none bg-transparent self-start transition-colors"
@@ -1137,65 +1038,30 @@ export default function QuizPage() {
           </button>
         )}
 
-        {/* Score card */}
         <div className="rounded-2xl overflow-hidden"
-          style={{
-            border: res.isPassing
-              ? "1px solid rgba(34,211,160,0.35)"
-              : "1px solid rgba(248,113,113,0.25)",
-          }}>
+          style={{ border: res.isPassing ? "1px solid rgba(34,211,160,0.35)" : "1px solid rgba(248,113,113,0.25)" }}>
 
-          {/* Status banner */}
           <div className="px-5 py-2.5 flex items-center justify-center gap-2"
             style={{
-              background: res.isPassing
-                ? "rgba(34,211,160,0.15)"
-                : isExhaustedAfterSubmit || isPast && !res.isPassing
-                ? "rgba(248,113,113,0.10)"
-                : "rgba(248,113,113,0.08)",
-              borderBottom: res.isPassing
-                ? "1px solid rgba(34,211,160,0.20)"
-                : "1px solid rgba(248,113,113,0.15)",
+              background: res.isPassing ? "rgba(34,211,160,0.15)" : "rgba(248,113,113,0.10)",
+              borderBottom: res.isPassing ? "1px solid rgba(34,211,160,0.20)" : "1px solid rgba(248,113,113,0.15)",
             }}>
             {res.isPassing ? (
-              <>
-                <CheckCircle size={14} style={{ color: "var(--green)" }} />
-                <span className="text-[12px] font-bold" style={{ color: "var(--green)" }}>
-                  Level Passed
-                </span>
-              </>
+              <><CheckCircle size={14} style={{ color: "var(--green)" }} /><span className="text-[12px] font-bold" style={{ color: "var(--green)" }}>Level Passed</span></>
             ) : isAllAttemptsUsed ? (
-              <>
-                <AlertTriangle size={14} style={{ color: "var(--danger)" }} />
-                <span className="text-[12px] font-bold" style={{ color: "var(--danger)" }}>
-                  All Attempts Used
-                </span>
-              </>
+              <><AlertTriangle size={14} style={{ color: "var(--danger)" }} /><span className="text-[12px] font-bold" style={{ color: "var(--danger)" }}>All Attempts Used</span></>
             ) : (
-              <>
-                <XCircle size={14} style={{ color: "var(--danger)" }} />
-                <span className="text-[12px] font-bold" style={{ color: "var(--danger)" }}>
-                  Not Passed — {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining
-                </span>
-              </>
+              <><XCircle size={14} style={{ color: "var(--danger)" }} /><span className="text-[12px] font-bold" style={{ color: "var(--danger)" }}>Not Passed — {attemptsRemaining} attempt{attemptsRemaining !== 1 ? "s" : ""} remaining</span></>
             )}
           </div>
 
-          {/* Score display */}
           <div className="px-6 py-8 text-center"
-            style={{
-              background: res.isPassing
-                ? "linear-gradient(135deg, rgba(34,211,160,0.06), rgba(124,110,243,0.04))"
-                : "linear-gradient(135deg, rgba(248,113,113,0.06), rgba(124,110,243,0.04))",
-            }}>
-            <div className="text-[64px] font-bold font-mono leading-none"
-              style={{ color: scoreColor }}>
+            style={{ background: res.isPassing ? "linear-gradient(135deg, rgba(34,211,160,0.06), rgba(124,110,243,0.04))" : "linear-gradient(135deg, rgba(248,113,113,0.06), rgba(124,110,243,0.04))" }}>
+            <div className="text-[64px] font-bold font-mono leading-none" style={{ color: scoreColor }}>
               {displayScore}%
             </div>
             <p className="text-[18px] font-semibold mt-3" style={{ color: "var(--text)" }}>
-              {res.isPassing
-                ? "🎉 Perfect Score — All Correct!"
-                : `${res.correctAnswers} of ${res.totalQuestions} correct`}
+              {res.isPassing ? "🎉 Perfect Score — All Correct!" : `${res.correctAnswers} of ${res.totalQuestions} correct`}
             </p>
             {res.timeTakenSecs > 0 && (
               <p className="text-[12px] font-mono mt-1.5" style={{ color: "var(--text4)" }}>
@@ -1205,32 +1071,28 @@ export default function QuizPage() {
           </div>
         </div>
 
-        {/* Stats grid */}
         <div className="grid grid-cols-4 gap-2.5">
           {[
-            { label: "Correct",  value: String(res.correctAnswers),  color: "var(--green)",  icon: <CheckCircle size={14} /> },
-            { label: "Wrong",    value: String(res.wrongAnswers),     color: "var(--danger)", icon: <XCircle     size={14} /> },
-            { label: "Time",     value: fmtDuration(res.timeTakenSecs), color: "var(--accent)", icon: <Clock size={14} /> },
-            { label: "XP",       value: `+${res.earnedXp}`,           color: "var(--amber)",  icon: <Zap  size={14} /> },
+            { label: "Correct", value: String(res.correctAnswers),  color: "var(--green)",  icon: <CheckCircle size={14} /> },
+            { label: "Wrong",   value: String(res.wrongAnswers),    color: "var(--danger)", icon: <XCircle     size={14} /> },
+            { label: "Time",    value: fmtDuration(res.timeTakenSecs), color: "var(--accent)", icon: <Clock size={14} /> },
+            { label: "XP",      value: `+${res.earnedXp}`,          color: "var(--amber)",  icon: <Zap  size={14} /> },
           ].map(s => (
             <div key={s.label} className="rounded-xl p-3 text-center flex flex-col items-center gap-1.5"
               style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
               <div style={{ color: s.color }}>{s.icon}</div>
               <p className="text-[18px] font-bold font-mono" style={{ color: s.color }}>{s.value}</p>
-              <p className="text-[10px] font-mono uppercase tracking-wider"
-                style={{ color: "var(--text4)" }}>{s.label}</p>
+              <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: "var(--text4)" }}>{s.label}</p>
             </div>
           ))}
         </div>
 
-        {/* XP Breakdown — PASS */}
         {res.isPassing && (res.hintXpDeduction > 0 || res.wasExhaustionUnlock) && (
           <div className="rounded-xl p-4 flex flex-col gap-2"
             style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
             <div className="flex items-center gap-2 mb-1">
               <Award size={14} style={{ color: "var(--amber)" }} />
-              <p className="text-[11px] font-bold uppercase tracking-wider"
-                style={{ color: "var(--text4)" }}>XP Breakdown</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text4)" }}>XP Breakdown</p>
             </div>
             <div className="flex justify-between text-[13px] font-mono">
               <span style={{ color: "var(--text3)" }}>Base XP</span>
@@ -1244,9 +1106,7 @@ export default function QuizPage() {
             )}
             {res.wasExhaustionUnlock && (
               <div className="flex justify-between text-[13px] font-mono">
-                <span style={{ color: "var(--text3)" }}>
-                  Exhaustion-Unlock Penalty ×{res.penaltyMultiplier}
-                </span>
+                <span style={{ color: "var(--text3)" }}>Exhaustion-Unlock Penalty ×{res.penaltyMultiplier}</span>
                 <span style={{ color: "var(--amber)" }}>applied</span>
               </div>
             )}
@@ -1258,14 +1118,12 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* XP Breakdown — EXHAUSTION consolation */}
         {isExhaustionResult && (
           <div className="rounded-xl p-4 flex flex-col gap-2"
             style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.30)" }}>
             <div className="flex items-center gap-2 mb-1">
               <Award size={14} style={{ color: "var(--amber)" }} />
-              <p className="text-[11px] font-bold uppercase tracking-wider"
-                style={{ color: "var(--amber)" }}>Consolation XP Award</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--amber)" }}>Consolation XP Award</p>
             </div>
             <p className="text-[12px] font-mono mb-1" style={{ color: "var(--text4)" }}>
               You've used all attempts. Here's your consolation award:
@@ -1275,16 +1133,12 @@ export default function QuizPage() {
               <span style={{ color: "var(--text)" }}>+{res.baseXp}</span>
             </div>
             <div className="flex justify-between text-[13px] font-mono">
-              <span style={{ color: "var(--text3)" }}>
-                Consolation Rate ×{res.penaltyMultiplier} ({penaltyPct}%)
-              </span>
+              <span style={{ color: "var(--text3)" }}>Consolation Rate ×{res.penaltyMultiplier} ({penaltyPct}%)</span>
               <span style={{ color: "var(--amber)" }}>applied</span>
             </div>
             <div className="border-t pt-2 mt-1 flex justify-between text-[14px] font-bold font-mono"
               style={{ borderColor: "var(--border)" }}>
-              <span style={{ color: "var(--text)" }}>
-                Total XP ({penaltyPct}% of {res.baseXp})
-              </span>
+              <span style={{ color: "var(--text)" }}>Total XP ({penaltyPct}% of {res.baseXp})</span>
               <span style={{ color: "var(--amber)" }}>+{res.earnedXp}</span>
             </div>
             <p className="text-[11px] font-mono mt-0.5" style={{ color: "var(--text4)" }}>
@@ -1293,7 +1147,6 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* No XP — non-last fail */}
         {isNoXpResult && !isPast && !isExhaustedAfterSubmit && (
           <div className="rounded-xl p-3.5 flex items-start gap-2.5"
             style={{ background: "rgba(124,110,243,0.06)", border: "1px solid rgba(124,110,243,0.18)" }}>
@@ -1304,7 +1157,6 @@ export default function QuizPage() {
           </div>
         )}
 
-        {/* Retry nudge — only when retries remain */}
         {!res.isPassing && attemptsRemaining > 0 && !isPast && !isExhaustedAfterSubmit && (
           <div className="rounded-xl p-3.5 text-center"
             style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.20)" }}>
@@ -1315,14 +1167,12 @@ export default function QuizPage() {
             {attemptsRemaining === 1 && levelInfo && (
               <p className="text-[11px] font-mono mt-1" style={{ color: "var(--text4)" }}>
                 Last attempt — failing awards{" "}
-                {Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.3))} XP (
-                {Math.round((levelInfo.penaltyXpMultiplier ?? 0.3) * 100)}% consolation).
+                {Math.floor(levelInfo.xpReward * (levelInfo.penaltyXpMultiplier ?? 0.3))} XP ({Math.round((levelInfo.penaltyXpMultiplier ?? 0.3) * 100)}% consolation).
               </p>
             )}
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex gap-3">
           {res.canReview && (
             <button onClick={() => { setScreen("review"); setReviewIdx(0); }}
@@ -1336,7 +1186,6 @@ export default function QuizPage() {
               if (res.isPassing || isAllAttemptsUsed || isPast) {
                 router.push(`/dashboard/quiz/${categoryId}/${subcategoryId}`);
               } else {
-                // Try again — go back to confirm screen
                 setScreen("confirm");
                 submitCalledRef.current = false;
               }
@@ -1353,16 +1202,14 @@ export default function QuizPage() {
   if (screen === "result"      && result) return <ResultView res={result} />;
   if (screen === "past_result" && result) return <ResultView res={result} isPast />;
 
-  // ── REVIEW SCREEN ─────────────────────────────────────────────────────────
+  // ── REVIEW ────────────────────────────────────────────────────────────────
   if (screen === "review" && review.length > 0) {
-    const q         = review[reviewIdx];
-    const allCount  = review.length;
+    const q          = review[reviewIdx];
+    const allCount   = review.length;
     const rightCount = review.filter(r => r.isCorrect).length;
 
     return (
       <div className="max-w-[680px] mx-auto flex flex-col gap-4 py-4">
-
-        {/* Review header */}
         <div className="rounded-xl px-4 py-3 flex items-center justify-between gap-4"
           style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
           <button
@@ -1374,11 +1221,8 @@ export default function QuizPage() {
           >
             <ChevronLeft size={15} /> Back to Results
           </button>
-
           <div className="flex items-center gap-3">
-            <span className="text-[12px] font-mono" style={{ color: "var(--text4)" }}>
-              {reviewIdx + 1} / {allCount}
-            </span>
+            <span className="text-[12px] font-mono" style={{ color: "var(--text4)" }}>{reviewIdx + 1} / {allCount}</span>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded-full"
               style={{ color: "var(--green)", background: "rgba(34,211,160,0.10)" }}>
               {rightCount}/{allCount} correct
@@ -1386,26 +1230,14 @@ export default function QuizPage() {
           </div>
         </div>
 
-        {/* Progress bar across questions */}
         <div className="flex gap-1">
           {review.map((rq, i) => (
-            <div
-              key={i}
-              onClick={() => setReviewIdx(i)}
+            <div key={i} onClick={() => setReviewIdx(i)}
               className="flex-1 h-1.5 rounded-full cursor-pointer transition-all"
-              style={{
-                background: i === reviewIdx
-                  ? "var(--accent)"
-                  : rq.isCorrect
-                  ? "var(--green)"
-                  : "var(--danger)",
-                opacity: i === reviewIdx ? 1 : 0.6,
-              }}
-            />
+              style={{ background: i === reviewIdx ? "var(--accent)" : rq.isCorrect ? "var(--green)" : "var(--danger)", opacity: i === reviewIdx ? 1 : 0.6 }} />
           ))}
         </div>
 
-        {/* Question review card */}
         <div className="rounded-2xl p-6 flex flex-col gap-4"
           style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
 
@@ -1427,9 +1259,7 @@ export default function QuizPage() {
                 💡 Hint Used
               </span>
             )}
-            <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text4)" }}>
-              Q{reviewIdx + 1}
-            </span>
+            <span className="ml-auto text-[11px] font-mono" style={{ color: "var(--text4)" }}>Q{reviewIdx + 1}</span>
           </div>
 
           <p className="text-[15px] font-medium leading-[1.65]" style={{ color: "var(--text)" }}>
@@ -1439,7 +1269,7 @@ export default function QuizPage() {
           {q.questionType === "option" && (
             <div className="flex flex-col gap-2">
               {OPTIONS.map(opt => {
-                const text      = q[`option${opt.key}` as keyof ReviewQuestion] as string;
+                const text     = q[`option${opt.key}` as keyof ReviewQuestion] as string;
                 if (!text) return null;
                 const isCorrect = opt.key === q.correctOption;
                 const isUser    = opt.key === q.userAnswer;
@@ -1447,35 +1277,16 @@ export default function QuizPage() {
                 return (
                   <div key={opt.key} className="flex items-center gap-3 px-4 py-3 rounded-xl"
                     style={{
-                      background: isCorrect
-                        ? "rgba(34,211,160,0.10)"
-                        : isWrong
-                        ? "rgba(248,113,113,0.08)"
-                        : "var(--surface2)",
-                      border: isCorrect
-                        ? "1.5px solid rgba(34,211,160,0.35)"
-                        : isWrong
-                        ? "1.5px solid rgba(248,113,113,0.28)"
-                        : "1.5px solid var(--border)",
+                      background: isCorrect ? "rgba(34,211,160,0.10)" : isWrong ? "rgba(248,113,113,0.08)" : "var(--surface2)",
+                      border:     isCorrect ? "1.5px solid rgba(34,211,160,0.35)" : isWrong ? "1.5px solid rgba(248,113,113,0.28)" : "1.5px solid var(--border)",
                     }}>
                     <span className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-bold shrink-0"
-                      style={{
-                        background: isCorrect ? "var(--green)" : isWrong ? "var(--danger)" : "var(--surface)",
-                        color: (isCorrect || isWrong) ? "#fff" : "var(--text3)",
-                      }}>
+                      style={{ background: isCorrect ? "var(--green)" : isWrong ? "var(--danger)" : "var(--surface)", color: (isCorrect || isWrong) ? "#fff" : "var(--text3)" }}>
                       {opt.key}
                     </span>
                     <span className="text-[13px] flex-1" style={{ color: "var(--text)" }}>{text}</span>
-                    {isCorrect && (
-                      <span className="text-[11px] font-mono shrink-0" style={{ color: "var(--green)" }}>
-                        ✓ Correct
-                      </span>
-                    )}
-                    {isWrong && (
-                      <span className="text-[11px] font-mono shrink-0" style={{ color: "var(--danger)" }}>
-                        ✗ Your answer
-                      </span>
-                    )}
+                    {isCorrect && <span className="text-[11px] font-mono shrink-0" style={{ color: "var(--green)" }}>✓ Correct</span>}
+                    {isWrong   && <span className="text-[11px] font-mono shrink-0" style={{ color: "var(--danger)" }}>✗ Your answer</span>}
                   </div>
                 );
               })}
@@ -1485,27 +1296,17 @@ export default function QuizPage() {
           {q.questionType === "text" && (
             <div className="flex flex-col gap-2">
               <div className="rounded-xl px-4 py-3"
-                style={{
-                  background: q.isCorrect ? "rgba(34,211,160,0.08)" : "rgba(248,113,113,0.07)",
-                  border: q.isCorrect
-                    ? "1px solid rgba(34,211,160,0.28)"
-                    : "1px solid rgba(248,113,113,0.22)",
-                }}>
-                <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
-                  style={{ color: "var(--text4)" }}>Your Answer</p>
-                <p className="text-[14px] font-mono"
-                  style={{ color: q.isCorrect ? "var(--green)" : "var(--danger)" }}>
+                style={{ background: q.isCorrect ? "rgba(34,211,160,0.08)" : "rgba(248,113,113,0.07)", border: q.isCorrect ? "1px solid rgba(34,211,160,0.28)" : "1px solid rgba(248,113,113,0.22)" }}>
+                <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--text4)" }}>Your Answer</p>
+                <p className="text-[14px] font-mono" style={{ color: q.isCorrect ? "var(--green)" : "var(--danger)" }}>
                   {q.userAnswer || "(no answer given)"}
                 </p>
               </div>
               {!q.isCorrect && q.acceptedAnswers && (
                 <div className="rounded-xl px-4 py-3"
                   style={{ background: "rgba(34,211,160,0.07)", border: "1px solid rgba(34,211,160,0.22)" }}>
-                  <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
-                    style={{ color: "var(--green)" }}>Accepted Answers</p>
-                  <p className="text-[13px] font-mono" style={{ color: "var(--text)" }}>
-                    {q.acceptedAnswers.join(" / ")}
-                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--green)" }}>Accepted Answers</p>
+                  <p className="text-[13px] font-mono" style={{ color: "var(--text)" }}>{q.acceptedAnswers.join(" / ")}</p>
                 </div>
               )}
             </div>
@@ -1514,8 +1315,7 @@ export default function QuizPage() {
           {q.hintUsed && q.hintText && (
             <div className="rounded-xl p-3.5"
               style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.22)" }}>
-              <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
-                style={{ color: "var(--amber)" }}>Hint You Used</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--amber)" }}>Hint You Used</p>
               <p className="text-[13px]" style={{ color: "var(--text2)" }}>{q.hintText}</p>
             </div>
           )}
@@ -1523,25 +1323,19 @@ export default function QuizPage() {
           {q.explanation && (
             <div className="rounded-xl p-3.5"
               style={{ background: "rgba(124,110,243,0.08)", border: "1px solid rgba(124,110,243,0.18)" }}>
-              <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5"
-                style={{ color: "var(--accent)" }}>Explanation</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "var(--accent)" }}>Explanation</p>
               <p className="text-[13px] leading-[1.65]" style={{ color: "var(--text2)" }}>{q.explanation}</p>
             </div>
           )}
         </div>
 
-        {/* Review navigation */}
         <div className="flex items-center justify-between">
           <button onClick={() => setReviewIdx(i => i - 1)} disabled={reviewIdx === 0}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             style={{ background: "var(--surface2)", color: "var(--text2)" }}>
             <ChevronLeft size={15} /> Previous
           </button>
-
-          <span className="text-[12px] font-mono" style={{ color: "var(--text4)" }}>
-            {reviewIdx + 1} of {allCount}
-          </span>
-
+          <span className="text-[12px] font-mono" style={{ color: "var(--text4)" }}>{reviewIdx + 1} of {allCount}</span>
           {reviewIdx < review.length - 1 ? (
             <button onClick={() => setReviewIdx(i => i + 1)}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold border-none cursor-pointer transition-all hover:-translate-y-0.5"

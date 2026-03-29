@@ -5,12 +5,42 @@
 // FIXES:
 //  - Added Cache-Control header so repeated navigations are instant
 //  - Single aggregation pipeline (already correct) — no N+1 queries
+// app/api/quiz/xp/route.ts
+//
+// GET — returns total XP for the authenticated user.
+//
+// ARCHITECTURE CHANGE:
+//   OLD: Aggregated UserLevelProgress.earnedXp across completed/exhausted levels.
+//        Problem: this never reflected hint deductions because hints deducted
+//        from earnedXp on an IN-PROGRESS level, not a completed one.
+//        After submit, earnedXp was overwritten → hint deductions vanished.
+//
+//   NEW: Reads UserXp.totalXp — a single wallet document per user.
+//        • Hint route decrements it immediately ($inc with negative delta).
+//        • Submit route increments it with the net earned XP ($inc positive).
+//        • This document is the ONE truth. No aggregation needed.
+//
+// MIGRATION NOTE:
+//   If you have existing users with XP already accumulated via the old
+//   UserLevelProgress aggregation, run a one-time migration to seed UserXp:
+//
+//     const docs = await UserLevelProgress.aggregate([
+//       { $match: { $or: [{ isCompleted: true }, { isExhausted: true }] } },
+//       { $group: { _id: "$userId", total: { $sum: "$earnedXp" } } },
+//     ]);
+//     for (const d of docs) {
+//       await UserXp.findOneAndUpdate(
+//         { userId: d._id },
+//         { $set: { totalXp: d.total } },
+//         { upsert: true }
+//       );
+//     }
 
-import { NextResponse }      from "next/server";
-import { connectDB }         from "@/app/lib/mongodb";
-import { requireAuth }       from "@/app/lib/authGuard";
-import { UserLevelProgress } from "@/app/models/brain";
-import mongoose              from "mongoose";
+import { NextResponse }  from "next/server";
+import { connectDB }     from "@/app/lib/mongodb";
+import { requireAuth }   from "@/app/lib/authGuard";
+import { UserXp }        from "@/app/models/brain/UserXp";
+import mongoose          from "mongoose";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -25,30 +55,17 @@ export async function GET() {
 
   const userId = new mongoose.Types.ObjectId(auth.payload.userId);
 
-  const result = await UserLevelProgress.aggregate([
-    {
-      $match: {
-        userId,
-        $or: [{ isCompleted: true }, { isExhausted: true }],
-      },
-    },
-    {
-      $group: {
-        _id:     null,
-        totalXp: { $sum: "$earnedXp" },
-      },
-    },
-  ]);
-
-  const totalXp = result[0]?.totalXp ?? 0;
+  // Single document read — O(1), no aggregation
+  const xpDoc  = await UserXp.findOne({ userId }).lean();
+  const totalXp = xpDoc?.totalXp ?? 0;
 
   return NextResponse.json(
     { success: true, totalXp },
     {
       headers: {
-        // Cache on the client for 30 s — stale-while-revalidate means the
-        // browser serves the cached value instantly while fetching a fresh one.
-        "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
+        // Short cache — stale-while-revalidate means instant response on repeat
+        // visits while a fresh fetch happens in the background.
+        "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
       },
     }
   );
