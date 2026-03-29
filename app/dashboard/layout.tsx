@@ -1,6 +1,8 @@
+// app/dashboard/layout.tsx
+
 "use client";
 
-import { useEffect, useState } from "react";
+ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -569,22 +571,51 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // refreshXp() on mount and both registering "xp-updated" listeners.
   // This caused double DB round-trips on every mount and double XP fetches
   // after every quiz completion. Consolidated into one block below.
-  const refreshXp = () => {
+ // ════════════════════════════════════════════════════════════════════════════
+// PATCH — app/dashboard/layout.tsx  (XP section only)
+//
+// FIX 2: Navbar XP now updates without a page refresh via:
+//   a) Polling every 30 seconds (background, lightweight)
+//   b) "xp-updated" event fired after quiz submit (immediate re-fetch)
+//   c) "xp-deduct" event fired after hint use (instant local subtraction)
+//
+// Replace the ENTIRE XP useEffect block in your layout.tsx with the code
+// below.  Everything else in layout.tsx stays unchanged.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Inside DashboardLayout component ──────────────────────────────────────
+
+  // FIX 2: Consolidated, polling-aware XP state manager
+  //
+  // Three update paths:
+  //   1. Mount        → immediate fetch
+  //   2. Poll         → re-fetch every 30 s (catches any missed updates)
+  //   3. "xp-updated" → re-fetch immediately (after quiz submit/complete)
+  //   4. "xp-deduct"  → subtract locally (after hint click, no round-trip)
+  //
+  // The poll is intentionally lightweight: the /api/quiz/xp endpoint does
+  // a single aggregation and has Cache-Control: private, max-age=30 so the
+  // browser won't hit the server more than once per 30 s anyway.
+
+  const refreshXp = useCallback(() => {
     fetch("/api/quiz/xp")
       .then(r => r.json())
       .then(d => { if (d.success) setTotalXp(d.totalXp ?? 0); })
       .catch(() => {});
-  };
+  }, []);
 
   useEffect(() => {
-    // Initial fetch on mount
+    // 1. Immediate fetch on mount
     refreshXp();
 
-    // "xp-updated" → full re-fetch after quiz submit/complete
+    // 2. Poll every 30 s
+    const pollId = setInterval(refreshXp, 30_000);
+
+    // 3. Re-fetch after quiz completes or XP changes in another tab/component
     const handleUpdated = () => refreshXp();
 
-    // "xp-deduct" → instant local deduction when hint is clicked
-    // No DB round-trip needed here — submit route recalculates from scratch
+    // 4. Instant local deduction when hint is clicked (no round-trip needed;
+    //    the authoritative value will arrive on the next poll or xp-updated event)
     const handleDeduct = (e: Event) => {
       const amount = (e as CustomEvent<{ amount: number }>).detail?.amount ?? 0;
       if (amount > 0) setTotalXp(prev => Math.max(0, prev - amount));
@@ -594,11 +625,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     window.addEventListener("xp-deduct",  handleDeduct);
 
     return () => {
+      clearInterval(pollId);
       window.removeEventListener("xp-updated", handleUpdated);
       window.removeEventListener("xp-deduct",  handleDeduct);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshXp]);
 
+// ── End of patch ──────────────────────────────────────────────────────────
+//
+// Also ensure you have `useCallback` imported at the top of layout.tsx:
+//   import { useEffect, useState, useCallback } from "react";
   // Close mobile sidebar on resize to desktop
   useEffect(() => {
     const handle = () => { if (window.innerWidth >= 768) setMobileOpen(false); };
