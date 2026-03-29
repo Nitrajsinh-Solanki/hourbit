@@ -17,13 +17,8 @@ import {
 // ─────────────────────────────────────────────────────────────────
 // RULES
 // ─────────────────────────────────────────────────────────────────
-// VIEW  → any date in history (no restriction)
-// ADD   → first-time entry allowed only within last 90 days
-//          days 31–90: one-time only, warn user before saving
-// EDIT  → update existing log allowed only within last 30 days
-// ─────────────────────────────────────────────────────────────────
-const EDIT_WINDOW  = 30;   // days: existing logs editable within this window
-const ENTRY_WINDOW = 90;   // days: new logs can be added within this window
+const EDIT_WINDOW  = 30;
+const ENTRY_WINDOW = 90;
 
 // ─────────────────────────────────────────────────────────────────
 // TYPES
@@ -48,11 +43,11 @@ export interface CalendarHandle {
 }
 
 type DateMode =
-  | "view-only"          // has existing log, older than 30 days — read only
-  | "view-empty"         // no log, older than 90 days — can't add, just empty view
-  | "one-time-add"       // no log, 31–90 days ago — can add ONCE, warn user
-  | "editable-new"       // no log, within 30 days — can add freely
-  | "editable-existing"; // has existing log, within 30 days — full edit
+  | "view-only"
+  | "view-empty"
+  | "one-time-add"
+  | "editable-new"
+  | "editable-existing";
 
 // ─────────────────────────────────────────────────────────────────
 // HELPERS
@@ -112,7 +107,6 @@ function localToday(): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-/** How many calendar days ago is `ymd` relative to today? Negative = future */
 function daysAgo(ymd: string): number {
   const today = localToday();
   const [ty, tm, td] = today.split("-").map(Number);
@@ -125,6 +119,14 @@ function prettyDate(ymd: string): string {
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-IN", {
     weekday: "long", day: "2-digit", month: "long", year: "numeric",
+  });
+}
+
+function prettyDateShort(ymd: string): string {
+  if (!ymd) return "";
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-IN", {
+    weekday: "short", day: "2-digit", month: "short", year: "numeric",
   });
 }
 
@@ -142,7 +144,7 @@ const MONTHS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────
-// CALENDAR — no date restriction on viewing, visual states only
+// CALENDAR
 // ─────────────────────────────────────────────────────────────────
 const CalendarPicker = forwardRef<CalendarHandle, {
   value:    string;
@@ -153,7 +155,7 @@ const CalendarPicker = forwardRef<CalendarHandle, {
 
   const [selY, selM, selD] = value.split("-").map(Number);
   const [viewY, setViewY]  = useState(selY);
-  const [viewM, setViewM]  = useState(selM - 1); // 0-indexed
+  const [viewM, setViewM]  = useState(selM - 1);
 
   const [loggedDays,  setLoggedDays]  = useState<Set<number>>(new Set());
   const [holidayDays, setHolidayDays] = useState<Set<number>>(new Set());
@@ -180,14 +182,12 @@ const CalendarPicker = forwardRef<CalendarHandle, {
     refreshDots: () => fetchDots(viewY, viewM),
   }), [viewY, viewM, fetchDots]);
 
-  // Calendar can navigate anywhere in the past + current month (not future months)
   const canGoNext = viewY < ty || (viewY === ty && viewM < tm - 1);
 
   function navMonth(delta: number) {
     let nm = viewM + delta, ny = viewY;
     if (nm < 0)  { nm = 11; ny--; }
     if (nm > 11) { nm = 0;  ny++; }
-    // Don't go into future months
     if (ny > ty || (ny === ty && nm > tm - 1)) return;
     setViewM(nm); setViewY(ny);
   }
@@ -200,39 +200,43 @@ const CalendarPicker = forwardRef<CalendarHandle, {
   ];
 
   return (
-    <div className="rounded-2xl p-5"
-      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-
+    <div
+      className="rounded-2xl p-3 sm:p-5"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+    >
       {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-4">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3 sm:mb-4">
         {[
-          { color: "#22d3a0",        label: "Logged"   },
-          { color: "#f87171",        label: "Missing"  },
-          { color: "#f59e0b",        label: "Holiday"  },
-          { color: "var(--border2)", label: "Weekend"  },
+          { color: "#22d3a0", label: "Logged"  },
+          { color: "#f87171", label: "Missing" },
+          { color: "#f59e0b", label: "Holiday" },
+          { color: "var(--border2)", label: "Weekend" },
         ].map(({ color, label }) => (
-          <div key={label} className="flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full" style={{ background: color }} />
-            <span className="font-mono text-[10px]" style={{ color: "var(--text3)" }}>{label}</span>
+          <div key={label} className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+            <span className="font-mono text-[9px] sm:text-[10px]" style={{ color: "var(--text3)" }}>{label}</span>
           </div>
         ))}
         {dotsLoading && <RefreshCw size={10} className="animate-spin ml-auto" style={{ color: "var(--text3)" }} />}
       </div>
 
       {/* Month navigation */}
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={() => navMonth(-1)}
-          className="w-8 h-8 rounded-xl flex items-center justify-center cursor-pointer border-none transition-all"
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
+        <button
+          onClick={() => navMonth(-1)}
+          className="w-8 h-8 rounded-xl flex items-center justify-center cursor-pointer border-none transition-all shrink-0"
           style={{ background: "var(--bg)", color: "var(--text2)" }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--accent)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text2)"; }}>
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text2)"; }}
+        >
           <ChevronLeft size={15} />
         </button>
-        <p className="font-syne font-bold text-[15px]" style={{ color: "var(--text)" }}>
+        <p className="font-syne font-bold text-[13px] sm:text-[15px] text-center" style={{ color: "var(--text)" }}>
           {MONTHS[viewM]} {viewY}
         </p>
-        <button onClick={() => canGoNext && navMonth(1)}
-          className="w-8 h-8 rounded-xl flex items-center justify-center border-none transition-all"
+        <button
+          onClick={() => canGoNext && navMonth(1)}
+          className="w-8 h-8 rounded-xl flex items-center justify-center border-none transition-all shrink-0"
           style={{
             background: "var(--bg)",
             color:   canGoNext ? "var(--text2)" : "var(--text4)",
@@ -240,7 +244,8 @@ const CalendarPicker = forwardRef<CalendarHandle, {
             opacity: canGoNext ? 1 : 0.4,
           }}
           onMouseEnter={e => { if (canGoNext) (e.currentTarget as HTMLElement).style.color = "var(--accent)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = canGoNext ? "var(--text2)" : "var(--text4)"; }}>
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = canGoNext ? "var(--text2)" : "var(--text4)"; }}
+        >
           <ChevronRight size={15} />
         </button>
       </div>
@@ -248,7 +253,7 @@ const CalendarPicker = forwardRef<CalendarHandle, {
       {/* Day-of-week headers */}
       <div className="grid grid-cols-7 mb-1">
         {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => (
-          <p key={d} className="text-center font-mono text-[10px] py-1" style={{ color: "var(--text3)" }}>{d}</p>
+          <p key={d} className="text-center font-mono text-[9px] sm:text-[10px] py-1" style={{ color: "var(--text3)" }}>{d}</p>
         ))}
       </div>
 
@@ -261,17 +266,13 @@ const CalendarPicker = forwardRef<CalendarHandle, {
           const isToday   = ymd === today;
           const isSel     = selY === viewY && selM - 1 === viewM && selD === day;
           const isFuture  = ymd > today;
-          const age       = daysAgo(ymd); // negative = future, 0 = today
+          const age       = daysAgo(ymd);
           const isHol     = !isFuture && holidayDays.has(day);
           const isLogged  = !isFuture && loggedDays.has(day) && !isHol;
           const dow       = new Date(viewY, viewM, day).getDay();
           const isWeekend = dow === 0 || dow === 6;
           const isMissing = !isFuture && !isToday && !isLogged && !isWeekend && !isHol;
-
-          // Visual fade: beyond entry window & no log = very faded (view only, empty)
           const isDeepPast = age > ENTRY_WINDOW && !isLogged;
-          // Muted: 31-90 days, no log yet (one-time add zone)
-          const isOneTimeZone = age > EDIT_WINDOW && age <= ENTRY_WINDOW && !isLogged;
 
           const dotColor = isHol     ? "#f59e0b"
                          : isLogged  ? "#22d3a0"
@@ -284,9 +285,10 @@ const CalendarPicker = forwardRef<CalendarHandle, {
               key={day}
               onClick={() => !isFuture && onChange(ymd)}
               disabled={isFuture}
-              className="w-full flex flex-col items-center justify-center rounded-xl font-mono text-[12px] transition-all border-none py-1 gap-0.5"
+              className="w-full flex flex-col items-center justify-center rounded-xl font-mono transition-all border-none gap-0.5"
               style={{
-                minHeight:  "38px",
+                minHeight:  "32px",
+                fontSize:   "11px",
                 cursor:     isFuture ? "not-allowed" : "pointer",
                 opacity:    isFuture ? 0.22 : isDeepPast ? 0.35 : 1,
                 background: isSel    ? (isHol ? "#f59e0b" : "var(--accent)")
@@ -300,6 +302,7 @@ const CalendarPicker = forwardRef<CalendarHandle, {
                            : "var(--text2)",
                 border: isToday && !isSel ? "1px solid rgba(124,110,243,0.35)" : "1px solid transparent",
                 fontWeight: isSel || isToday ? 700 : 400,
+                padding: "3px 0",
               }}
               onMouseEnter={e => {
                 if (!isFuture && !isSel)
@@ -310,10 +313,11 @@ const CalendarPicker = forwardRef<CalendarHandle, {
                 if (!isSel)
                   (e.currentTarget as HTMLElement).style.background =
                     isToday ? "rgba(124,110,243,0.12)" : isHol ? "rgba(245,158,11,0.10)" : "transparent";
-              }}>
+              }}
+            >
               <span style={{ lineHeight: 1 }}>{day}</span>
               <span style={{
-                display: "block", width: "4px", height: "4px", borderRadius: "50%",
+                display: "block", width: "3px", height: "3px", borderRadius: "50%",
                 background: dotColor, flexShrink: 0, opacity: isSel ? 0.7 : 1,
               }} />
             </button>
@@ -329,7 +333,7 @@ const CalendarPicker = forwardRef<CalendarHandle, {
             const [ty2, tm2] = today.split("-").map(Number);
             setViewY(ty2); setViewM(tm2 - 1);
           }}
-          className="w-full mt-4 py-2 rounded-xl font-mono text-[12px] cursor-pointer border-none transition-all"
+          className="w-full mt-3 sm:mt-4 py-2 rounded-xl font-mono text-[11px] sm:text-[12px] cursor-pointer border-none transition-all"
           style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text2)" }}
           onMouseEnter={e => {
             (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)";
@@ -338,7 +342,8 @@ const CalendarPicker = forwardRef<CalendarHandle, {
           onMouseLeave={e => {
             (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
             (e.currentTarget as HTMLElement).style.color       = "var(--text2)";
-          }}>
+          }}
+        >
           Jump to Today
         </button>
       )}
@@ -396,81 +401,113 @@ function ClockPicker({ value, onChange, onClose }: {
     : (minute / 60) * 360 - 90;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}>
-      <div ref={ref} className="rounded-3xl p-6 w-[300px]"
-        style={{ background: "var(--surface)", border: "1px solid var(--border2)", boxShadow: "0 0 60px rgba(124,110,243,0.20)" }}>
-        <div className="flex items-center justify-between mb-4">
-          <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(4px)" }}
+    >
+      <div
+        ref={ref}
+        className="rounded-3xl p-4 sm:p-6 w-full"
+        style={{
+          maxWidth: "300px",
+          background: "var(--surface)",
+          border: "1px solid var(--border2)",
+          boxShadow: "0 0 60px rgba(124,110,243,0.20)",
+        }}
+      >
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <span className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
             {mode === "hour" ? "Select hour" : "Select minute"}
           </span>
           <button onClick={onClose} className="bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--text3)" }}>
             <X size={14} />
           </button>
         </div>
-        <div className="flex items-center justify-center gap-3 mb-5">
-          <div className="flex items-center rounded-2xl px-4 py-2 gap-1.5"
-            style={{ background: "var(--bg)", border: "1px solid var(--border2)" }}>
-            <button onClick={() => setMode("hour")}
-              className="font-syne font-bold text-[28px] bg-transparent border-none cursor-pointer p-0"
-              style={{ color: mode === "hour" ? "var(--accent)" : "var(--text2)" }}>{pad2(d12)}</button>
-            <span className="font-syne font-bold text-[28px]" style={{ color: "var(--text4)" }}>:</span>
-            <button onClick={() => setMode("minute")}
-              className="font-syne font-bold text-[28px] bg-transparent border-none cursor-pointer p-0"
-              style={{ color: mode === "minute" ? "var(--accent)" : "var(--text2)" }}>{pad2(minute)}</button>
+
+        <div className="flex items-center justify-center gap-3 mb-4 sm:mb-5">
+          <div
+            className="flex items-center rounded-2xl px-3 sm:px-4 py-2 gap-1.5"
+            style={{ background: "var(--bg)", border: "1px solid var(--border2)" }}
+          >
+            <button
+              onClick={() => setMode("hour")}
+              className="font-syne font-bold text-[24px] sm:text-[28px] bg-transparent border-none cursor-pointer p-0"
+              style={{ color: mode === "hour" ? "var(--accent)" : "var(--text2)" }}
+            >{pad2(d12)}</button>
+            <span className="font-syne font-bold text-[24px] sm:text-[28px]" style={{ color: "var(--text4)" }}>:</span>
+            <button
+              onClick={() => setMode("minute")}
+              className="font-syne font-bold text-[24px] sm:text-[28px] bg-transparent border-none cursor-pointer p-0"
+              style={{ color: mode === "minute" ? "var(--accent)" : "var(--text2)" }}
+            >{pad2(minute)}</button>
           </div>
           <div className="flex flex-col gap-1">
             {(["AM", "PM"] as const).map(ap => (
-              <button key={ap} onClick={() => toggleAP(ap)}
-                className="font-mono text-[12px] font-medium px-3 py-1 rounded-lg cursor-pointer border-none"
+              <button
+                key={ap}
+                onClick={() => toggleAP(ap)}
+                className="font-mono text-[11px] sm:text-[12px] font-medium px-2 sm:px-3 py-1 rounded-lg cursor-pointer border-none"
                 style={ampm === ap
                   ? { background: "var(--accent)", color: "#fff" }
-                  : { background: "transparent", border: "1px solid var(--border2)", color: "var(--text3)" }}>
+                  : { background: "transparent", border: "1px solid var(--border2)", color: "var(--text3)" }}
+              >
                 {ap}
               </button>
             ))}
           </div>
         </div>
-        <div className="relative mx-auto mb-5" style={{ width: "200px", height: "200px" }}>
+
+        <div className="relative mx-auto mb-4 sm:mb-5" style={{ width: "180px", height: "180px" }}>
           <div className="absolute inset-0 rounded-full" style={{ background: "var(--bg)", border: "2px solid var(--border2)" }} />
-          <div className="absolute rounded-full"
+          <div
+            className="absolute rounded-full"
             style={{
               width: "2px", height: "38%", left: "calc(50% - 1px)", top: "12%",
               transformOrigin: "bottom center",
               transform: `rotate(${handAngle + 90}deg)`,
               transition: "transform 0.2s ease",
               background: "rgba(124,110,243,0.55)",
-            }} />
-          <div className="absolute w-3 h-3 rounded-full"
-            style={{ top: "calc(50% - 6px)", left: "calc(50% - 6px)", background: "var(--accent)" }} />
+            }}
+          />
+          <div
+            className="absolute w-3 h-3 rounded-full"
+            style={{ top: "calc(50% - 6px)", left: "calc(50% - 6px)", background: "var(--accent)" }}
+          />
           {(mode === "hour" ? hrs : mins).map((num, i) => {
             const p = clockPos(i), sel = mode === "hour" ? d12 === num : minute === num;
             return (
-              <button key={num}
+              <button
+                key={num}
                 onClick={() => mode === "hour" ? pickHour(num) : pickMinute(num)}
-                className="absolute w-9 h-9 -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center font-mono text-[12px] font-medium cursor-pointer border-none transition-all"
+                className="absolute w-8 h-8 -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center font-mono text-[11px] font-medium cursor-pointer border-none transition-all"
                 style={{
                   left: p.left, top: p.top,
                   background: sel ? "var(--accent)" : "transparent",
                   color:      sel ? "#fff" : "var(--text2)",
                   boxShadow:  sel ? "0 0 12px rgba(124,110,243,0.5)" : "none",
-                }}>
+                }}
+              >
                 {mode === "minute" ? pad2(num) : num}
               </button>
             );
           })}
         </div>
+
         <div className="flex gap-2">
           {mode === "minute" && (
-            <button onClick={() => setMode("hour")}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-mono text-[12px] cursor-pointer"
-              style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--text2)" }}>
+            <button
+              onClick={() => setMode("hour")}
+              className="flex items-center gap-1 px-2 sm:px-3 py-2 rounded-xl font-mono text-[11px] sm:text-[12px] cursor-pointer"
+              style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--text2)" }}
+            >
               <ChevronLeft size={13} /> Hours
             </button>
           )}
-          <button onClick={() => { onChange(`${pad2(hour)}:${pad2(minute)}`); onClose(); }}
-            className="flex-1 py-2.5 rounded-xl font-mono font-medium text-[13px] text-white cursor-pointer border-none transition-all"
-            style={{ background: "var(--accent)", boxShadow: "0 0 18px rgba(124,110,243,0.35)" }}>
+          <button
+            onClick={() => { onChange(`${pad2(hour)}:${pad2(minute)}`); onClose(); }}
+            className="flex-1 py-2.5 rounded-xl font-mono font-medium text-[12px] sm:text-[13px] text-white cursor-pointer border-none transition-all"
+            style={{ background: "var(--accent)", boxShadow: "0 0 18px rgba(124,110,243,0.35)" }}
+          >
             Confirm {to12h(`${pad2(hour)}:${pad2(minute)}`)}
           </button>
         </div>
@@ -487,46 +524,49 @@ function TimeButton({ label, icon: Icon, value, accentColor, onClick, readOnly =
   accentColor: string; onClick: () => void; readOnly?: boolean;
 }) {
   return (
-    <button onClick={() => !readOnly && onClick()}
-      className="w-full group flex flex-col gap-3 rounded-2xl p-5 text-left transition-all border-none"
+    <button
+      onClick={() => !readOnly && onClick()}
+      className="w-full group flex flex-col gap-2 sm:gap-3 rounded-2xl p-3 sm:p-5 text-left transition-all border-none"
       style={{
         background: "var(--surface2)", border: "1px solid var(--border)",
         cursor: readOnly ? "default" : "pointer",
         opacity: readOnly && !value ? 0.5 : 1,
       }}
       onMouseEnter={e => { if (!readOnly) (e.currentTarget.style.borderColor = "var(--border2)"); }}
-      onMouseLeave={e => { (e.currentTarget.style.borderColor = "var(--border)"); }}>
+      onMouseLeave={e => { (e.currentTarget.style.borderColor = "var(--border)"); }}
+    >
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
+        <span className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
           {label}
         </span>
-        <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-          style={{ background: `${accentColor}18` }}>
-          <Icon size={15} style={{ color: accentColor }} />
+        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center" style={{ background: `${accentColor}18` }}>
+          <Icon size={14} style={{ color: accentColor }} />
         </div>
       </div>
       {value ? (
         <div>
-          <p className="font-syne font-extrabold text-[30px] leading-none tracking-tight" style={{ color: "var(--text)" }}>
+          <p className="font-syne font-extrabold text-[22px] sm:text-[30px] leading-none tracking-tight" style={{ color: "var(--text)" }}>
             {to12h(value).split(" ")[0]}
           </p>
-          <p className="font-mono text-[12px] mt-1 font-semibold" style={{ color: accentColor }}>
+          <p className="font-mono text-[11px] sm:text-[12px] mt-1 font-semibold" style={{ color: accentColor }}>
             {to12h(value).split(" ")[1]}
           </p>
         </div>
       ) : (
         <div>
-          <p className="font-syne font-bold text-[22px] leading-none" style={{ color: "var(--text4)" }}>
+          <p className="font-syne font-bold text-[18px] sm:text-[22px] leading-none" style={{ color: "var(--text4)" }}>
             {readOnly ? "Not recorded" : "Tap to set"}
           </p>
-          <p className="font-mono text-[11px] mt-1" style={{ color: "var(--text4)" }}>
+          <p className="font-mono text-[10px] sm:text-[11px] mt-1" style={{ color: "var(--text4)" }}>
             {readOnly ? "—" : "click to open clock"}
           </p>
         </div>
       )}
       {!readOnly && (
-        <div className="h-px w-full opacity-0 group-hover:opacity-100 transition-opacity rounded-full"
-          style={{ background: `linear-gradient(to right,transparent,${accentColor}60,transparent)` }} />
+        <div
+          className="h-px w-full opacity-0 group-hover:opacity-100 transition-opacity rounded-full"
+          style={{ background: `linear-gradient(to right,transparent,${accentColor}60,transparent)` }}
+        />
       )}
     </button>
   );
@@ -555,18 +595,20 @@ function RequiredHoursEditor({
 
   if (readOnly) {
     return (
-      <div className="rounded-2xl p-5 space-y-2"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div
+        className="rounded-2xl p-3 sm:p-5 space-y-2"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+      >
         <div className="flex items-center gap-2">
           <Settings2 size={13} style={{ color: "var(--text3)" }} />
-          <span className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
+          <span className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>
             Required Hours
           </span>
         </div>
-        <p className="font-syne font-extrabold text-[30px] leading-none" style={{ color: "var(--text)" }}>
+        <p className="font-syne font-extrabold text-[26px] sm:text-[30px] leading-none" style={{ color: "var(--text)" }}>
           {fmtHLabel(value)}
         </p>
-        <p className="font-mono text-[11px]" style={{ color: "var(--text4)" }}>
+        <p className="font-mono text-[10px] sm:text-[11px]" style={{ color: "var(--text4)" }}>
           {hasOverride ? `Custom for this day · Default is ${fmtHLabel(defaultValue)}` : "From profile default"}
         </p>
       </div>
@@ -574,83 +616,100 @@ function RequiredHoursEditor({
   }
 
   return (
-    <div className="rounded-2xl p-5 space-y-3"
+    <div
+      className="rounded-2xl p-3 sm:p-5 space-y-3"
       style={{
         background: "var(--surface)",
         border: `1px solid ${hasOverride ? "rgba(124,110,243,0.45)" : "var(--border)"}`,
-      }}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      }}
+    >
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
           <Settings2 size={13} style={{ color: hasOverride ? "var(--accent)" : "var(--text3)" }} />
-          <span className="font-mono text-[11px] uppercase tracking-widest"
-            style={{ color: hasOverride ? "var(--accent)" : "var(--text3)" }}>
+          <span
+            className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest"
+            style={{ color: hasOverride ? "var(--accent)" : "var(--text3)" }}
+          >
             Required Hours This Day
           </span>
           {hasOverride && (
-            <span className="font-mono text-[10px] px-2 py-0.5 rounded-md"
-              style={{ background: "rgba(124,110,243,0.15)", color: "var(--accent)", border: "1px solid rgba(124,110,243,0.3)" }}>
+            <span
+              className="font-mono text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md"
+              style={{ background: "rgba(124,110,243,0.15)", color: "var(--accent)", border: "1px solid rgba(124,110,243,0.3)" }}
+            >
               Custom
             </span>
           )}
         </div>
         {hasOverride && (
-          <button onClick={onClear}
-            className="font-mono text-[11px] flex items-center gap-1 px-2 py-1 rounded-lg border-none cursor-pointer"
+          <button
+            onClick={onClear}
+            className="font-mono text-[10px] sm:text-[11px] flex items-center gap-1 px-2 py-1 rounded-lg border-none cursor-pointer shrink-0"
             style={{ background: "rgba(248,113,113,0.12)", color: "#ef4444" }}
             onMouseEnter={e => (e.currentTarget.style.background = "rgba(248,113,113,0.25)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(248,113,113,0.12)")}>
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(248,113,113,0.12)")}
+          >
             <X size={10} /> Reset to {fmtHLabel(defaultValue)}
           </button>
         )}
       </div>
+
       {editing ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
             {presets.map(p => (
-              <button key={p} onClick={() => { onChange(p); setEditing(false); }}
-                className="px-2.5 py-1 rounded-lg font-mono text-[11px] cursor-pointer border-none transition-all"
+              <button
+                key={p}
+                onClick={() => { onChange(p); setEditing(false); }}
+                className="px-2 sm:px-2.5 py-1 rounded-lg font-mono text-[10px] sm:text-[11px] cursor-pointer border-none transition-all"
                 style={Math.abs(value - p) < 0.01
                   ? { background: "var(--accent)", color: "#fff" }
-                  : { background: "var(--surface2)", border: "1px solid var(--border2)", color: "var(--text2)" }}>
+                  : { background: "var(--surface2)", border: "1px solid var(--border2)", color: "var(--text2)" }}
+              >
                 {fmtHLabel(p)}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <input type="number" step="0.5" min="0.5" max="24" value={inputVal}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="number" step="0.5" min="0.5" max="24" value={inputVal}
               onChange={e => setInputVal(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") commit(inputVal); if (e.key === "Escape") setEditing(false); }}
-              className="w-24 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none text-center"
+              className="w-20 sm:w-24 rounded-xl px-3 py-2 font-mono text-[12px] sm:text-[13px] focus:outline-none text-center"
               style={{ background: "var(--bg)", border: "1px solid var(--accent)", color: "var(--text)" }}
-              autoFocus />
-            <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>hours</span>
-            <button onClick={() => commit(inputVal)}
-              className="px-4 py-2 rounded-xl text-white font-mono text-[12px] font-medium cursor-pointer border-none"
-              style={{ background: "var(--accent)" }}>Set</button>
-            <button onClick={() => setEditing(false)}
-              className="bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--text3)" }}>
+              autoFocus
+            />
+            <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>hours</span>
+            <button
+              onClick={() => commit(inputVal)}
+              className="px-3 sm:px-4 py-2 rounded-xl text-white font-mono text-[11px] sm:text-[12px] font-medium cursor-pointer border-none"
+              style={{ background: "var(--accent)" }}
+            >Set</button>
+            <button onClick={() => setEditing(false)} className="bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--text3)" }}>
               <X size={14} />
             </button>
           </div>
-          <p className="font-mono text-[11px]" style={{ color: "var(--text4)" }}>
+          <p className="font-mono text-[10px] sm:text-[11px]" style={{ color: "var(--text4)" }}>
             Only changes this date. Your profile default stays {fmtHLabel(defaultValue)}.
           </p>
         </div>
       ) : (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <p className="font-syne font-extrabold text-[32px] leading-none" style={{ color: "var(--text)" }}>
+            <p className="font-syne font-extrabold text-[26px] sm:text-[32px] leading-none" style={{ color: "var(--text)" }}>
               {fmtHLabel(value)}
             </p>
-            <p className="font-mono text-[11px] mt-1" style={{ color: hasOverride ? "var(--accent)" : "var(--text4)" }}>
+            <p className="font-mono text-[10px] sm:text-[11px] mt-1" style={{ color: hasOverride ? "var(--accent)" : "var(--text4)" }}>
               {hasOverride ? `This date only · Default is ${fmtHLabel(defaultValue)}` : "From your profile default"}
             </p>
           </div>
-          <button onClick={() => { setInputVal(String(value)); setEditing(true); }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl font-mono text-[12px] cursor-pointer border-none transition-all"
+          <button
+            onClick={() => { setInputVal(String(value)); setEditing(true); }}
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl font-mono text-[11px] sm:text-[12px] cursor-pointer border-none transition-all shrink-0"
             style={{ background: "rgba(124,110,243,0.12)", color: "var(--accent)", border: "1px solid rgba(124,110,243,0.25)" }}
             onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.22)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(124,110,243,0.12)")}>
+            onMouseLeave={e => (e.currentTarget.style.background = "rgba(124,110,243,0.12)")}
+          >
             <Settings2 size={12} /> Change
           </button>
         </div>
@@ -671,17 +730,21 @@ function BreakChip({ br, onRemove, readOnly = false }: {
     custom: { bg: "#a78bfa15", border: "#a78bfa45", text: "#7c6ef3" },
   }[br.type];
   return (
-    <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl"
-      style={{ background: c.bg, border: `1px solid ${c.border}` }}>
-      <span className="font-mono text-[13px] font-medium" style={{ color: c.text }}>{br.label}</span>
-      <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>·</span>
-      <span className="font-mono text-[12px]" style={{ color: "var(--text2)" }}>{br.minutes}m</span>
+    <div
+      className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl"
+      style={{ background: c.bg, border: `1px solid ${c.border}` }}
+    >
+      <span className="font-mono text-[11px] sm:text-[13px] font-medium" style={{ color: c.text }}>{br.label}</span>
+      <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>·</span>
+      <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text2)" }}>{br.minutes}m</span>
       {!readOnly && (
-        <button onClick={onRemove}
+        <button
+          onClick={onRemove}
           className="ml-1 bg-transparent border-none cursor-pointer p-0"
           style={{ color: "var(--text4)" }}
           onMouseEnter={e => (e.currentTarget.style.color = "var(--danger)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "var(--text4)")}>
+          onMouseLeave={e => (e.currentTarget.style.color = "var(--text4)")}
+        >
           <X size={13} />
         </button>
       )}
@@ -694,7 +757,7 @@ function BreakChip({ br, onRemove, readOnly = false }: {
 // ─────────────────────────────────────────────────────────────────
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl p-5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+    <div className="rounded-2xl p-3 sm:p-5" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
       {children}
     </div>
   );
@@ -703,9 +766,9 @@ function CardHeader({ icon: Icon, iconColor, title, right }: {
   icon: React.ElementType; iconColor: string; title: string; right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 pb-3 mb-4" style={{ borderBottom: "1px solid var(--border)" }}>
+    <div className="flex items-center gap-2 pb-3 mb-3 sm:mb-4 flex-wrap" style={{ borderBottom: "1px solid var(--border)" }}>
       <Icon size={14} style={{ color: iconColor }} />
-      <h2 className="font-syne font-semibold text-[14px]" style={{ color: "var(--text)" }}>{title}</h2>
+      <h2 className="font-syne font-semibold text-[13px] sm:text-[14px]" style={{ color: "var(--text)" }}>{title}</h2>
       {right && <div className="ml-auto">{right}</div>}
     </div>
   );
@@ -716,17 +779,21 @@ function CardHeader({ icon: Icon, iconColor, title, right }: {
 // ─────────────────────────────────────────────────────────────────
 function ViewOnlyBanner({ date }: { date: string }) {
   return (
-    <div className="flex items-start gap-4 px-5 py-4 rounded-2xl"
-      style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)" }}>
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
-        style={{ background: "rgba(245,158,11,0.15)" }}>
-        <Lock size={18} style={{ color: "#f59e0b" }} />
+    <div
+      className="flex items-start gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 rounded-2xl"
+      style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)" }}
+    >
+      <div
+        className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+        style={{ background: "rgba(245,158,11,0.15)" }}
+      >
+        <Lock size={16} style={{ color: "#f59e0b" }} />
       </div>
-      <div>
-        <p className="font-syne font-semibold text-[15px]" style={{ color: "#d97706" }}>
+      <div className="min-w-0">
+        <p className="font-syne font-semibold text-[13px] sm:text-[15px]" style={{ color: "#d97706" }}>
           Viewing Only — Editing Locked
         </p>
-        <p className="font-mono text-[12px] mt-1" style={{ color: "var(--text2)" }}>
+        <p className="font-mono text-[11px] sm:text-[12px] mt-1 break-words" style={{ color: "var(--text2)" }}>
           {prettyDate(date)} is more than {EDIT_WINDOW} days ago. This log is read-only.
         </p>
       </div>
@@ -736,20 +803,24 @@ function ViewOnlyBanner({ date }: { date: string }) {
 
 function ViewEmptyBanner({ date }: { date: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 py-16 rounded-2xl"
-      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-        style={{ background: "rgba(124,110,243,0.10)" }}>
-        <Eye size={24} style={{ color: "var(--accent)" }} />
+    <div
+      className="flex flex-col items-center justify-center gap-3 sm:gap-4 py-12 sm:py-16 rounded-2xl px-4"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+    >
+      <div
+        className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center"
+        style={{ background: "rgba(124,110,243,0.10)" }}
+      >
+        <Eye size={22} style={{ color: "var(--accent)" }} />
       </div>
-      <div className="text-center px-6 space-y-2">
-        <p className="font-syne font-bold text-[17px]" style={{ color: "var(--text)" }}>
+      <div className="text-center space-y-2">
+        <p className="font-syne font-bold text-[15px] sm:text-[17px]" style={{ color: "var(--text)" }}>
           No log for this date
         </p>
-        <p className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+        <p className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>
           {prettyDate(date)}
         </p>
-        <p className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+        <p className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>
           This date is beyond {ENTRY_WINDOW} days — no new entries can be added.
           <br />You can still view logs for any past date that was logged.
         </p>
@@ -760,17 +831,21 @@ function ViewEmptyBanner({ date }: { date: string }) {
 
 function OneTimeWarningBanner({ date }: { date: string }) {
   return (
-    <div className="flex items-start gap-4 px-5 py-4 rounded-2xl"
-      style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)" }}>
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
-        style={{ background: "rgba(245,158,11,0.15)" }}>
-        <AlertTriangle size={18} style={{ color: "#f59e0b" }} />
+    <div
+      className="flex items-start gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 rounded-2xl"
+      style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)" }}
+    >
+      <div
+        className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+        style={{ background: "rgba(245,158,11,0.15)" }}
+      >
+        <AlertTriangle size={16} style={{ color: "#f59e0b" }} />
       </div>
-      <div>
-        <p className="font-syne font-semibold text-[15px]" style={{ color: "#d97706" }}>
+      <div className="min-w-0">
+        <p className="font-syne font-semibold text-[13px] sm:text-[15px]" style={{ color: "#d97706" }}>
           One-Time Entry — Cannot Be Edited Later
         </p>
-        <p className="font-mono text-[12px] mt-1" style={{ color: "var(--text2)" }}>
+        <p className="font-mono text-[11px] sm:text-[12px] mt-1 break-words" style={{ color: "var(--text2)" }}>
           {prettyDate(date)} is {daysAgo(date)} days ago (beyond the {EDIT_WINDOW}-day edit window).
           Once you save this log, <strong>it cannot be changed</strong>. Please double-check your data before saving.
         </p>
@@ -784,28 +859,36 @@ function OneTimeWarningBanner({ date }: { date: string }) {
 // ─────────────────────────────────────────────────────────────────
 function HolidayBanner({ date, notes }: { date: string; notes: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-5 py-16 rounded-2xl"
-      style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.30)" }}>
-      <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
-        style={{ background: "rgba(245,158,11,0.12)" }}>
-        <Palmtree size={28} style={{ color: "#f59e0b" }} />
+    <div
+      className="flex flex-col items-center justify-center gap-4 sm:gap-5 py-12 sm:py-16 rounded-2xl px-4"
+      style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.30)" }}
+    >
+      <div
+        className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center"
+        style={{ background: "rgba(245,158,11,0.12)" }}
+      >
+        <Palmtree size={26} style={{ color: "#f59e0b" }} />
       </div>
-      <div className="text-center space-y-2 px-6">
-        <h2 className="font-syne font-bold text-[20px]" style={{ color: "#d97706" }}>Holiday 🌴</h2>
-        <p className="font-mono text-[13px]" style={{ color: "var(--text2)" }}>{prettyDate(date)}</p>
+      <div className="text-center space-y-2 w-full max-w-sm">
+        <h2 className="font-syne font-bold text-[18px] sm:text-[20px]" style={{ color: "#d97706" }}>Holiday 🌴</h2>
+        <p className="font-mono text-[12px] sm:text-[13px]" style={{ color: "var(--text2)" }}>{prettyDate(date)}</p>
         {notes && (
-          <p className="font-mono text-[12px] px-4 py-2 rounded-xl"
-            style={{ color: "var(--text2)", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.18)" }}>
+          <p
+            className="font-mono text-[11px] sm:text-[12px] px-4 py-2 rounded-xl break-words"
+            style={{ color: "var(--text2)", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.18)" }}
+          >
             {notes}
           </p>
         )}
-        <p className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+        <p className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>
           Work logging is disabled for this date.
         </p>
       </div>
-      <Link href="/dashboard/holiday"
-        className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-mono text-[13px] font-medium no-underline"
-        style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.30)", color: "#d97706" }}>
+      <Link
+        href="/dashboard/holiday"
+        className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl font-mono text-[12px] sm:text-[13px] font-medium no-underline"
+        style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.30)", color: "#d97706" }}
+      >
         <Palmtree size={14} /> Manage Holidays
       </Link>
     </div>
@@ -813,7 +896,7 @@ function HolidayBanner({ date, notes }: { date: string; notes: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LOG FORM — single form for all editable modes
+// LOG FORM
 // ─────────────────────────────────────────────────────────────────
 function LogForm({
   selectedDate, dateMode, hasExisting,
@@ -832,8 +915,8 @@ function LogForm({
   onRequiredChange: (h: number) => void; onRequiredClear: () => void;
   isDirty: boolean; everSaved: boolean; saving: boolean; onSave: () => void;
 }) {
-  const readOnly    = dateMode === "view-only";
-  const isOneTime   = dateMode === "one-time-add";
+  const readOnly  = dateMode === "view-only";
+  const isOneTime = dateMode === "one-time-add";
 
   const [activePicker, setActivePicker] = useState<"entry" | "exit" | null>(null);
   const [showCustom,   setShowCustom]   = useState(false);
@@ -877,18 +960,19 @@ function LogForm({
       )}
 
       {/* Mode banners */}
-      {readOnly    && <ViewOnlyBanner date={selectedDate} />}
-      {isOneTime   && <OneTimeWarningBanner date={selectedDate} />}
+      {readOnly  && <ViewOnlyBanner date={selectedDate} />}
+      {isOneTime && <OneTimeWarningBanner date={selectedDate} />}
 
       {/* Work done */}
       {calc.pct >= 100 && exitTime && (
-        <div className="flex items-center gap-3 px-5 py-4 rounded-2xl"
-          style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}>
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-            style={{ background: "rgba(34,211,160,0.15)" }}>
-            <Zap size={15} style={{ color: "var(--green)" }} />
+        <div
+          className="flex items-center gap-3 px-4 sm:px-5 py-3 sm:py-4 rounded-2xl"
+          style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}
+        >
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(34,211,160,0.15)" }}>
+            <Zap size={14} style={{ color: "var(--green)" }} />
           </div>
-          <p className="font-syne font-bold text-[18px]" style={{ color: "var(--green)" }}>
+          <p className="font-syne font-bold text-[15px] sm:text-[18px]" style={{ color: "var(--green)" }}>
             {fmtHLabel(requiredWorkHours)} productive hours completed ✓
           </p>
         </div>
@@ -896,18 +980,21 @@ function LogForm({
 
       {/* Time entry */}
       <Card>
-        <CardHeader icon={Clock} iconColor="var(--accent)" title="Work Hours"
+        <CardHeader
+          icon={Clock} iconColor="var(--accent)" title="Work Hours"
           right={
             readOnly
-              ? <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
-                  style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
+              ? <div
+                  className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg"
+                  style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}
+                >
                   <Lock size={10} style={{ color: "#d97706" }} />
-                  <span className="font-mono text-[10px]" style={{ color: "#d97706" }}>View only</span>
+                  <span className="font-mono text-[9px] sm:text-[10px]" style={{ color: "#d97706" }}>View only</span>
                 </div>
-              : <span className="font-mono text-[10px]" style={{ color: "var(--text4)" }}>tap to change time</span>
+              : <span className="font-mono text-[9px] sm:text-[10px]" style={{ color: "var(--text4)" }}>tap to change time</span>
           }
         />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
           <TimeButton label="Entry Time" icon={LogIn}  value={entryTime} accentColor="#7c6ef3"
             onClick={() => setActivePicker("entry")} readOnly={readOnly} />
           <TimeButton label="Exit Time"  icon={LogOut} value={exitTime}  accentColor="#22d3a0"
@@ -925,65 +1012,87 @@ function LogForm({
 
       {/* Breaks */}
       <Card>
-        <CardHeader icon={Coffee} iconColor="var(--amber)" title="Breaks"
+        <CardHeader
+          icon={Coffee} iconColor="var(--amber)" title="Breaks"
           right={calc.totalBreak > 0
-            ? <span className="font-mono text-[11px] px-2 py-0.5 rounded-md"
-                style={{ color: "var(--amber)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}>
+            ? <span
+                className="font-mono text-[10px] sm:text-[11px] px-2 py-0.5 rounded-md"
+                style={{ color: "var(--amber)", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)" }}
+              >
                 Total: {fmtDuration(calc.totalBreak)}
               </span>
             : undefined}
         />
 
         {!readOnly && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            <button onClick={() => addQuickBreak("tea", "Tea / Coffee", 15)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
+          <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4">
+            <button
+              onClick={() => addQuickBreak("tea", "Tea / Coffee", 15)}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-mono text-[11px] sm:text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
               style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.28)", color: "var(--amber)" }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(245,158,11,0.20)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(245,158,11,0.10)")}>
-              <Coffee size={13} /> Tea / Coffee <span style={{ color: "var(--text3)", fontSize: "10px" }}>15m</span>
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(245,158,11,0.10)")}
+            >
+              <Coffee size={12} /> Tea
+              <span style={{ color: "var(--text3)", fontSize: "9px" }}>15m</span>
             </button>
-            <button onClick={() => addQuickBreak("lunch", "Lunch Break", 30)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
+            <button
+              onClick={() => addQuickBreak("lunch", "Lunch Break", 30)}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-mono text-[11px] sm:text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
               style={{ background: "rgba(34,211,160,0.10)", border: "1px solid rgba(34,211,160,0.25)", color: "var(--green)" }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(34,211,160,0.20)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(34,211,160,0.10)")}>
-              <UtensilsCrossed size={13} /> Lunch Break <span style={{ color: "var(--text3)", fontSize: "10px" }}>30m</span>
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(34,211,160,0.10)")}
+            >
+              <UtensilsCrossed size={12} /> Lunch
+              <span style={{ color: "var(--text3)", fontSize: "9px" }}>30m</span>
             </button>
-            <button onClick={() => setShowCustom(!showCustom)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
+            <button
+              onClick={() => setShowCustom(!showCustom)}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-mono text-[11px] sm:text-[12px] hover:-translate-y-0.5 transition-all cursor-pointer"
               style={{ background: "rgba(124,110,243,0.10)", border: "1px solid rgba(124,110,243,0.25)", color: "var(--accent2)" }}
               onMouseEnter={e => (e.currentTarget.style.background = "rgba(124,110,243,0.20)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(124,110,243,0.10)")}>
-              <Plus size={13} /> Custom
+              onMouseLeave={e => (e.currentTarget.style.background = "rgba(124,110,243,0.10)")}
+            >
+              <Plus size={12} /> Custom
             </button>
           </div>
         )}
 
         {showCustom && !readOnly && (
-          <div className="flex flex-col sm:flex-row gap-2 p-4 rounded-xl mb-4"
-            style={{ background: "var(--bg)", border: "1px solid rgba(124,110,243,0.25)" }}>
-            <input placeholder="Label (e.g. Prayer Break)" value={customLabel}
+          <div
+            className="flex flex-col gap-2 p-3 sm:p-4 rounded-xl mb-3 sm:mb-4"
+            style={{ background: "var(--bg)", border: "1px solid rgba(124,110,243,0.25)" }}
+          >
+            <input
+              placeholder="Label (e.g. Prayer Break)" value={customLabel}
               onChange={e => setCustomLabel(e.target.value)}
               onKeyDown={e => e.key === "Enter" && addCustomBreak()}
-              className="flex-1 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none"
+              className="w-full rounded-xl px-3 py-2 font-mono text-[12px] sm:text-[13px] focus:outline-none"
               style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
               onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
-              onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
-            <div className="flex items-center gap-2">
-              <input type="number" min="1" max="480" value={customMins}
+              onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")}
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="number" min="1" max="480" value={customMins}
                 onChange={e => setCustomMins(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomBreak()}
-                className="w-20 rounded-xl px-3 py-2 font-mono text-[13px] focus:outline-none text-center"
+                className="w-20 rounded-xl px-3 py-2 font-mono text-[12px] sm:text-[13px] focus:outline-none text-center"
                 style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text)" }}
                 onFocus={e => (e.currentTarget.style.borderColor = "var(--accent)")}
-                onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
-              <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>min</span>
-              <button onClick={addCustomBreak}
-                className="px-4 py-2 rounded-xl text-white font-mono text-[12px] font-medium cursor-pointer border-none"
-                style={{ background: "var(--accent)" }}>Add</button>
-              <button onClick={() => { setShowCustom(false); setCustomMins("10"); setCustomLabel(""); }}
-                className="bg-transparent border-none cursor-pointer p-0" style={{ color: "var(--text3)" }}>
+                onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")}
+              />
+              <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>min</span>
+              <button
+                onClick={addCustomBreak}
+                className="px-3 sm:px-4 py-2 rounded-xl text-white font-mono text-[11px] sm:text-[12px] font-medium cursor-pointer border-none"
+                style={{ background: "var(--accent)" }}
+              >Add</button>
+              <button
+                onClick={() => { setShowCustom(false); setCustomMins("10"); setCustomLabel(""); }}
+                className="bg-transparent border-none cursor-pointer p-0"
+                style={{ color: "var(--text3)" }}
+              >
                 <X size={14} />
               </button>
             </div>
@@ -991,26 +1100,28 @@ function LogForm({
         )}
 
         {breaks.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {breaks.map(br => (
-              <BreakChip key={br.id} br={br}
+              <BreakChip
+                key={br.id} br={br}
                 onRemove={() => !readOnly && setBreaks(p => p.filter(b => b.id !== br.id))}
-                readOnly={readOnly} />
+                readOnly={readOnly}
+              />
             ))}
           </div>
         ) : (
-          <p className="font-mono text-[12px] text-center py-3" style={{ color: "var(--text4)" }}>
+          <p className="font-mono text-[11px] sm:text-[12px] text-center py-3" style={{ color: "var(--text4)" }}>
             {readOnly ? "No breaks recorded for this day." : "No breaks yet — tap a button above to add one"}
           </p>
         )}
       </Card>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {[
           { label: "Office Time",  value: fmtDuration(calc.officeMins), color: "var(--text2)",  icon: CalendarDays, bg: "var(--surface2)"       },
-          { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",  icon: Coffee,      bg: "rgba(245,158,11,0.12)"   },
-          { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)", icon: Zap,         bg: "rgba(124,110,243,0.12)"  },
+          { label: "Break Time",   value: fmtDuration(calc.totalBreak), color: "var(--amber)",  icon: Coffee,       bg: "rgba(245,158,11,0.12)"  },
+          { label: "Productive",   value: fmtDuration(calc.productive), color: "var(--accent)", icon: Zap,          bg: "rgba(124,110,243,0.12)" },
           {
             label: calc.pct >= 100 ? "Completed!" : "Remaining",
             value: calc.pct >= 100 ? "Done ✓" : fmtDuration(calc.remaining),
@@ -1019,93 +1130,107 @@ function LogForm({
             bg:    calc.pct >= 100 ? "rgba(34,211,160,0.12)" : "var(--surface2)",
           },
         ].map(({ label, value, color, icon: Icon, bg }) => (
-          <div key={label} className="rounded-2xl p-4 flex flex-col gap-2"
-            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div
+            key={label}
+            className="rounded-2xl p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+          >
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[10px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>{label}</span>
-              <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: bg }}>
-                <Icon size={12} style={{ color }} />
+              <span className="font-mono text-[9px] sm:text-[10px] uppercase tracking-widest leading-tight" style={{ color: "var(--text3)" }}>{label}</span>
+              <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center shrink-0" style={{ background: bg }}>
+                <Icon size={11} style={{ color }} />
               </div>
             </div>
-            <p className="font-syne font-extrabold text-[20px] leading-none" style={{ color }}>{value}</p>
+            <p className="font-syne font-extrabold text-[16px] sm:text-[20px] leading-none" style={{ color }}>{value}</p>
           </div>
         ))}
       </div>
 
-      {/* Overtime / underwork */}
+      {/* Overtime */}
       {exitTime && calc.overtime > 0 && (
-        <div className="flex items-center justify-between px-5 py-4 rounded-2xl"
-          style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "rgba(34,211,160,0.15)" }}>
-              <TrendingUp size={15} style={{ color: "#22d3a0" }} />
+        <div
+          className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 sm:py-4 rounded-2xl flex-wrap"
+          style={{ background: "rgba(34,211,160,0.08)", border: "1px solid rgba(34,211,160,0.25)" }}
+        >
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(34,211,160,0.15)" }}>
+              <TrendingUp size={14} style={{ color: "#22d3a0" }} />
             </div>
             <div>
-              <p className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "#22d3a0" }}>Overtime</p>
-              <p className="font-syne font-bold text-[18px]" style={{ color: "var(--text)" }}>
+              <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest" style={{ color: "#22d3a0" }}>Overtime</p>
+              <p className="font-syne font-bold text-[15px] sm:text-[18px]" style={{ color: "var(--text)" }}>
                 Extra {fmtDuration(calc.overtime)} worked 🎉
               </p>
             </div>
           </div>
-          <p className="font-syne font-extrabold text-[22px]" style={{ color: "#22d3a0" }}>
+          <p className="font-syne font-extrabold text-[18px] sm:text-[22px]" style={{ color: "#22d3a0" }}>
             +{fmtDuration(calc.overtime)}
           </p>
         </div>
       )}
 
       {exitTime && calc.pct < 100 && calc.productive > 0 && (
-        <div className="flex items-center justify-between px-5 py-4 rounded-2xl"
-          style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }}>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "rgba(248,113,113,0.15)" }}>
-              <Clock size={15} style={{ color: "#f87171" }} />
+        <div
+          className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 sm:py-4 rounded-2xl flex-wrap"
+          style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }}
+        >
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(248,113,113,0.15)" }}>
+              <Clock size={14} style={{ color: "#f87171" }} />
             </div>
             <div>
-              <p className="font-mono text-[11px] uppercase tracking-widest" style={{ color: "#f87171" }}>Short of Target</p>
-              <p className="font-syne font-bold text-[18px]" style={{ color: "var(--text)" }}>
+              <p className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest" style={{ color: "#f87171" }}>Short of Target</p>
+              <p className="font-syne font-bold text-[15px] sm:text-[18px]" style={{ color: "var(--text)" }}>
                 {fmtDuration(calc.remaining)} below {fmtHLabel(requiredWorkHours)} target
               </p>
             </div>
           </div>
-          <p className="font-syne font-extrabold text-[22px]" style={{ color: "#f87171" }}>-{fmtDuration(calc.remaining)}</p>
+          <p className="font-syne font-extrabold text-[18px] sm:text-[22px]" style={{ color: "#f87171" }}>
+            -{fmtDuration(calc.remaining)}
+          </p>
         </div>
       )}
 
       {/* Progress bar */}
       {(entryTime || exitTime) && (
-        <div className="rounded-2xl px-5 py-4 space-y-2"
-          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px]" style={{ color: "var(--text3)" }}>
+        <div
+          className="rounded-2xl px-4 sm:px-5 py-3 sm:py-4 space-y-2"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="font-mono text-[10px] sm:text-[11px]" style={{ color: "var(--text3)" }}>
               Daily progress — {fmtHLabel(requiredWorkHours)} target
               {requiredWorkHoursOverride !== null && (
                 <span style={{ color: "var(--accent)" }}> · custom</span>
               )}
             </span>
-            <span className="font-mono text-[11px] font-semibold" style={{ color: "var(--text2)" }}>
+            <span className="font-mono text-[10px] sm:text-[11px] font-semibold" style={{ color: "var(--text2)" }}>
               {Math.min(100, Math.round(calc.pct))}%
             </span>
           </div>
           <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: "var(--border2)" }}>
-            <div className="h-full rounded-full transition-all duration-700"
+            <div
+              className="h-full rounded-full transition-all duration-700"
               style={{
                 width:      `${Math.min(100, calc.pct)}%`,
                 background: calc.pct >= 100 ? "#22d3a0" : calc.pct >= 60 ? "#7c6ef3" : "#f59e0b",
-              }} />
+              }}
+            />
           </div>
         </div>
       )}
 
       {/* Notes */}
       <Card>
-        <label className="font-mono text-[11px] uppercase tracking-widest block mb-3" style={{ color: "var(--text3)" }}>
+        <label className="font-mono text-[10px] sm:text-[11px] uppercase tracking-widest block mb-2 sm:mb-3" style={{ color: "var(--text3)" }}>
           Notes {readOnly ? "(read-only)" : "(optional)"}
         </label>
-        <textarea rows={3} value={notes}
+        <textarea
+          rows={3} value={notes}
           onChange={e => !readOnly && setNotes(e.target.value)}
           placeholder={readOnly ? "No notes for this day." : "What did you work on this day?"}
           readOnly={readOnly}
-          className="w-full rounded-xl px-4 py-3 font-mono text-[13px] resize-none focus:outline-none"
+          className="w-full rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 font-mono text-[12px] sm:text-[13px] resize-none focus:outline-none"
           style={{
             background: readOnly ? "var(--surface2)" : "var(--bg)",
             border: "1px solid var(--border2)",
@@ -1113,27 +1238,28 @@ function LogForm({
             cursor: readOnly ? "default" : "text",
           }}
           onFocus={e => { if (!readOnly) e.currentTarget.style.borderColor = "var(--accent)"; }}
-          onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
+          onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")}
+        />
       </Card>
 
-      {/* Save row — only shown in editable modes */}
+      {/* Save row */}
       {!readOnly && (
-        <div className="flex items-center justify-end gap-3 flex-wrap">
+        <div className="flex items-center justify-end gap-2 sm:gap-3 flex-wrap">
           {everSaved && !isDirty && (
             <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={14} style={{ color: "var(--green)" }} />
-              <span className="font-mono text-[12px]" style={{ color: "var(--text3)" }}>
+              <CheckCircle2 size={13} style={{ color: "var(--green)" }} />
+              <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>
                 {hasExisting ? "All changes saved" : "Log saved"}
               </span>
             </div>
           )}
           {isDirty && (
-            <span className="font-mono text-[11px]" style={{ color: "var(--amber)" }}>● Unsaved changes</span>
+            <span className="font-mono text-[10px] sm:text-[11px]" style={{ color: "var(--amber)" }}>● Unsaved changes</span>
           )}
           <button
             onClick={onSave}
             disabled={saving || !isDirty}
-            className="flex items-center gap-2.5 px-8 py-3.5 rounded-xl font-mono font-medium text-[14px] border-none transition-all"
+            className="flex items-center gap-2 px-5 sm:px-8 py-3 sm:py-3.5 rounded-xl font-mono font-medium text-[12px] sm:text-[14px] border-none transition-all"
             style={{
               background: isDirty ? (isOneTime ? "#d97706" : "var(--accent)") : "var(--border2)",
               boxShadow:  isDirty ? `0 0 24px ${isOneTime ? "rgba(217,119,6,0.35)" : "rgba(124,110,243,0.35)"}` : "none",
@@ -1142,19 +1268,92 @@ function LogForm({
               color:      isDirty ? "#fff" : "var(--text3)",
             }}
             onMouseEnter={e => { if (isDirty) (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "none"; }}>
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "none"; }}
+          >
             {saving
-              ? <><RefreshCw size={15} className="animate-spin" /> Saving...</>
+              ? <><RefreshCw size={14} className="animate-spin" /> Saving...</>
               : hasExisting
-              ? <><PencilLine size={15} /> Update Log</>
+              ? <><PencilLine size={14} /> Update Log</>
               : isOneTime
-              ? <><Save size={15} /> Save (One-Time)</>
-              : <><Save size={15} /> Save Log</>
+              ? <><Save size={14} /> Save (One-Time)</>
+              : <><Save size={14} /> Save Log</>
             }
           </button>
         </div>
       )}
     </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MOBILE DATE HEADER (shown only on small screens, replaces sidebar info)
+// ─────────────────────────────────────────────────────────────────
+function MobileDateHeader({
+  selectedDate, fetching, isHoliday, dateMode, hasExisting,
+}: {
+  selectedDate: string; fetching: boolean; isHoliday: boolean;
+  dateMode: DateMode; hasExisting: boolean;
+}) {
+  const today = localToday();
+  const age   = daysAgo(selectedDate);
+
+  const badgeInfo = useMemo(() => {
+    if (fetching)    return null;
+    if (isHoliday)   return { icon: Palmtree,     color: "#f59e0b", bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "Holiday"      };
+    switch (dateMode) {
+      case "view-only":         return { icon: Lock,          color: "#d97706",       bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "View only"    };
+      case "view-empty":        return { icon: Eye,           color: "var(--text3)",  bg: "var(--surface2)",        border: "var(--border)",           label: "No log"       };
+      case "one-time-add":      return { icon: AlertTriangle, color: "#d97706",       bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  label: "One-time add" };
+      case "editable-existing": return { icon: PencilLine,    color: "var(--accent)", bg: "rgba(124,110,243,0.10)", border: "rgba(124,110,243,0.25)", label: "Editing log"  };
+      case "editable-new":      return { icon: FilePlus2,     color: "var(--green)",  bg: "rgba(34,211,160,0.10)", border: "rgba(34,211,160,0.25)",  label: "New entry"    };
+    }
+  }, [fetching, isHoliday, dateMode]);
+
+  return (
+    <div
+      className="rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+    >
+      <div className="min-w-0">
+        <p className="font-syne font-bold text-[13px] leading-snug truncate" style={{ color: "var(--text)" }}>
+          {prettyDateShort(selectedDate)}
+        </p>
+        {!fetching && !isHoliday && (
+          <p className="font-mono text-[10px] mt-0.5" style={{ color: "var(--text3)" }}>
+            {age <= 0 ? "Today — fully editable"
+             : age <= EDIT_WINDOW ? `${age}d ago — editable`
+             : age <= ENTRY_WINDOW && !hasExisting ? `${age}d ago — one-time add`
+             : age > EDIT_WINDOW && hasExisting ? `${age}d ago — view only`
+             : `${age}d ago — cannot add`}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+        {fetching
+          ? <RefreshCw size={12} className="animate-spin" style={{ color: "var(--text3)" }} />
+          : badgeInfo && (() => {
+              const { icon: BadgeIcon, color, bg, border, label } = badgeInfo;
+              return (
+                <div
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={{ background: bg, border: `1px solid ${border}` }}
+                >
+                  <BadgeIcon size={10} style={{ color }} />
+                  <span className="font-mono text-[10px]" style={{ color }}>{label}</span>
+                </div>
+              );
+            })()
+        }
+        {selectedDate === today && (
+          <span
+            className="font-mono text-[10px] px-2 py-0.5 rounded-full"
+            style={{ background: "rgba(124,110,243,0.12)", border: "1px solid rgba(124,110,243,0.3)", color: "var(--accent)" }}
+          >
+            Today
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1183,22 +1382,22 @@ export default function DateWisePage() {
   const [isHoliday,    setIsHoliday]    = useState(false);
   const [holidayNotes, setHolidayNotes] = useState("");
 
+  // Mobile calendar drawer state
+  const [calOpen, setCalOpen] = useState(false);
+
   const calRef = useRef<CalendarHandle>(null);
 
-  // ── Determine the mode for the selected date ─────────────────
-  const age = daysAgo(selectedDate); // how many days ago
+  const age = daysAgo(selectedDate);
 
   const dateMode: DateMode = useMemo(() => {
-    if (isHoliday) return "view-only"; // holiday = handled separately
+    if (isHoliday) return "view-only";
     const a = daysAgo(selectedDate);
     if (hasExisting) {
-      // Has a log → editable only within 30 days, otherwise view-only
       return a <= EDIT_WINDOW ? "editable-existing" : "view-only";
     } else {
-      // No log yet
-      if (a > ENTRY_WINDOW) return "view-empty";          // beyond 90 days: can't add
-      if (a > EDIT_WINDOW)  return "one-time-add";        // 31–90 days: one-time add with warning
-      return "editable-new";                              // within 30 days: add freely
+      if (a > ENTRY_WINDOW) return "view-empty";
+      if (a > EDIT_WINDOW)  return "one-time-add";
+      return "editable-new";
     }
   }, [selectedDate, hasExisting, isHoliday]);
 
@@ -1233,7 +1432,7 @@ export default function DateWisePage() {
     try {
       const [logRes, userRes] = await Promise.all([
         fetch(`/api/work/date?date=${date}`),
-        fetch("/api/work/today"), // to get user's defaultWorkHours
+        fetch("/api/work/today"),
       ]);
       const [logData, userData] = await Promise.all([logRes.json(), userRes.json()]);
 
@@ -1280,6 +1479,12 @@ export default function DateWisePage() {
 
   useEffect(() => { fetchLog(selectedDate); }, [selectedDate, fetchLog]);
 
+  // Close calendar drawer when a date is selected on mobile
+  function handleDateChange(date: string) {
+    setSelectedDate(date);
+    setCalOpen(false);
+  }
+
   const handleSave = async () => {
     if (!entryTime) { toast.error("Entry time is required"); return; }
     if (!isDirty)   return;
@@ -1318,40 +1523,89 @@ export default function DateWisePage() {
     }
   };
 
-  // ── Sidebar status badge ──────────────────────────────────────
   const statusBadge = useMemo(() => {
     if (fetching)    return null;
     if (isHoliday)   return { icon: Palmtree,     color: "#f59e0b",        bg: "rgba(245,158,11,0.12)",    border: "rgba(245,158,11,0.25)",    label: "Holiday"             };
     switch (dateMode) {
-      case "view-only":        return { icon: Lock,         color: "#d97706",        bg: "rgba(245,158,11,0.12)",    border: "rgba(245,158,11,0.25)",    label: "View only"           };
-      case "view-empty":       return { icon: Eye,          color: "var(--text3)",   bg: "var(--surface2)",          border: "var(--border)",            label: "No log"              };
-      case "one-time-add":     return { icon: AlertTriangle,color: "#d97706",        bg: "rgba(245,158,11,0.12)",    border: "rgba(245,158,11,0.25)",    label: "One-time add"        };
-      case "editable-existing":return { icon: PencilLine,   color: "var(--accent)",  bg: "rgba(124,110,243,0.10)",   border: "rgba(124,110,243,0.25)",   label: "Editing log"         };
-      case "editable-new":     return { icon: FilePlus2,    color: "var(--green)",   bg: "rgba(34,211,160,0.10)",    border: "rgba(34,211,160,0.25)",    label: "New entry"           };
+      case "view-only":         return { icon: Lock,          color: "#d97706",        bg: "rgba(245,158,11,0.12)",    border: "rgba(245,158,11,0.25)",    label: "View only"           };
+      case "view-empty":        return { icon: Eye,           color: "var(--text3)",   bg: "var(--surface2)",          border: "var(--border)",            label: "No log"              };
+      case "one-time-add":      return { icon: AlertTriangle, color: "#d97706",        bg: "rgba(245,158,11,0.12)",    border: "rgba(245,158,11,0.25)",    label: "One-time add"        };
+      case "editable-existing": return { icon: PencilLine,    color: "var(--accent)",  bg: "rgba(124,110,243,0.10)",   border: "rgba(124,110,243,0.25)",   label: "Editing log"         };
+      case "editable-new":      return { icon: FilePlus2,     color: "var(--green)",   bg: "rgba(34,211,160,0.10)",    border: "rgba(34,211,160,0.25)",    label: "New entry"           };
     }
   }, [fetching, isHoliday, dateMode]);
 
   return (
-    <div className="max-w-6xl mx-auto pb-6">
-      <div className="mb-5">
-        <h1 className="font-syne font-extrabold text-[22px] tracking-tight" style={{ color: "var(--text)" }}>
+    <div className="max-w-6xl mx-auto pb-6 px-3 sm:px-0">
+
+      {/* PAGE HEADER */}
+      <div className="mb-4 sm:mb-5">
+        <h1 className="font-syne font-extrabold text-[18px] sm:text-[22px] tracking-tight" style={{ color: "var(--text)" }}>
           Date-Wise Log
         </h1>
-        <p className="font-mono text-[12px] mt-0.5" style={{ color: "var(--text3)" }}>
+        <p className="font-mono text-[11px] sm:text-[12px] mt-0.5" style={{ color: "var(--text3)" }}>
           View any date · Add within {ENTRY_WINDOW} days · Edit within {EDIT_WINDOW} days
         </p>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-5 items-start">
+      {/* ── MOBILE: Toggle calendar button ─────────────────────── */}
+      <div className="lg:hidden mb-3">
+        <button
+          onClick={() => setCalOpen(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-2xl font-mono text-[12px] cursor-pointer border-none transition-all"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text2)" }}
+        >
+          <div className="flex items-center gap-2">
+            <CalendarDays size={14} style={{ color: "var(--accent)" }} />
+            <span>{calOpen ? "Close calendar" : "Open calendar"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-syne font-bold text-[12px]" style={{ color: "var(--text)" }}>
+              {shortDate(selectedDate)}
+            </span>
+            <ChevronRight
+              size={14}
+              style={{
+                color: "var(--text3)",
+                transform: calOpen ? "rotate(90deg)" : "none",
+                transition: "transform 0.2s ease",
+              }}
+            />
+          </div>
+        </button>
 
-        {/* LEFT — sticky calendar + info */}
-        <div className="w-full lg:w-[300px] lg:sticky lg:top-5 shrink-0 space-y-3">
+        {/* Mobile calendar drawer */}
+        {calOpen && (
+          <div className="mt-2">
+            <CalendarPicker ref={calRef} value={selectedDate} onChange={handleDateChange} />
+          </div>
+        )}
+      </div>
+
+      {/* ── MOBILE: Current date info bar ──────────────────────── */}
+      <div className="lg:hidden mb-3">
+        <MobileDateHeader
+          selectedDate={selectedDate}
+          fetching={fetching}
+          isHoliday={isHoliday}
+          dateMode={dateMode}
+          hasExisting={hasExisting}
+        />
+      </div>
+
+      {/* ── MAIN LAYOUT ────────────────────────────────────────── */}
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-5 items-start">
+
+        {/* LEFT — sticky sidebar (desktop only) */}
+        <div className="hidden lg:flex w-[300px] shrink-0 flex-col gap-3 sticky top-5">
 
           <CalendarPicker ref={calRef} value={selectedDate} onChange={setSelectedDate} />
 
           {/* Selected date info */}
-          <div className="rounded-2xl px-4 py-3 space-y-2"
-            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div
+            className="rounded-2xl px-4 py-3 space-y-2"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+          >
             <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: "var(--text3)" }}>Selected</p>
             <p className="font-syne font-bold text-[14px] leading-snug" style={{ color: "var(--text)" }}>
               {prettyDate(selectedDate)}
@@ -1365,16 +1619,20 @@ export default function DateWisePage() {
               ) : statusBadge ? (() => {
                 const { icon: BadgeIcon, color, bg, border, label } = statusBadge;
                 return (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-                    style={{ background: bg, border: `1px solid ${border}` }}>
+                  <div
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                    style={{ background: bg, border: `1px solid ${border}` }}
+                  >
                     <BadgeIcon size={10} style={{ color }} />
                     <span className="font-mono text-[10px]" style={{ color }}>{label}</span>
                   </div>
                 );
               })() : null}
               {selectedDate === today && (
-                <span className="font-mono text-[10px] px-2 py-0.5 rounded-full"
-                  style={{ background: "rgba(124,110,243,0.12)", border: "1px solid rgba(124,110,243,0.3)", color: "var(--accent)" }}>
+                <span
+                  className="font-mono text-[10px] px-2 py-0.5 rounded-full"
+                  style={{ background: "rgba(124,110,243,0.12)", border: "1px solid rgba(124,110,243,0.3)", color: "var(--accent)" }}
+                >
                   Today
                 </span>
               )}
@@ -1382,14 +1640,16 @@ export default function DateWisePage() {
           </div>
 
           {/* Access rules card */}
-          <div className="rounded-2xl px-4 py-3 space-y-2"
-            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div
+            className="rounded-2xl px-4 py-3 space-y-2"
+            style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+          >
             <p className="font-mono text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--text3)" }}>Access Rules</p>
             {[
-              { label: "View any date",              detail: "All history",             icon: Eye,          color: "var(--text3)"  },
-              { label: `Add new entry`,              detail: `Within ${ENTRY_WINDOW} days`,icon: FilePlus2,    color: "var(--green)"  },
-              { label: `30–${ENTRY_WINDOW} days ago`,detail: "One-time only",           icon: AlertTriangle,color: "#d97706"       },
-              { label: `Edit existing`,              detail: `Within ${EDIT_WINDOW} days`, icon: PencilLine,   color: "var(--accent)" },
+              { label: "View any date",              detail: "All history",              icon: Eye,          color: "var(--text3)"  },
+              { label: `Add new entry`,              detail: `Within ${ENTRY_WINDOW} days`, icon: FilePlus2,    color: "var(--green)"  },
+              { label: `30–${ENTRY_WINDOW} days ago`,detail: "One-time only",            icon: AlertTriangle,color: "#d97706"       },
+              { label: `Edit existing`,              detail: `Within ${EDIT_WINDOW} days`,  icon: PencilLine,   color: "var(--accent)" },
             ].map(({ label, detail, icon: RuleIcon, color }) => (
               <div key={label} className="flex items-center gap-2">
                 <RuleIcon size={11} style={{ color }} />
@@ -1403,8 +1663,10 @@ export default function DateWisePage() {
 
           {/* Current date status */}
           {!fetching && !isHoliday && (
-            <div className="rounded-2xl px-4 py-3"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div
+              className="rounded-2xl px-4 py-3"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+            >
               <p className="font-mono text-[10px] uppercase tracking-widest mb-2" style={{ color: "var(--text3)" }}>
                 This date
               </p>
@@ -1437,7 +1699,8 @@ export default function DateWisePage() {
           )}
 
           {/* Refresh */}
-          <button onClick={() => fetchLog(selectedDate)} disabled={fetching}
+          <button
+            onClick={() => fetchLog(selectedDate)} disabled={fetching}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-mono text-[12px] cursor-pointer transition-all border-none"
             style={{ background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text2)" }}
             onMouseEnter={e => {
@@ -1447,22 +1710,39 @@ export default function DateWisePage() {
             onMouseLeave={e => {
               (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
               (e.currentTarget as HTMLElement).style.color       = "var(--text2)";
-            }}>
+            }}
+          >
             <RefreshCw size={12} className={fetching ? "animate-spin" : ""} />
             {fetching ? "Loading..." : "Refresh"}
           </button>
         </div>
 
         {/* RIGHT — form panel */}
-        <div className="flex-1 min-w-0 space-y-5">
+        <div className="flex-1 min-w-0 space-y-3 sm:space-y-5 w-full">
+
+          {/* Mobile refresh button */}
+          <div className="lg:hidden">
+            <button
+              onClick={() => fetchLog(selectedDate)} disabled={fetching}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-mono text-[12px] cursor-pointer transition-all border-none"
+              style={{ background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text2)" }}
+            >
+              <RefreshCw size={12} className={fetching ? "animate-spin" : ""} />
+              {fetching ? "Loading..." : "Refresh log"}
+            </button>
+          </div>
 
           {fetching && (
-            <div className="flex items-center justify-center py-24 rounded-2xl"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div
+              className="flex items-center justify-center py-16 sm:py-24 rounded-2xl"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+            >
               <div className="flex flex-col items-center gap-4">
-                <div className="w-8 h-8 rounded-full border-2 animate-spin"
-                  style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
-                <p className="font-mono text-[13px]" style={{ color: "var(--text3)" }}>
+                <div
+                  className="w-8 h-8 rounded-full border-2 animate-spin"
+                  style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+                />
+                <p className="font-mono text-[12px] sm:text-[13px]" style={{ color: "var(--text3)" }}>
                   Fetching log for {shortDate(selectedDate)}…
                 </p>
               </div>
