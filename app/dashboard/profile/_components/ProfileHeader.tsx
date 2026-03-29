@@ -4,7 +4,6 @@
 import {
   BadgeCheck,
   Building2,
-  BriefcaseBusiness,
   Clock3,
   Mail,
   Shield,
@@ -19,148 +18,130 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
     .slice(0, 2)
     .toUpperCase();
 
+  const role = user.role || "employee";
+
   return (
     <div
-      className="overflow-hidden rounded-[24px]"
+      className="rounded-2xl overflow-hidden"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border2)",
       }}
     >
-      <div className="grid grid-cols-1 gap-6 p-5 sm:p-6 lg:grid-cols-[auto_1fr_auto] lg:items-center">
-        {/* Avatar Block */}
-        <div className="flex items-center gap-4 lg:block">
-          <div
-            className="flex h-20 w-20 shrink-0 items-center justify-center rounded-[24px] text-2xl font-bold shadow-sm"
-            style={{
-              background:
-                "linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 65%, #ffffff 35%))",
-              color: "#ffffff",
-              border: "1px solid color-mix(in srgb, var(--accent) 55%, transparent 45%)",
-            }}
-          >
-            {initials}
-          </div>
+      {/* Top accent strip */}
+      <div
+        style={{
+          height: 4,
+          background: "linear-gradient(90deg, var(--accent) 0%, var(--green) 100%)",
+        }}
+      />
 
-          <div className="lg:hidden">
-            <p
-              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--text3)" }}
-            >
-              Identity
-            </p>
-            <p
-              className="mt-1 text-base font-semibold"
-              style={{ color: "var(--text)" }}
-            >
-              {user.fullName || "Unnamed User"}
-            </p>
-          </div>
-        </div>
+      <div className="p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start gap-5">
 
-        {/* Main Info */}
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h2
-              className="hidden text-[28px] font-bold tracking-tight leading-tight lg:block"
-              style={{ color: "var(--text)" }}
-            >
-              {user.fullName || "Unnamed User"}
-            </h2>
-
+          {/* ── Avatar ── */}
+          <div className="relative shrink-0">
             <div
-              className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold"
+              className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold"
               style={{
-                background: "rgba(34,197,94,0.10)",
-                color: "var(--green)",
-                border: "1px solid rgba(34,197,94,0.18)",
+                background: "linear-gradient(135deg, var(--accent) 0%, rgba(124,110,243,0.5) 100%)",
+                color: "#fff",
+                border: "2px solid rgba(124,110,243,0.3)",
+                boxShadow: "0 8px 32px rgba(124,110,243,0.25)",
               }}
             >
-              <BadgeCheck className="h-3.5 w-3.5" />
-              Active Account
+              {initials}
             </div>
-          </div>
-
-          <p
-            className="mt-2 text-sm leading-6"
-            style={{ color: "var(--text3)" }}
-          >
-            Your account details and working preferences are shown here for quick access.
-          </p>
-
-          {/* Info Grid */}
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <InfoChip
-              icon={<Mail className="h-4 w-4" />}
-              label="Email"
-              value={user.email || "—"}
-            />
-
-            <InfoChip
-              icon={<Building2 className="h-4 w-4" />}
-              label="Company"
-              value={user.companyName || "Not set"}
-            />
-
-            <InfoChip
-              icon={<Clock3 className="h-4 w-4" />}
-              label="Default Hours"
-              value={`${user.defaultWorkHours ?? 8.5} hrs/day`}
-            />
-
-            <InfoChip
-              icon={<Shield className="h-4 w-4" />}
-              label="Role"
-              value={`${user.role || "employee"} account`}
-            />
-          </div>
-        </div>
-
-        {/* Right Meta Panel */}
-        <div
-          className="rounded-[22px] p-4 sm:p-5 lg:min-w-[220px]"
-          style={{
-            background: "var(--surface2)",
-            border: "1px solid var(--border2)",
-          }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p
-                className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                style={{ color: "var(--text3)" }}
-              >
-                Account Status
-              </p>
-
-              <p
-                className="mt-2 text-base font-semibold"
-                style={{ color: "var(--text)" }}
-              >
-                Healthy & Ready
-              </p>
-
-              <p
-                className="mt-1 text-sm leading-6"
-                style={{ color: "var(--text3)" }}
-              >
-                Your profile is active and available across HourBit.
-              </p>
-            </div>
-
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-2xl"
+            {/* Online dot */}
+            <span
+              className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2"
               style={{
-                background: "rgba(124,110,243,0.10)",
-                border: "1px solid rgba(124,110,243,0.16)",
+                background: "var(--green)",
+                borderColor: "var(--surface)",
               }}
-            >
-              <BriefcaseBusiness
-                className="h-4.5 w-4.5"
-                style={{ color: "var(--accent)" }}
+            />
+          </div>
+
+          {/* ── Identity ── */}
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h2 className="text-xl font-bold truncate" style={{ color: "var(--text)" }}>
+                {user.fullName || "Unnamed User"}
+              </h2>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                style={{
+                  background: "rgba(34,211,160,0.10)",
+                  color: "var(--green)",
+                  border: "1px solid rgba(34,211,160,0.22)",
+                }}
+              >
+                <BadgeCheck className="w-3 h-3" />
+                Active
+              </span>
+            </div>
+
+            <p className="text-sm mb-4" style={{ color: "var(--text3)" }}>
+              {user.email}
+            </p>
+
+            {/* ── Info chips grid ── */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <InfoChip
+                icon={<Mail className="w-3.5 h-3.5" />}
+                label="Email"
+                value={user.email || "—"}
+                color="var(--accent)"
+                bg="rgba(124,110,243,0.10)"
+              />
+              <InfoChip
+                icon={<Building2 className="w-3.5 h-3.5" />}
+                label="Company"
+                value={user.companyName || "Not set"}
+                color="#60a5fa"
+                bg="rgba(96,165,250,0.10)"
+              />
+              <InfoChip
+                icon={<Clock3 className="w-3.5 h-3.5" />}
+                label="Daily Target"
+                value={`${user.defaultWorkHours ?? 8.5} hrs`}
+                color="var(--green)"
+                bg="rgba(34,211,160,0.10)"
+              />
+              <InfoChip
+                icon={<Shield className="w-3.5 h-3.5" />}
+                label="Role"
+                value={role.charAt(0).toUpperCase() + role.slice(1)}
+                color="var(--amber)"
+                bg="rgba(245,158,11,0.10)"
               />
             </div>
           </div>
+
+          {/* ── Status pill (desktop right) ── */}
+          <div
+            className="hidden lg:flex flex-col items-end gap-2 shrink-0"
+          >
+            <div
+              className="rounded-xl px-4 py-3 text-right"
+              style={{
+                background: "var(--surface2)",
+                border: "1px solid var(--border2)",
+                minWidth: 160,
+              }}
+            >
+              <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text4)" }}>
+                Status
+              </p>
+              <p className="text-sm font-semibold" style={{ color: "var(--green)" }}>
+                Healthy & Ready
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text3)" }}>
+                All systems normal
+              </p>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -171,47 +152,36 @@ function InfoChip({
   icon,
   label,
   value,
+  color,
+  bg,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  color: string;
+  bg: string;
 }) {
   return (
     <div
-      className="rounded-[18px] px-4 py-3"
+      className="rounded-xl px-3 py-2.5 flex items-center gap-2.5"
       style={{
         background: "var(--surface2)",
         border: "1px solid var(--border2)",
       }}
     >
-      <div className="flex items-start gap-3">
-        <div
-          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl"
-          style={{
-            background: "rgba(124,110,243,0.10)",
-            border: "1px solid rgba(124,110,243,0.14)",
-            color: "var(--accent)",
-          }}
-        >
-          {icon}
-        </div>
-
-        <div className="min-w-0">
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-            style={{ color: "var(--text3)" }}
-          >
-            {label}
-          </p>
-
-          <p
-            className="mt-1 truncate text-sm font-semibold"
-            style={{ color: "var(--text)" }}
-            title={value}
-          >
-            {value}
-          </p>
-        </div>
+      <div
+        className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+        style={{ background: bg, color }}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
+          {label}
+        </p>
+        <p className="text-xs font-semibold truncate mt-0.5" style={{ color: "var(--text)" }} title={value}>
+          {value}
+        </p>
       </div>
     </div>
   );
