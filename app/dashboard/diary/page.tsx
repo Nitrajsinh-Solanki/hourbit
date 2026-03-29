@@ -1,7 +1,16 @@
 "use client";
 // app/dashboard/diary/page.tsx
+// FIXES:
+// 1. Date shown twice — replaced dual responsive spans with single JS-based format
+// 2. Dark mode — MutationObserver watches document.documentElement for .dark class
+// 3. Wrong placeholder — differentiated between no-entry vs locked-empty vs editable
+// 4. Search bar — cleaner layout, better UX, no layout shift
+// 5. Nav cooldown — removed seconds display, cleaner disabled state
+// 6. General UX — cleaned up cluttered toolbar, better status messages
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState, useEffect, useRef, useCallback, useMemo,
+} from "react";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -18,7 +27,7 @@ interface DiaryEntry {
   deleteCount: number;
 }
 interface DiaryHeading { text: string; isDefault: boolean; }
-interface SearchResult { date: string; snippet: string; }
+interface SearchResult  { date: string; snippet: string; }
 
 const MOODS = [
   { key: "happy",      emoji: "🙂", label: "Happy"      },
@@ -32,175 +41,197 @@ const MOODS = [
 ];
 
 const INK_COLORS = [
-  { hex: "#1c1410", label: "Ink Black"    },
-  { hex: "#1d4ed8", label: "Royal Blue"   },
-  { hex: "#b91c1c", label: "Crimson"      },
-  { hex: "#166534", label: "Forest Green" },
-  { hex: "#6d28d9", label: "Violet"       },
-  { hex: "#92400e", label: "Sepia"        },
-  { hex: "#4b5563", label: "Storm Gray"   },
-  { hex: "#0e7490", label: "Teal"         },
+  { hex: "#1c1410", label: "Ink Black"  },
+  { hex: "#1d4ed8", label: "Royal Blue" },
+  { hex: "#b91c1c", label: "Crimson"    },
+  { hex: "#166534", label: "Forest"     },
+  { hex: "#6d28d9", label: "Violet"     },
+  { hex: "#92400e", label: "Sepia"      },
+  { hex: "#4b5563", label: "Gray"       },
+  { hex: "#0e7490", label: "Teal"       },
 ];
 
 const MAX_CHARS       = 1500;
 const MAX_DELETES     = 3;
 const MAX_HEADINGS    = 5;
-const NAV_COOLDOWN_MS = 5000;
+const NAV_COOLDOWN_MS = 4000;
 
 // ─────────────────────────────────────────────────────────────
-// DATE UTILS
+// DATE UTILS  —  all in UTC to avoid timezone drift
 // ─────────────────────────────────────────────────────────────
-function todayStr() {
+function todayStr(): string {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  return (
+    d.getFullYear() +
+    "-" + String(d.getMonth() + 1).padStart(2, "0") +
+    "-" + String(d.getDate()).padStart(2, "0")
+  );
 }
-function dateToStr(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+function strToUTC(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
 }
-function strToDate(s: string) { return new Date(s + "T00:00:00.000Z"); }
-function isFuture(s: string)  { return strToDate(s) > strToDate(todayStr()); }
-function addDays(s: string, n: number) {
-  const d = strToDate(s); d.setUTCDate(d.getUTCDate() + n); return dateToStr(d);
+function dateToStr(d: Date): string {
+  return (
+    d.getUTCFullYear() +
+    "-" + String(d.getUTCMonth() + 1).padStart(2, "0") +
+    "-" + String(d.getUTCDate()).padStart(2, "0")
+  );
 }
-function fmtLong(s: string) {
-  return strToDate(s).toLocaleDateString("en-IN", {
-    weekday:"long", day:"numeric", month:"long", year:"numeric", timeZone:"UTC",
+function isFuture(s: string): boolean {
+  return strToUTC(s) > strToUTC(todayStr());
+}
+function addDays(s: string, n: number): string {
+  const d = strToUTC(s);
+  d.setUTCDate(d.getUTCDate() + n);
+  return dateToStr(d);
+}
+function fmtFull(s: string): string {
+  return strToUTC(s).toLocaleDateString("en-IN", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
   });
 }
-function fmtLongMobile(s: string) {
-  return strToDate(s).toLocaleDateString("en-IN", {
-    weekday:"short", day:"numeric", month:"short", year:"numeric", timeZone:"UTC",
+function fmtMed(s: string): string {
+  return strToUTC(s).toLocaleDateString("en-IN", {
+    weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
   });
 }
-function fmtShort(s: string) {
-  return strToDate(s).toLocaleDateString("en-IN", {
-    day:"2-digit", month:"short", year:"numeric", timeZone:"UTC",
+function fmtShort(s: string): string {
+  return strToUTC(s).toLocaleDateString("en-IN", {
+    day: "2-digit", month: "short", year: "numeric", timeZone: "UTC",
   });
 }
 
 // ─────────────────────────────────────────────────────────────
-// API HELPERS — NO CACHING, always fresh
+// API HELPERS
 // ─────────────────────────────────────────────────────────────
+const NC: RequestInit = {
+  cache: "no-store",
+  headers: { "Cache-Control": "no-cache, no-store", Pragma: "no-cache" },
+};
+
 async function apiFetch(date: string): Promise<DiaryEntry | null> {
-  const r = await fetch(`/api/diary/entry?date=${date}`, {
-    cache: "no-store",
-    headers: { "Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache" },
-  });
-  if (!r.ok) return null;
-  const { entry } = await r.json();
-  return entry ?? null;
+  try {
+    const r = await fetch(`/api/diary/entry?date=${date}`, NC);
+    if (!r.ok) return null;
+    const { entry } = await r.json();
+    return entry ?? null;
+  } catch { return null; }
 }
-
 async function apiCreate(p: object): Promise<DiaryEntry | null> {
-  const r = await fetch("/api/diary/entry", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
-    body: JSON.stringify(p),
-  });
-  if (!r.ok) return null;
-  return (await r.json()).entry ?? null;
+  try {
+    const r = await fetch("/api/diary/entry", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
+    });
+    if (!r.ok) return null;
+    return (await r.json()).entry ?? null;
+  } catch { return null; }
 }
-
 async function apiPatch(p: object): Promise<DiaryEntry | null> {
-  const r = await fetch("/api/diary/entry", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
-    body: JSON.stringify(p),
-  });
-  if (!r.ok) return null;
-  return (await r.json()).entry ?? null;
+  try {
+    const r = await fetch("/api/diary/entry", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
+    });
+    if (!r.ok) return null;
+    return (await r.json()).entry ?? null;
+  } catch { return null; }
 }
-
-async function apiDelete(date: string) {
-  const r = await fetch("/api/diary/entry", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
-    body: JSON.stringify({ date }),
-  });
-  const data = await r.json();
-  if (!r.ok) return data;
-  return data;
+async function apiDeleteEntry(date: string) {
+  try {
+    const r = await fetch("/api/diary/entry", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date }),
+    });
+    return await r.json();
+  } catch { return null; }
 }
 
 // ─────────────────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────────────────
 export default function DiaryPage() {
-  const getTODAY   = () => todayStr();
-  const NINETY_AGO = addDays(getTODAY(), -90);
+  const NINETY_AGO = addDays(todayStr(), -90);
 
-  // Core state
-  const [currentDate, setCurrentDate] = useState(getTODAY);
-  const [entry, setEntry]             = useState<DiaryEntry | null>(null);
-  const [heading, setHeading]         = useState("");
-  const [mood, setMood]               = useState<string | null>(null);
-  const [charCount, setCharCount]     = useState(0);
-  const [loading, setLoading]         = useState(true);
-  const [saving, setSaving]           = useState(false);
-  const [saveMsg, setSaveMsg]         = useState("");
+  // ── Core state ───────────────────────────────────────────────
+  const [currentDate, setCurrentDate] = useState<string>(todayStr);
+  const [entry,       setEntry]       = useState<DiaryEntry | null>(null);
+  const [heading,     setHeading]     = useState("");
+  const [mood,        setMood]        = useState<string | null>(null);
+  const [charCount,   setCharCount]   = useState(0);
+  const [loading,     setLoading]     = useState(true);
+  const [saving,      setSaving]      = useState(false);
+  const [saveMsg,     setSaveMsg]     = useState("");
 
-  // Dirty tracking
-  const isDirtyRef    = useRef(false);
-  const isNewEntryRef = useRef(true);
-  const lastSavedHtml = useRef("");
-  const headingsRef   = useRef<DiaryHeading[]>([]);
+  // ── FIX #2: Dark mode detection via MutationObserver ─────────
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
 
-  // Navigation epoch — discard stale responses
-  const navEpochRef   = useRef(0);
-  const currentDateRef = useRef(currentDate);
-  useEffect(() => { currentDateRef.current = currentDate; }, [currentDate]);
+  // ── FIX #1: Screen-width state for date format ────────────────
+  const [isWide, setIsWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    setIsWide(mq.matches);
+    const h = (e: MediaQueryListEvent) => setIsWide(e.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
 
-  // Navigation state
-  const [navCooldown, setNavCooldown] = useState(false);
-  const [navSecs, setNavSecs]         = useState(0);
-  const [isFlipping, setIsFlipping]   = useState(false);
-  const [flipDir, setFlipDir]         = useState<"left"|"right"|null>(null);
-
-  // Pages / meta
-  const [allDates, setAllDates]     = useState<string[]>([]);
-  const [totalPages, setTotalPages] = useState(0);
-  const [jumpInput, setJumpInput]   = useState("");
-
-  // Calendar
-  const [showCal, setShowCal] = useState(false);
-  const [calView, setCalView] = useState({
-    year: new Date().getFullYear(), month: new Date().getMonth(),
-  });
-
-  // Headings
-  const [headings, setHeadings]             = useState<DiaryHeading[]>([]);
-  const [showHeadingPicker, setShowHPicker] = useState(false);
-  const [showSettingsModal, setShowSettings]= useState(false);
-  const [newHeadingText, setNewHText]       = useState("");
-
-  // Search
-  const [searchQuery, setSearchQuery]   = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchState, setSearchState]   = useState<"idle"|"searching"|"done">("idle");
-  const [showSearch, setShowSearch]     = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  // ── Refs ─────────────────────────────────────────────────────
+  const editorRef      = useRef<HTMLDivElement>(null);
+  const calRef         = useRef<HTMLDivElement>(null);
+  const inkRef         = useRef<HTMLDivElement>(null);
   const searchBoxRef   = useRef<HTMLDivElement>(null);
+  const cooldownRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSaveRef    = useRef<ReturnType<typeof setTimeout>  | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>  | null>(null);
+  const epochRef       = useRef(0);
+  const isDirtyRef     = useRef(false);
+  const isNewEntryRef  = useRef(true);
+  const lastSavedHtml  = useRef("");
+  const headingsRef    = useRef<DiaryHeading[]>([]);
 
-  // Delete
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeleting, setIsDeleting]               = useState(false);
-  const [deleteMsg, setDeleteMsg]                 = useState("");
+  // ── Animation state ──────────────────────────────────────────
+  const [animClass,   setAnimClass]   = useState("");
+  const [navCooldown, setNavCooldown] = useState(false);
 
-  // Ink popover
+  // ── Pages / meta ─────────────────────────────────────────────
+  const [allDates,   setAllDates]   = useState<string[]>([]);
+  const [totalPages, setTotalPages] = useState(0);
+  const [jumpInput,  setJumpInput]  = useState("");
+
+  // ── Calendar ─────────────────────────────────────────────────
+  const [showCal,  setShowCal]  = useState(false);
+  const [calYear,  setCalYear]  = useState(() => new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
+
+  // ── Headings ─────────────────────────────────────────────────
+  const [headings,      setHeadings]     = useState<DiaryHeading[]>([]);
+  const [showHPicker,   setShowHPicker]  = useState(false);
+  const [showSettings,  setShowSettings] = useState(false);
+  const [newHeadingText,setNewHText]     = useState("");
+
+  // ── Search ───────────────────────────────────────────────────
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchState,   setSearchState]   = useState<"idle" | "searching" | "done">("idle");
+  const [showSearch,    setShowSearch]    = useState(false);
+  const [showMobSearch, setShowMobSearch] = useState(false);
+
+  // ── Delete ───────────────────────────────────────────────────
+  const [showDelConfirm,setShowDelConfirm]= useState(false);
+  const [isDeleting,    setIsDeleting]    = useState(false);
+  const [deleteMsg,     setDeleteMsg]     = useState("");
+
+  // ── Ink ──────────────────────────────────────────────────────
   const [showInkPicker, setShowInkPicker] = useState(false);
-  const [customInk, setCustomInk]         = useState("#8b0000");
-  const inkRef = useRef<HTMLDivElement>(null);
+  const [customInk,     setCustomInk]     = useState("#8b0000");
 
-  // Mobile search toggle
-  const [showMobileSearch, setShowMobileSearch] = useState(false);
-
-  // Refs
-  const editorRef   = useRef<HTMLDivElement>(null);
-  const cooldownRef = useRef<ReturnType<typeof setInterval>|null>(null);
-  const autoSaveRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const calRef      = useRef<HTMLDivElement>(null);
-
-  // Derived
+  // ── Derived ──────────────────────────────────────────────────
   const isLocked      = entry?.isLocked ?? false;
   const editsLeft     = 5 - (entry?.editCount ?? 0);
   const canEdit       = !isFuture(currentDate) && currentDate >= NINETY_AGO && !isLocked;
@@ -208,7 +239,9 @@ export default function DiaryPage() {
   const deleteCount   = entry?.deleteCount ?? 0;
   const deletesLeft   = MAX_DELETES - deleteCount;
   const canDeleteBase = !isFuture(currentDate) && currentDate >= NINETY_AGO;
-  const canDelete     = canDeleteBase && !!entry && !!(entry.content?.trim() || entry.heading?.trim() || entry.mood) && deletesLeft > 0;
+  const canDelete     = canDeleteBase && !!entry &&
+    !!(entry.content?.trim() || entry.heading?.trim() || entry.mood) &&
+    deletesLeft > 0;
   const deleteMaxed   = deleteCount >= MAX_DELETES;
 
   const currentPageIndex = useMemo(() => {
@@ -216,34 +249,35 @@ export default function DiaryPage() {
     return i === -1 ? allDates.length : i;
   }, [allDates, currentDate]);
 
-  // ── Outside-click handlers ───────────────────────────────────
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      if (calRef.current && !calRef.current.contains(e.target as Node)) setShowCal(false);
-      if (inkRef.current && !inkRef.current.contains(e.target as Node)) setShowInkPicker(false);
-      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) setShowSearch(false);
-    }
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
+  const displayTotal = Math.max(totalPages, allDates.length, currentPageIndex + 1);
 
+  // ── Outside-click / Escape ────────────────────────────────────
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
+    const onDown = (e: MouseEvent) => {
+      if (calRef.current       && !calRef.current.contains(e.target as Node))       setShowCal(false);
+      if (inkRef.current       && !inkRef.current.contains(e.target as Node))       setShowInkPicker(false);
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) setShowSearch(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setShowSearch(false); setShowInkPicker(false);
-        setShowMobileSearch(false);
+        setShowMobSearch(false); setShowCal(false);
       }
-    }
+    };
+    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
 
-  // ── Mount: load meta + settings ─────────────────────────────
+  // ── Mount: meta + settings ────────────────────────────────────
   useEffect(() => {
     (async () => {
       const [mr, sr] = await Promise.all([
-        fetch("/api/diary/meta", { cache: "no-store" }),
-        fetch("/api/diary/settings", { cache: "no-store" }),
+        fetch("/api/diary/meta",     NC),
+        fetch("/api/diary/settings", NC),
       ]);
       if (mr.ok) {
         const { dates, totalPages: tp } = await mr.json();
@@ -256,7 +290,7 @@ export default function DiaryPage() {
         setHeadings(hs);
         headingsRef.current = hs;
         const def = hs.find((h: DiaryHeading) => h.isDefault);
-        if (def) setHeading(def.text);
+        if (def) setHeading(prev => prev || def.text);
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -264,49 +298,55 @@ export default function DiaryPage() {
 
   useEffect(() => { headingsRef.current = headings; }, [headings]);
 
-  // ── Load page whenever currentDate changes ───────────────────
+  // ── SAFETY NET: re-sync editor content after loading completes ──
+  // Even though editor is always in DOM now, this catches any edge case
+  // where React reconciliation might clear innerHTML on attribute change.
   useEffect(() => {
-    if (autoSaveRef.current) {
-      clearTimeout(autoSaveRef.current);
-      autoSaveRef.current = null;
+    if (!loading && editorRef.current) {
+      const expected = entry?.content ?? "";
+      if (editorRef.current.innerHTML !== expected) {
+        editorRef.current.innerHTML = expected;
+        setCharCount(editorRef.current.innerText.replace(/\n/g, "").length);
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  // ── Fetch on date change ──────────────────────────────────────
+  useEffect(() => {
+    if (autoSaveRef.current) { clearTimeout(autoSaveRef.current); autoSaveRef.current = null; }
     isDirtyRef.current = false;
-    loadPage(currentDate);
+
+    setLoading(true);
+    setEntry(null);
+    setMood(null);
+    setCharCount(0);
+    setDeleteMsg("");
     setShowCal(false);
     setShowHPicker(false);
-    setShowDeleteConfirm(false);
-    setDeleteMsg("");
+    setShowDelConfirm(false);
+    if (editorRef.current) editorRef.current.innerHTML = "";
+
+    const myEpoch = ++epochRef.current;
+
+    apiFetch(currentDate).then(fetched => {
+      if (epochRef.current !== myEpoch) return;
+      applyEntry(fetched);
+      setLoading(false);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDate]);
 
-  // ── loadPage — always fetches fresh, no cache ────────────────
-  async function loadPage(date: string) {
-    navEpochRef.current += 1;
-    const myEpoch = navEpochRef.current;
-    setLoading(true);
-
-    // Always fresh — no cache used
-    const e = await apiFetch(date);
-
-    // Discard stale responses
-    if (navEpochRef.current !== myEpoch) return;
-    if (currentDateRef.current !== date) return;
-
-    applyEntry(e);
-    setLoading(false);
-  }
-
+  // ── applyEntry ────────────────────────────────────────────────
   function applyEntry(e: DiaryEntry | null) {
     setEntry(e);
     setMood(e?.mood ?? null);
-
     if (e?.heading) {
       setHeading(e.heading);
     } else {
       const def = headingsRef.current.find(h => h.isDefault);
       setHeading(def?.text ?? "");
     }
-
     const html = e?.content ?? "";
     if (editorRef.current) {
       editorRef.current.innerHTML = html;
@@ -317,43 +357,27 @@ export default function DiaryPage() {
     isDirtyRef.current    = false;
   }
 
-  function reloadCurrentPage() {
-    if (autoSaveRef.current) { clearTimeout(autoSaveRef.current); autoSaveRef.current = null; }
-    isDirtyRef.current = false;
-    loadPage(currentDate);
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // SAVE LOGIC
-  // ─────────────────────────────────────────────────────────────
+  // ── Save ──────────────────────────────────────────────────────
   const performSave = useCallback(async (date: string, isManual: boolean) => {
     if (!editorRef.current) return;
-
-    const html           = editorRef.current.innerHTML;
-    const currentHeading = heading;
-    const currentMood    = mood;
-
-    const isEmpty = !html.trim() && !currentMood && !currentHeading;
-    if (isEmpty) return;
-    if (entry?.isLocked) return;
+    const html    = editorRef.current.innerHTML;
+    const hdg     = heading;
+    const moodVal = mood;
+    if ((!html.trim() && !moodVal && !hdg) || entry?.isLocked) return;
     if (!isManual && html === lastSavedHtml.current && !isNewEntryRef.current) return;
 
     setSaving(true);
     let saved: DiaryEntry | null = null;
 
     if (isNewEntryRef.current) {
-      saved = await apiCreate({
-        date, content: html, heading: currentHeading, textColor: "black", mood: currentMood,
-      });
+      saved = await apiCreate({ date, content: html, heading: hdg, textColor: "black", mood: moodVal });
       if (saved) {
         isNewEntryRef.current = false;
         setAllDates(prev => prev.includes(date) ? prev : [...prev, date].sort());
         setTotalPages(p => p + 1);
       }
     } else {
-      saved = await apiPatch({
-        date, content: html, heading: currentHeading, mood: currentMood, incrementEdit: isManual,
-      });
+      saved = await apiPatch({ date, content: html, heading: hdg, mood: moodVal, incrementEdit: isManual });
     }
 
     setSaving(false);
@@ -368,12 +392,12 @@ export default function DiaryPage() {
   function triggerAutoSave() {
     isDirtyRef.current = true;
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
-    autoSaveRef.current = setTimeout(() => performSave(currentDate, false), 4000);
+    autoSaveRef.current = setTimeout(() => performSave(currentDate, false), 3500);
   }
 
   function handleManualSave() { performSave(currentDate, true); }
 
-  // ── Editor ───────────────────────────────────────────────────
+  // ── Editor ────────────────────────────────────────────────────
   function handleInput() {
     if (!editorRef.current) return;
     const len = editorRef.current.innerText.replace(/\n/g, "").length;
@@ -395,11 +419,8 @@ export default function DiaryPage() {
     triggerAutoSave();
   }
 
-  // ── Formatting ───────────────────────────────────────────────
-  function fmt(cmd: string) {
-    editorRef.current?.focus();
-    document.execCommand(cmd, false, undefined);
-  }
+  // ── Formatting ────────────────────────────────────────────────
+  function fmt(cmd: string) { editorRef.current?.focus(); document.execCommand(cmd); }
   function applyInk(hex: string) {
     editorRef.current?.focus();
     document.execCommand("foreColor", false, hex);
@@ -407,102 +428,73 @@ export default function DiaryPage() {
     triggerAutoSave();
   }
 
-  // ── Navigation ───────────────────────────────────────────────
+  // ── Cooldown ──────────────────────────────────────────────────
   function startCooldown() {
     setNavCooldown(true);
-    let s = NAV_COOLDOWN_MS / 1000;
-    setNavSecs(s);
     if (cooldownRef.current) clearInterval(cooldownRef.current);
-    cooldownRef.current = setInterval(() => {
-      s -= 1; setNavSecs(s);
-      if (s <= 0) {
-        clearInterval(cooldownRef.current!);
-        setNavCooldown(false);
-        setNavSecs(0);
-      }
-    }, 1000);
+    // FIX #5: No more seconds countdown display — just a clean disabled state
+    cooldownRef.current = setTimeout(() => {
+      setNavCooldown(false);
+    }, NAV_COOLDOWN_MS);
   }
 
-  function navigateTo(date: string, flip?: "left" | "right") {
-    if (isFuture(date)) return;
-
-    if (autoSaveRef.current) {
-      clearTimeout(autoSaveRef.current);
-      autoSaveRef.current = null;
+  // ── Flush dirty before leaving ────────────────────────────────
+  function flushDirty(date: string) {
+    if (!isDirtyRef.current || isNewEntryRef.current) return;
+    if (autoSaveRef.current) { clearTimeout(autoSaveRef.current); autoSaveRef.current = null; }
+    const html = editorRef.current?.innerHTML ?? "";
+    if (html.trim() || mood || heading) {
+      apiPatch({ date, content: html, heading, mood, incrementEdit: false });
     }
+    isDirtyRef.current = false;
+  }
 
-    // Save departing page if dirty and moving to a different date
-    if (isDirtyRef.current && date !== currentDate && !isNewEntryRef.current) {
-      const departingDate = currentDate;
-      const departingHtml = editorRef.current?.innerHTML ?? "";
-      const departingHdg  = heading;
-      const departingMood = mood;
-      if (departingHtml.trim() || departingMood || departingHdg) {
-        apiPatch({
-          date: departingDate,
-          content: departingHtml,
-          heading: departingHdg,
-          mood: departingMood,
-          incrementEdit: false,
-        });
-      }
-      isDirtyRef.current = false;
-    }
+  // ── Navigation ────────────────────────────────────────────────
+  function navigateTo(target: string, dir?: "left" | "right") {
+    if (target === currentDate || isFuture(target)) return;
+    flushDirty(currentDate);
 
-    if (date === currentDate) {
-      reloadCurrentPage();
-      return;
-    }
-
-    if (flip) {
-      if (navCooldown || isFlipping) return;
-      setFlipDir(flip);
-      setIsFlipping(true);
-      setTimeout(() => {
-        currentDateRef.current = date;
-        setCurrentDate(date);
-        setIsFlipping(false);
-        setFlipDir(null);
-      }, 300);
+    if (dir) {
       startCooldown();
+      setAnimClass(dir === "right" ? "flip-out-right" : "flip-out-left");
+      setTimeout(() => {
+        setCurrentDate(target);
+        setAnimClass(dir === "right" ? "flip-in-right" : "flip-in-left");
+        setTimeout(() => setAnimClass(""), 280);
+      }, 250);
     } else {
-      currentDateRef.current = date;
-      setCurrentDate(date);
+      setCurrentDate(target);
     }
   }
 
   function goPrev() {
-    const today  = getTODAY();
-    const ninety = addDays(today, -90);
-    const idx    = allDates.indexOf(currentDate);
-    if (idx > 0) { navigateTo(allDates[idx - 1], "left"); return; }
-    const p = addDays(currentDate, -1);
-    if (p >= ninety) navigateTo(p, "left");
+    if (navCooldown) return;
+    const prev = addDays(currentDate, -1);
+    if (prev >= NINETY_AGO) navigateTo(prev, "left");
   }
 
   function goNext() {
-    const n = addDays(currentDate, 1);
-    if (!isFuture(n)) navigateTo(n, "right");
+    if (navCooldown) return;
+    const next = addDays(currentDate, 1);
+    if (!isFuture(next)) navigateTo(next, "right");
   }
 
   function jumpTo() {
     const n = parseInt(jumpInput, 10);
     if (isNaN(n) || n < 1 || n > allDates.length) return;
     const d = allDates[n - 1];
-    if (!isFuture(d)) { navigateTo(d); setJumpInput(""); }
+    if (d && !isFuture(d)) { navigateTo(d); setJumpInput(""); }
   }
 
-  // ── Search ───────────────────────────────────────────────────
+  // ── Search ────────────────────────────────────────────────────
   function handleSearch(q: string) {
     setSearchQuery(q);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!q.trim() || q.length < 2) {
-      setSearchResults([]); setSearchState("idle"); return;
-    }
+    if (!q.trim() || q.length < 2) { setSearchResults([]); setSearchState("idle"); return; }
     setSearchState("searching");
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/diary/search?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        const res = await fetch(`/api/diary/search?q=${encodeURIComponent(q)}`, NC);
         if (!res.ok) { setSearchState("done"); return; }
         const { results } = await res.json();
         setSearchResults((results ?? []).slice(0, 5));
@@ -513,10 +505,10 @@ export default function DiaryPage() {
 
   function clearSearch() {
     setSearchQuery(""); setSearchResults([]); setSearchState("idle");
-    setShowSearch(false); setShowMobileSearch(false);
+    setShowSearch(false); setShowMobSearch(false);
   }
 
-  // ── Settings / Headings ─────────────────────────────────────
+  // ── Headings ──────────────────────────────────────────────────
   async function persistHeadings(updated: DiaryHeading[]) {
     setHeadings(updated);
     headingsRef.current = updated;
@@ -526,67 +518,66 @@ export default function DiaryPage() {
     });
   }
 
-  // ── Delete content ───────────────────────────────────────────
+  // ── Delete ────────────────────────────────────────────────────
   async function handleDeleteContent() {
     if (!canDelete || isDeleting) return;
     setIsDeleting(true);
-    setShowDeleteConfirm(false);
+    setShowDelConfirm(false);
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
-
-    const result = await apiDelete(currentDate);
+    const result = await apiDeleteEntry(currentDate);
     setIsDeleting(false);
-
-    if (!result) {
-      setDeleteMsg("❌ Delete failed. Try again.");
-      setTimeout(() => setDeleteMsg(""), 3000);
-      return;
-    }
+    if (!result) { setDeleteMsg("❌ Delete failed."); setTimeout(() => setDeleteMsg(""), 3000); return; }
     if ("error" in result && result.error) {
       setDeleteMsg(result.deleteCount >= MAX_DELETES
-        ? "🚫 Delete limit reached for this date."
+        ? "🚫 Delete limit reached."
         : `❌ ${result.error}`);
       setTimeout(() => setDeleteMsg(""), 4000);
       return;
     }
-
-    const updatedEntry = result.entry as DiaryEntry;
-    applyEntry(updatedEntry);
-
+    applyEntry(result.entry as DiaryEntry);
     const left = result.deletesLeft as number;
-    setDeleteMsg(`🗑️ Deleted! ${left} delete${left !== 1 ? "s" : ""} left for this date.`);
+    setDeleteMsg(`🗑️ Cleared! ${left} delete${left !== 1 ? "s" : ""} left.`);
     setTimeout(() => setDeleteMsg(""), 4000);
   }
 
-  // ── Calendar cells ───────────────────────────────────────────
+  // ── Calendar rendering ────────────────────────────────────────
   function renderCal(): React.ReactElement[] {
-    const today   = getTODAY();
-    const ninety  = addDays(today, -90);
-    const { year, month } = calView;
-    const firstDay    = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const cells: React.ReactElement[] = [];
+    const today  = todayStr();
+    const ninety = addDays(today, -90);
+    const firstDOW    = new Date(calYear, calMonth, 1).getDay();
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
 
-    for (let i = 0; i < firstDay; i++) cells.push(<div key={`_${i}`} />);
+    const cells: React.ReactElement[] = [];
+    for (let i = 0; i < firstDOW; i++) cells.push(<div key={`_${i}`} />);
+
     for (let d = 1; d <= daysInMonth; d++) {
-      const ds  = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const ds  = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const cur = ds === currentDate;
       const tod = ds === today;
       const dis = isFuture(ds) || ds < ninety;
       const has = allDates.includes(ds);
+
       cells.push(
-        <button key={d} disabled={dis}
-          onClick={() => { if (!dis) navigateTo(ds); }}
+        <button
+          key={d}
+          disabled={dis}
+          onClick={() => { if (!dis) { navigateTo(ds); setShowCal(false); } }}
+          style={cur
+            ? { background: "var(--d-accent)", color: "#fff" }
+            : tod && !cur
+            ? { outline: "2px solid var(--d-accent)", outlineOffset: "1px" }
+            : undefined}
           className={[
             "relative flex items-center justify-center w-8 h-8 rounded-full text-xs font-medium transition-all select-none",
-            dis
-              ? "text-[#c8b89a] dark:text-[#5a4030] cursor-not-allowed"
-              : "hover:bg-[#e8d5b0] dark:hover:bg-[#3a2a18] cursor-pointer text-[#4a3520] dark:text-[#c4a882]",
-            cur ? "!bg-[#8b5e3c] !text-white shadow-md" : "",
-            tod && !cur ? "ring-2 ring-[#8b5e3c]" : "",
-          ].join(" ")}>
+            dis ? "opacity-25 cursor-not-allowed" : "cursor-pointer",
+            !dis && !cur ? "hover:bg-[var(--d-hover)]" : "",
+          ].join(" ")}
+          aria-label={ds}
+        >
           {d}
           {has && !cur && !dis && (
-            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#8b5e3c]" />
+            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+              style={{ background: "var(--d-accent)" }} />
           )}
         </button>
       );
@@ -594,7 +585,34 @@ export default function DiaryPage() {
     return cells;
   }
 
-  const displayTotal = Math.max(totalPages, currentPageIndex + 1);
+  function calPrevMonth() {
+    if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); }
+    else setCalMonth(m => m - 1);
+  }
+  function calNextMonth() {
+    if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); }
+    else setCalMonth(m => m + 1);
+  }
+
+  // ── Days-away label ───────────────────────────────────────────
+  function daysAway(): string {
+    const today = todayStr();
+    if (currentDate === today) return "✦ Today";
+    const diff = Math.round(
+      (strToUTC(today).getTime() - strToUTC(currentDate).getTime()) / 86_400_000
+    );
+    return diff > 0 ? `${diff} day${diff !== 1 ? "s" : ""} ago` : "Future";
+  }
+
+  // ── FIX #3: Correct placeholder text ─────────────────────────
+  function getPlaceholder(): string {
+    if (canEdit) return "Write your thoughts for today…";
+    if (entry) {
+      if (isLocked) return "This entry is locked — no further edits allowed.";
+      return "Nothing written for this date.";
+    }
+    return "No entry found for this date.";
+  }
 
   // ─────────────────────────────────────────────────────────────
   // RENDER
@@ -602,532 +620,413 @@ export default function DiaryPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&family=Playfair+Display:ital,wght@0,700;1,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Kalam:wght@300;400;700&display=swap');
 
-        /* ── Light mode base ── */
-        .diary-outer {
-          background: #f3ede3;
-          min-height: 100vh;
-        }
-        .dark .diary-outer {
-          background: #180f08;
+        /* ── CSS VARIABLES — light & dark via JS class ── */
+        .diary-root {
+          --d-bg:      #ede4d4;
+          --d-page:    #faf3e4;
+          --d-accent:  #8b5e3c;
+          --d-accent2: #6b4a2e;
+          --d-text:    #2c1a08;
+          --d-text2:   #4a3520;
+          --d-muted:   #a8896a;
+          --d-border:  #d4b896;
+          --d-border2: #c4a882;
+          --d-panel:   #fdf5e6;
+          --d-hover:   #eedabf;
+          --d-line:    #e2cca8;
+          --d-rule:    #ddc9a8;
+          --d-stamp:   #eedfc0;
+          --d-heading: #8b2500;
+          --d-spine1:  #6b3d1e;
+          --d-spine2:  #4a2810;
+          --d-modal:   #fdf5e6;
+          --d-shadow:  rgba(80,40,10,.18);
+          --d-shadow2: rgba(80,40,10,.32);
         }
 
-        /* ── Book card ── */
-        .diary-book {
-          background: #f5ead6;
+        /* FIX #2: Dark mode — toggled via isDark JS state → .diary-dark class */
+        .diary-root.diary-dark {
+          --d-bg:      #0d0804;
+          --d-page:    #181008;
+          --d-accent:  #c4895a;
+          --d-accent2: #a06a40;
+          --d-text:    #e8d5b0;
+          --d-text2:   #c4a882;
+          --d-muted:   #7a5a3a;
+          --d-border:  #3a2510;
+          --d-border2: #4a3020;
+          --d-panel:   #1c1208;
+          --d-hover:   #2a1a0e;
+          --d-line:    #261808;
+          --d-rule:    #2e1e0e;
+          --d-stamp:   #2a1a0e;
+          --d-heading: #d4845a;
+          --d-spine1:  #5c3414;
+          --d-spine2:  #3a2008;
+          --d-modal:   #1a1008;
+          --d-shadow:  rgba(0,0,0,.4);
+          --d-shadow2: rgba(0,0,0,.65);
+        }
+
+        .diary-root { background: var(--d-bg); min-height: 100vh; transition: background .3s; }
+
+        .d-book {
+          background: var(--d-page);
+          border-radius: 16px; overflow: hidden;
           box-shadow:
-            0 0 0 1px #c4a882,
-            4px 0 8px rgba(0,0,0,.12),
-            0 20px 60px rgba(80,40,10,.25),
-            inset 0 1px 0 rgba(255,255,255,.6);
-        }
-        .dark .diary-book {
-          background: #1e1408;
-          box-shadow:
-            0 0 0 1px #5a3c20,
-            4px 0 8px rgba(0,0,0,.5),
-            0 20px 60px rgba(0,0,0,.6),
-            inset 0 1px 0 rgba(255,255,255,.04);
+            0 0 0 1px var(--d-border2),
+            5px 0 12px var(--d-shadow),
+            0 20px 56px var(--d-shadow2),
+            inset 0 1px 0 rgba(255,255,255,.1);
+          transition: background .3s, box-shadow .3s;
         }
 
-        /* ── Spine ── */
-        .diary-spine {
-          background: linear-gradient(180deg,#7a4a20 0%,#5c3414 40%,#7a4a20 70%,#4a2810 100%);
-          box-shadow: inset -2px 0 4px rgba(0,0,0,.3), inset 2px 0 2px rgba(255,255,255,.1);
+        .d-spine {
+          background: linear-gradient(180deg, var(--d-spine1) 0%, var(--d-spine2) 40%, var(--d-spine1) 70%, var(--d-spine2) 100%);
+          box-shadow: inset -2px 0 4px rgba(0,0,0,.22), inset 2px 0 2px rgba(255,255,255,.07);
+          width: 20px; flex-shrink: 0;
+        }
+        @media(min-width:640px){ .d-spine { width: 26px; } }
+
+        .d-strip {
+          height: 9px;
+          background: linear-gradient(90deg, var(--d-spine2) 0%, var(--d-spine1) 25%, var(--d-accent) 55%, var(--d-spine1) 100%);
         }
 
-        /* ── Ruled lines ── */
-        .diary-lines {
+        .d-binding {
+          width: 5px; flex-shrink: 0;
+          background: linear-gradient(180deg, var(--d-border2) 0%, var(--d-rule) 50%, var(--d-border2) 100%);
+        }
+
+        .d-ruled {
           background-image: repeating-linear-gradient(
-            transparent 0px, transparent 29px, #d4b896 29px, #d4b896 30px
+            transparent 0px, transparent 29px, var(--d-line) 29px, var(--d-line) 30px
           );
         }
-        .dark .diary-lines {
-          background-image: repeating-linear-gradient(
-            transparent 0px, transparent 29px, #3a2510 29px, #3a2510 30px
-          );
-        }
-        @media (max-width: 480px) {
-          .diary-lines {
+        @media(max-width:480px){
+          .d-ruled {
             background-image: repeating-linear-gradient(
-              transparent 0px, transparent 24px, #d4b896 24px, #d4b896 25px
-            );
-          }
-          .dark .diary-lines {
-            background-image: repeating-linear-gradient(
-              transparent 0px, transparent 24px, #3a2510 24px, #3a2510 25px
+              transparent 0px, transparent 24px, var(--d-line) 24px, var(--d-line) 25px
             );
           }
         }
 
-        /* ── Editor ── */
-        .diary-editor {
-          font-family: 'Kalam', 'Caveat', cursive;
-          font-size: 16px;
-          font-weight: 400;
-          line-height: 30px;
-          color: #1c0f00;
-          caret-color: #8b5e3c;
-          outline: none;
-          background: transparent;
-          word-break: break-word;
-          white-space: pre-wrap;
-          letter-spacing: 0.01em;
-          min-height: 390px;
-          padding: 4px 4px 24px;
-          width: 100%;
-          box-sizing: border-box;
+        .d-editor {
+          font-family: 'Kalam', cursive;
+          font-size: 16px; font-weight: 400; line-height: 30px;
+          color: var(--d-text); caret-color: var(--d-accent);
+          outline: none; background: transparent;
+          word-break: break-word; white-space: pre-wrap; letter-spacing: .01em;
+          min-height: 360px; padding: 4px 4px 24px;
+          width: 100%; box-sizing: border-box; transition: color .3s;
         }
-        .dark .diary-editor {
-          color: #e8d5b0;
-          caret-color: #c4a882;
-        }
-        .diary-editor:empty::before {
+        .d-editor:empty::before {
           content: attr(data-placeholder);
-          color: #b8997a;
-          font-style: italic;
-          pointer-events: none;
-          font-family: 'Kalam', cursive;
+          color: var(--d-muted); font-style: italic; pointer-events: none;
         }
-        .dark .diary-editor:empty::before {
-          color: #6b5030;
-        }
+        @media(max-width:480px){ .d-editor { font-size: 14.5px; line-height: 25px; min-height: 300px; } }
 
-        @media (max-width: 480px) {
-          .diary-editor {
-            font-size: 14.5px;
-            line-height: 25px;
-            min-height: 320px;
-          }
-        }
+        .d-panel { background: var(--d-panel); border: 1px solid var(--d-border2); transition: background .3s, border-color .3s; }
+        .d-card  { background: var(--d-modal); border: 1px solid var(--d-border2); transition: background .3s, border-color .3s; }
 
-        /* ── Typography helpers ── */
-        .diary-heading-font {
-          font-family: 'Playfair Display','Georgia',serif;
-          font-style: italic;
+        .d-input {
+          background: var(--d-panel); border: 1px solid var(--d-border2);
+          color: var(--d-text); transition: background .3s, border-color .3s, box-shadow .15s;
         }
-        .diary-date-stamp {
-          font-family: 'Kalam', cursive;
-          font-size: 11px;
-        }
+        .d-input::placeholder { color: var(--d-muted); }
+        .d-input:focus { outline: none; border-color: var(--d-accent); box-shadow: 0 0 0 3px rgba(139,94,60,.18); }
 
-        /* ── Toolbar button ── */
         .tbtn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 28px;
-          height: 28px;
-          border-radius: 5px;
-          border: 1px solid #c4a882;
-          background: #fdf5e6;
-          color: #5c3414;
-          font-size: 12px;
-          cursor: pointer;
-          transition: background .12s, border-color .12s;
-          user-select: none;
-          flex-shrink: 0;
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 30px; height: 30px; border-radius: 7px;
+          border: 1px solid var(--d-border2); background: var(--d-panel);
+          color: var(--d-text2); font-size: 12px; cursor: pointer; flex-shrink: 0;
+          transition: background .12s, border-color .12s; user-select: none;
         }
-        .tbtn:hover  { background: #f0d9b5; border-color: #8b5e3c; }
-        .tbtn:active { background: #e0c090; }
-        .dark .tbtn  { background: #2a1a0e; border-color: #5a3c20; color: #e8d5b0; }
-        .dark .tbtn:hover { background: #3a2512; border-color: #a07040; }
+        .tbtn:hover  { background: var(--d-hover); border-color: var(--d-accent); }
+        .tbtn:active { opacity: .7; }
 
-        /* ── Page flip animations ── */
-        .flip-right { animation: flipR .28s ease both; transform-origin: left center; }
-        .flip-left  { animation: flipL .28s ease both; transform-origin: right center; }
-        @keyframes flipR {
-          0%   { transform: perspective(1200px) rotateY(0); opacity:1; }
-          50%  { transform: perspective(1200px) rotateY(-15deg); opacity:.7; }
-          100% { transform: perspective(1200px) rotateY(0); opacity:1; }
+        .d-btn {
+          background: var(--d-accent); color: #fff; border: none;
+          border-radius: 10px; font-weight: 700; cursor: pointer;
+          transition: background .15s, transform .1s;
         }
-        @keyframes flipL {
-          0%   { transform: perspective(1200px) rotateY(0); opacity:1; }
-          50%  { transform: perspective(1200px) rotateY(15deg); opacity:.7; }
-          100% { transform: perspective(1200px) rotateY(0); opacity:1; }
-        }
+        .d-btn:hover  { background: var(--d-accent2); }
+        .d-btn:active { transform: scale(.97); }
+        .d-btn:disabled { opacity: .4; cursor: not-allowed; }
 
-        /* ── Search results ── */
-        .search-result {
-          padding: 8px 12px;
-          border-bottom: 1px solid #e8d5b0;
-          cursor: pointer;
-          transition: background .1s;
+        .d-nav {
+          display: flex; align-items: center; gap: 6px;
+          padding: 10px 20px; border-radius: 12px;
+          font-size: 13px; font-weight: 600;
+          border: 1px solid var(--d-border2); background: var(--d-panel);
+          color: var(--d-text2); cursor: pointer;
+          transition: all .15s; user-select: none;
         }
-        .dark .search-result { border-color: #3a2510; }
-        .search-result:hover { background: #f0d9b5; }
-        .dark .search-result:hover { background: #2a1a0e; }
-        .search-result:last-child { border-bottom: none; }
+        .d-nav:hover:not(:disabled)  { background: var(--d-hover); border-color: var(--d-accent); }
+        .d-nav:active:not(:disabled) { transform: scale(.97); }
+        .d-nav:disabled { opacity: .35; cursor: not-allowed; }
+        @media(max-width:480px){ .d-nav { padding: 8px 14px; font-size: 12px; } }
 
-        /* ── Modals ── */
-        .delete-modal-overlay {
-          position: fixed; inset: 0; z-index: 60;
-          background: rgba(0,0,0,0.6);
-          display: flex; align-items: center; justify-content: center;
-          padding: 16px;
-          backdrop-filter: blur(4px);
-        }
-        .delete-modal {
-          background: #fdf5e6;
-          border: 2px solid #c4a882;
-          border-radius: 18px;
-          padding: 24px 20px;
-          max-width: 360px;
-          width: 100%;
-          box-shadow: 0 20px 60px rgba(80,40,10,.35);
-        }
-        .dark .delete-modal { background: #1a1008; border-color: #5a3c20; }
+        /* FIX #5: Cleaner flip animations — no cooldown seconds badge */
+        .flip-out-right { animation: foR .25s ease forwards; transform-origin: left  center; }
+        .flip-out-left  { animation: foL .25s ease forwards; transform-origin: right center; }
+        .flip-in-right  { animation: fiR .28s ease forwards; transform-origin: left  center; }
+        .flip-in-left   { animation: fiL .28s ease forwards; transform-origin: right center; }
 
-        /* ── Ink popover ── */
-        .ink-popover {
-          position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-          background: #fdf5e6;
-          border: 1px solid #c4a882;
-          border-radius: 14px;
-          padding: 12px;
-          width: 210px;
-          box-shadow: 0 8px 32px rgba(80,40,10,.2);
-        }
-        .dark .ink-popover { background: #1e1408; border-color: #5a3c20; }
+        @keyframes foR { to { transform: perspective(1200px) rotateY(-10deg) scale(.98); opacity: .4; } }
+        @keyframes foL { to { transform: perspective(1200px) rotateY( 10deg) scale(.98); opacity: .4; } }
+        @keyframes fiR { from { transform: perspective(1200px) rotateY(-8deg) scale(.98); opacity: .4; } to { transform: none; opacity: 1; } }
+        @keyframes fiL { from { transform: perspective(1200px) rotateY( 8deg) scale(.98); opacity: .4; } to { transform: none; opacity: 1; } }
 
-        /* ── Scrollbar ── */
-        .diary-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
-        .diary-scroll::-webkit-scrollbar-track { background: transparent; }
-        .diary-scroll::-webkit-scrollbar-thumb { background: #c4a882; border-radius: 99px; }
-        .dark .diary-scroll::-webkit-scrollbar-thumb { background: #5a3c20; }
+        .d-result { padding: 10px 14px; border-bottom: 1px solid var(--d-rule); cursor: pointer; transition: background .1s; }
+        .d-result:hover { background: var(--d-hover); }
+        .d-result:last-child { border-bottom: none; }
 
-        /* ── Top / bottom strip ── */
-        .diary-strip-top {
-          height: 12px; width: 100%;
-          background: linear-gradient(180deg, #6b3a1f 0%, #8b5e3c 100%);
+        @keyframes dotBounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-7px)} }
+        .d-dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+          background: var(--d-accent); animation: dotBounce 1.2s infinite; }
+        .d-dot:nth-child(2){animation-delay:.18s}
+        .d-dot:nth-child(3){animation-delay:.36s}
+
+        .d-scroll::-webkit-scrollbar { width: 4px; }
+        .d-scroll::-webkit-scrollbar-thumb { background: var(--d-border2); border-radius: 99px; }
+
+        .d-overlay {
+          position:fixed; inset:0; z-index:60;
+          background: rgba(0,0,0,.55); backdrop-filter: blur(6px);
+          display:flex; align-items:center; justify-content:center; padding:16px;
         }
-        .diary-strip-bot {
-          height: 12px; width: 100%;
-          background: linear-gradient(0deg, #6b3a1f 0%, #8b5e3c 100%);
+        .d-modal {
+          background: var(--d-modal); border: 2px solid var(--d-border2);
+          border-radius: 20px; padding: 26px 20px; max-width: 360px; width:100%;
+          box-shadow: 0 20px 60px var(--d-shadow2);
         }
 
-        /* ── Right binding ── */
-        .diary-binding-right {
-          width: 6px; flex-shrink: 0;
-          background: linear-gradient(180deg, #c4a882 0%, #e8d5b0 50%, #c4a882 100%);
-        }
-        .dark .diary-binding-right {
-          background: linear-gradient(180deg, #5a3c20 0%, #3a2510 50%, #5a3c20 100%);
+        .ink-pop {
+          position:absolute; top:calc(100% + 8px); left:0; z-index:50;
+          background: var(--d-panel); border: 1px solid var(--d-border2);
+          border-radius: 16px; padding: 14px; width: 220px;
+          box-shadow: 0 12px 40px var(--d-shadow2);
         }
 
-        /* ── Nav/toolbar panels ── */
-        .diary-panel {
-          background: #fdf5e6;
-          border: 1px solid #c4a882;
-        }
-        .dark .diary-panel {
-          background: #1e1408;
-          border-color: #5a3c20;
-        }
+        .d-serif  { font-family: 'Lora', Georgia, serif; font-style: italic; }
+        .mood-sel { outline: 2.5px solid var(--d-accent); outline-offset: 2px; background: var(--d-stamp); }
 
-        /* ── Settings / Calendar card ── */
-        .diary-card {
-          background: white;
-          border: 1px solid #c4a882;
-        }
-        .dark .diary-card {
-          background: #140d06;
-          border-color: #5a3c20;
-        }
-
-        /* ── Input fields ── */
-        .diary-input {
-          background: #fdf5e6;
-          border: 1px solid #c4a882;
-          color: #3a1f00;
-        }
-        .dark .diary-input {
-          background: #1e1408;
-          border-color: #5a3c20;
-          color: #e8d5b0;
-        }
-        .diary-input::placeholder { color: #b8997a; }
-        .dark .diary-input::placeholder { color: #6b5030; }
-        .diary-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(139,94,60,0.35); border-color: #8b5e3c; }
-
-        /* ── Heading picker dropdown ── */
-        .heading-picker {
-          background: #fdf5e6;
-          border: 1px solid #c4a882;
-        }
-        .dark .heading-picker {
-          background: #140d06;
-          border-color: #5a3c20;
-        }
-
-        /* ── Date stamp badge ── */
-        .diary-datestamp {
-          background: #eedfc0;
-          border: 1px solid #c4a882;
-          color: #5c3414;
-        }
-        .dark .diary-datestamp {
-          background: #2a1a0e;
-          border-color: #5a3c20;
-          color: #c4a882;
-        }
-
-        /* ── Mobile: hide spine on very small screens ── */
-        @media (max-width: 360px) {
-          .diary-spine { width: 16px !important; }
-          .diary-spine-dot { width: 6px !important; height: 6px !important; }
-        }
+        /* Nav cooldown — simple pulse instead of seconds badge */
+        .nav-cooling { animation: navPulse 1s ease-in-out infinite; }
+        @keyframes navPulse { 0%,100%{opacity:.35} 50%{opacity:.55} }
       `}</style>
 
-      {/* ── Heading Settings Modal ── */}
-      {showSettingsModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/50 dark:bg-black/70 flex items-center justify-center p-4"
-          onClick={() => setShowSettings(false)}
-        >
-          <div
-            className="diary-card rounded-2xl shadow-2xl p-5 sm:p-6 w-full max-w-sm"
-            onClick={e => e.stopPropagation()}
-          >
-            <h2 className="text-base font-bold text-[#3a1f00] dark:text-[#e8d5b0] mb-1">📖 Diary Headings</h2>
-            <p className="text-xs text-[#8b6a40] dark:text-[#a07040] mb-3">
-              One heading can be set as default.
-              <span className={`ml-1 font-bold ${headings.length >= MAX_HEADINGS ? "text-red-500" : "text-[#8b5e3c] dark:text-[#c4a882]"}`}>
-                {headings.length}/{MAX_HEADINGS} headings
-              </span>
-            </p>
+      {/* FIX #2: Apply .diary-dark when isDark is true */}
+      <div className={`diary-root${isDark ? " diary-dark" : ""}`}>
+        <div className="max-w-3xl mx-auto px-2 sm:px-4 py-3 sm:py-5 flex flex-col gap-3">
 
-            <div className="space-y-2 mb-3 max-h-40 overflow-y-auto diary-scroll">
-              {headings.length === 0 && (
-                <p className="text-xs text-[#b8997a] dark:text-[#6b5030] italic text-center py-3">No headings yet</p>
-              )}
-              {headings.map((h, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 bg-[#fdf5e6] dark:bg-[#1e1408] rounded-lg px-3 py-2 border border-[#e8d5b0] dark:border-[#3a2510]"
-                >
-                  <span className="flex-1 text-sm font-semibold text-[#3a1f00] dark:text-[#e8d5b0] truncate">{h.text}</span>
-                  <button
-                    onClick={() => persistHeadings(headings.map((hh, j) => ({ ...hh, isDefault: j === i })))}
-                    className={`text-xs px-2 py-0.5 rounded-full border font-medium transition-colors ${
-                      h.isDefault
-                        ? "bg-[#8b5e3c] text-white border-[#8b5e3c]"
-                        : "border-[#c4a882] dark:border-[#5a3c20] text-[#8b6a40] dark:text-[#a07040] hover:border-[#8b5e3c]"
-                    }`}
-                  >
-                    {h.isDefault ? "✓ Default" : "Set"}
-                  </button>
-                  <button
-                    onClick={() => persistHeadings(headings.filter((_, j) => j !== i))}
-                    className="text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400 text-sm transition-colors"
-                  >✕</button>
-                </div>
-              ))}
-            </div>
-
-            {headings.length >= MAX_HEADINGS ? (
-              <div className="mb-4 py-2.5 px-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 text-center">
-                <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                  ✋ Max {MAX_HEADINGS} headings — remove one first
+          {/* ───────── HEADINGS SETTINGS MODAL ───────── */}
+          {showSettings && (
+            <div className="d-overlay" onClick={() => setShowSettings(false)}>
+              <div className="d-modal" onClick={e => e.stopPropagation()}>
+                <h2 className="text-base font-bold mb-1 d-serif" style={{ color: "var(--d-text)" }}>📖 Diary Headings</h2>
+                <p className="text-xs mb-3" style={{ color: "var(--d-muted)" }}>
+                  Quick headings for every page.&nbsp;
+                  <span style={{ color: headings.length >= MAX_HEADINGS ? "#ef4444" : "var(--d-accent)", fontWeight: 700 }}>
+                    {headings.length}/{MAX_HEADINGS}
+                  </span>
                 </p>
-              </div>
-            ) : (
-              <div className="flex gap-2 mb-4">
-                <input
-                  value={newHeadingText}
-                  onChange={e => setNewHText(e.target.value.slice(0, 50))}
-                  placeholder="e.g. HAR HAR MAHADEV…"
-                  maxLength={50}
-                  className="diary-input flex-1 text-sm rounded-lg px-3 py-2"
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && newHeadingText.trim() && headings.length < MAX_HEADINGS) {
-                      persistHeadings([...headings, { text: newHeadingText.trim(), isDefault: false }]);
-                      setNewHText("");
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => {
-                    if (!newHeadingText.trim() || headings.length >= MAX_HEADINGS) return;
-                    persistHeadings([...headings, { text: newHeadingText.trim(), isDefault: false }]);
-                    setNewHText("");
-                  }}
-                  disabled={headings.length >= MAX_HEADINGS}
-                  className="bg-[#8b5e3c] hover:bg-[#6b4a2e] disabled:opacity-40 text-white text-sm px-3 rounded-lg font-medium transition-colors"
-                >
-                  Add
+                <div className="space-y-2 mb-3 max-h-44 overflow-y-auto d-scroll">
+                  {headings.length === 0 && (
+                    <p className="text-xs italic text-center py-3" style={{ color: "var(--d-muted)" }}>No headings yet</p>
+                  )}
+                  {headings.map((h, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded-xl px-3 py-2"
+                      style={{ background: "var(--d-hover)", border: "1px solid var(--d-border)" }}>
+                      <span className="flex-1 text-sm font-semibold truncate" style={{ color: "var(--d-text)" }}>{h.text}</span>
+                      <button
+                        onClick={() => persistHeadings(headings.map((hh, j) => ({ ...hh, isDefault: j === i })))}
+                        className="text-xs px-2 py-0.5 rounded-full border font-medium transition-colors"
+                        style={h.isDefault
+                          ? { background: "var(--d-accent)", color: "#fff", borderColor: "var(--d-accent)" }
+                          : { borderColor: "var(--d-border2)", color: "var(--d-muted)" }}>
+                        {h.isDefault ? "✓ Default" : "Set"}
+                      </button>
+                      <button onClick={() => persistHeadings(headings.filter((_, j) => j !== i))}
+                        className="text-red-400 hover:text-red-600 text-sm transition-colors">✕</button>
+                    </div>
+                  ))}
+                </div>
+                {headings.length >= MAX_HEADINGS ? (
+                  <div className="mb-4 py-2.5 px-3 rounded-xl text-center"
+                    style={{ background: "var(--d-hover)", border: "1px solid var(--d-border)" }}>
+                    <p className="text-xs font-semibold" style={{ color: "var(--d-accent)" }}>
+                      Max {MAX_HEADINGS} headings — remove one first
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 mb-4">
+                    <input value={newHeadingText}
+                      onChange={e => setNewHText(e.target.value.slice(0, 50))}
+                      placeholder="e.g. JAY MATAJI…" maxLength={50}
+                      className="d-input flex-1 text-sm rounded-xl px-3 py-2"
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && newHeadingText.trim()) {
+                          persistHeadings([...headings, { text: newHeadingText.trim(), isDefault: false }]);
+                          setNewHText("");
+                        }
+                      }} />
+                    <button
+                      onClick={() => {
+                        if (!newHeadingText.trim()) return;
+                        persistHeadings([...headings, { text: newHeadingText.trim(), isDefault: false }]);
+                        setNewHText("");
+                      }}
+                      className="d-btn text-sm px-3 py-2 rounded-xl">Add</button>
+                  </div>
+                )}
+                <button onClick={() => setShowSettings(false)}
+                  className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors"
+                  style={{ background: "var(--d-hover)", color: "var(--d-text2)", border: "1px solid var(--d-border2)" }}>
+                  Done
                 </button>
               </div>
-            )}
+            </div>
+          )}
 
-            <button
-              onClick={() => setShowSettings(false)}
-              className="w-full py-2 rounded-xl bg-[#f0d9b5] dark:bg-[#2a1a0e] hover:bg-[#e0c090] dark:hover:bg-[#3a2512] text-[#5c3414] dark:text-[#e8d5b0] text-sm font-medium transition-colors border border-[#c4a882] dark:border-[#5a3c20]"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Delete confirmation modal ── */}
-      {showDeleteConfirm && (
-        <div className="delete-modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="delete-modal" onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-5">
-              <div className="text-4xl mb-3">🗑️</div>
-              <h2 className="text-base font-bold text-[#3a1f00] dark:text-[#e8d5b0] mb-2 diary-heading-font">
-                Delete Page Content?
-              </h2>
-              <p className="text-sm text-[#5c3414] dark:text-[#c4a882] leading-relaxed">
-                This will <strong>permanently erase</strong> all text, heading, and mood on this page.
-              </p>
-              <div className="mt-3 px-3 py-2 rounded-xl bg-[#fff3e0] dark:bg-[#1e1408] border border-[#e8c87a] dark:border-[#5a3c20]">
-                <p className="text-xs font-bold text-[#8b5e3c] dark:text-[#c4a882]">
-                  ⚠️ {deleteCount} of {MAX_DELETES} deletes used for{" "}
-                  <span className="underline">{fmtShort(currentDate)}</span>.
-                  After {MAX_DELETES} deletes this date is permanently locked.
-                </p>
+          {/* ───────── DELETE CONFIRM MODAL ───────── */}
+          {showDelConfirm && (
+            <div className="d-overlay" onClick={() => setShowDelConfirm(false)}>
+              <div className="d-modal" onClick={e => e.stopPropagation()}>
+                <div className="text-center mb-5">
+                  <div className="text-4xl mb-3">🗑️</div>
+                  <h2 className="text-base font-bold mb-2 d-serif" style={{ color: "var(--d-text)" }}>Delete Page Content?</h2>
+                  <p className="text-sm leading-relaxed" style={{ color: "var(--d-text2)" }}>
+                    This will <strong>permanently erase</strong> all text, heading &amp; mood on this page.
+                  </p>
+                  <div className="mt-3 px-3 py-2 rounded-xl"
+                    style={{ background: "var(--d-stamp)", border: "1px solid var(--d-border2)" }}>
+                    <p className="text-xs font-bold" style={{ color: "var(--d-accent)" }}>
+                      ⚠️ {deleteCount}/{MAX_DELETES} deletes used — {fmtShort(currentDate)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowDelConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                    style={{ background: "var(--d-hover)", color: "var(--d-text2)", border: "1px solid var(--d-border2)" }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleDeleteContent} disabled={isDeleting}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-colors"
+                    style={{ background: "#dc2626" }}>
+                    {isDeleting ? "Deleting…" : `Delete (${deletesLeft} left)`}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-[#f0d9b5] dark:bg-[#2a1a0e] text-[#5c3414] dark:text-[#c4a882] hover:bg-[#e0c090] dark:hover:bg-[#3a2512] transition-colors border border-[#c4a882] dark:border-[#5a3c20]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteContent}
-                disabled={isDeleting}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white transition-colors"
-              >
-                {isDeleting ? "Deleting…" : `Delete (${deletesLeft} left)`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── MAIN LAYOUT ── */}
-      <div className="diary-outer py-3 sm:py-5 px-2 sm:px-4">
-        <div className="max-w-3xl mx-auto flex flex-col gap-3">
-
-          {/* ── Top bar ── */}
+          {/* ───────── TOP BAR ───────── */}
+          {/* FIX #4: Cleaner search bar — full width, well-aligned */}
           <div className="flex items-center gap-2">
-            {/* Title */}
-            <h1 className="flex items-center gap-2 text-lg sm:text-xl font-bold text-[#3a1f00] dark:text-[#e8d5b0] shrink-0">
-              <span className="text-xl sm:text-2xl">📔</span>
-              <span className="diary-heading-font hidden xs:inline sm:inline">Diary</span>
+            <h1 className="flex items-center gap-2 text-xl font-bold shrink-0 d-serif" style={{ color: "var(--d-text)" }}>
+              <span>📔</span>
+              <span className="hidden sm:inline">Diary</span>
             </h1>
 
-            {/* Search — desktop */}
-            <div className="relative flex-1 max-w-xs hidden sm:block ml-2" ref={searchBoxRef}>
-              <div className="relative flex items-center">
-                <span className="absolute left-2.5 text-[#b8997a] text-sm pointer-events-none">🔍</span>
-                <input
-                  value={searchQuery}
-                  onChange={e => { handleSearch(e.target.value); setShowSearch(true); }}
-                  onFocus={() => { if (searchQuery.length >= 2) setShowSearch(true); }}
-                  placeholder="Search entries…"
-                  className="diary-input w-full text-sm rounded-xl pl-8 pr-8 py-1.5"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={clearSearch}
-                    className="absolute right-2 w-5 h-5 rounded-full flex items-center justify-center bg-[#c4a882] dark:bg-[#5a3c20] text-white text-[10px] hover:bg-[#8b5e3c] transition-colors"
-                  >✕</button>
-                )}
-              </div>
-
+            {/* Desktop search — properly contained, no overflow */}
+            {isWide && (
+            <div className="relative flex-1" ref={searchBoxRef}>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none"
+                style={{ color: "var(--d-muted)" }}>🔍</span>
+              <input
+                value={searchQuery}
+                onChange={e => { handleSearch(e.target.value); setShowSearch(true); }}
+                onFocus={() => { if (searchQuery.length >= 2) setShowSearch(true); }}
+                placeholder="Search entries…"
+                className="d-input w-full text-sm rounded-2xl py-2"
+                style={{ paddingLeft: 36, paddingRight: 36 }}
+              />
+              {searchQuery && (
+                <button onClick={clearSearch}
+                  style={{
+                    position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                    width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "var(--d-accent)", color: "#fff", fontSize: 10,
+                    border: "none", cursor: "pointer", opacity: 0.9,
+                  }}>✕</button>
+              )}
               {showSearch && searchQuery.length >= 2 && (
-                <div className="absolute top-full left-0 right-0 mt-1 z-40 diary-card rounded-xl shadow-xl overflow-hidden">
+                <div className="absolute top-full left-0 right-0 mt-1 z-40 d-card rounded-2xl shadow-xl overflow-hidden">
                   {searchState === "searching" && (
                     <div className="flex items-center gap-2 px-4 py-3">
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-[#8b5e3c] border-t-transparent animate-spin" />
-                      <span className="text-xs text-[#8b6a40] dark:text-[#a07040]">Searching…</span>
+                      <div className="w-3.5 h-3.5 rounded-full border-2 animate-spin"
+                        style={{ borderColor: "var(--d-accent)", borderTopColor: "transparent" }} />
+                      <span className="text-xs" style={{ color: "var(--d-muted)" }}>Searching…</span>
                     </div>
                   )}
                   {searchState === "done" && searchResults.length === 0 && (
                     <div className="px-4 py-3 text-center">
-                      <p className="text-xs text-[#b8997a] dark:text-[#6b5030] italic">No results for "{searchQuery}"</p>
+                      <p className="text-xs italic" style={{ color: "var(--d-muted)" }}>No results for &quot;{searchQuery}&quot;</p>
                     </div>
                   )}
                   {searchResults.map((r, i) => (
-                    <div
-                      key={i} className="search-result"
-                      onClick={() => { navigateTo(r.date); clearSearch(); }}
-                    >
-                      <div className="text-xs font-bold text-[#8b5e3c] dark:text-[#c4a882]">{fmtShort(r.date)}</div>
-                      <div className="text-xs text-[#5c3414] dark:text-[#a07040] mt-0.5 line-clamp-2">{r.snippet}</div>
+                    <div key={i} className="d-result" onClick={() => { navigateTo(r.date); clearSearch(); }}>
+                      <div className="text-xs font-bold" style={{ color: "var(--d-accent)" }}>{fmtShort(r.date)}</div>
+                      <div className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--d-text2)" }}>{r.snippet}</div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+            )}
 
-            <div className="flex-1" />
+            {/* Mobile search toggle — only on narrow screens */}
+            {!isWide && (
+            <button className="tbtn !w-9 !h-9 !rounded-xl text-base"
+              onClick={() => setShowMobSearch(v => !v)} aria-label="Search">🔍</button>
+            )}
 
-            {/* Mobile search toggle */}
-            <button
-              className="sm:hidden flex items-center justify-center w-9 h-9 rounded-xl border border-[#c4a882] dark:border-[#5a3c20] bg-[#fdf5e6] dark:bg-[#1e1408] text-[#5c3414] dark:text-[#c4a882] text-base transition-colors hover:bg-[#f0d9b5] dark:hover:bg-[#2a1a0e]"
-              onClick={() => setShowMobileSearch(v => !v)}
-              aria-label="Search"
-            >
-              🔍
-            </button>
-
-            {/* Settings */}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1 text-xs font-semibold text-[#5c3414] dark:text-[#c4a882] bg-[#fdf5e6] dark:bg-[#1e1408] border border-[#c4a882] dark:border-[#5a3c20] hover:bg-[#f0d9b5] dark:hover:bg-[#2a1a0e] px-2.5 sm:px-3 py-2 rounded-xl transition-colors whitespace-nowrap"
-            >
+            <button onClick={() => setShowSettings(true)}
+              className="d-panel flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl transition-colors hover:opacity-80 whitespace-nowrap shrink-0"
+              style={{ color: "var(--d-text2)" }}>
               ⚙ <span className="hidden sm:inline">Headings</span>
             </button>
           </div>
 
-          {/* ── Mobile search bar (inline) ── */}
-          {showMobileSearch && (
-            <div className="sm:hidden" ref={searchBoxRef}>
+          {/* Mobile search dropdown — only show when !isWide AND toggled */}
+          {showMobSearch && !isWide && (
+            <div ref={searchBoxRef}>
               <div className="relative flex items-center">
-                <span className="absolute left-2.5 text-[#b8997a] text-sm pointer-events-none">🔍</span>
-                <input
-                  autoFocus
-                  value={searchQuery}
+                <span className="absolute left-3 text-sm pointer-events-none" style={{ color: "var(--d-muted)" }}>🔍</span>
+                <input autoFocus value={searchQuery}
                   onChange={e => { handleSearch(e.target.value); setShowSearch(true); }}
-                  onFocus={() => { if (searchQuery.length >= 2) setShowSearch(true); }}
                   placeholder="Search diary entries…"
-                  className="diary-input w-full text-sm rounded-xl pl-8 pr-8 py-2"
-                />
+                  className="d-input w-full text-sm rounded-2xl py-2.5"
+                  style={{ paddingLeft: 36, paddingRight: 36 }} />
                 {searchQuery && (
-                  <button
-                    onClick={clearSearch}
-                    className="absolute right-2 w-5 h-5 rounded-full flex items-center justify-center bg-[#c4a882] dark:bg-[#5a3c20] text-white text-[10px] hover:bg-[#8b5e3c] transition-colors"
-                  >✕</button>
+                  <button onClick={clearSearch}
+                    style={{
+                      position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                      width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "var(--d-accent)", color: "#fff", fontSize: 10,
+                      border: "none", cursor: "pointer",
+                    }}>✕</button>
                 )}
               </div>
-
               {showSearch && searchQuery.length >= 2 && (
-                <div className="mt-1 z-40 diary-card rounded-xl shadow-xl overflow-hidden">
-                  {searchState === "searching" && (
-                    <div className="flex items-center gap-2 px-4 py-3">
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-[#8b5e3c] border-t-transparent animate-spin" />
-                      <span className="text-xs text-[#8b6a40] dark:text-[#a07040]">Searching…</span>
-                    </div>
-                  )}
+                <div className="mt-1 d-card rounded-2xl shadow-xl overflow-hidden">
                   {searchState === "done" && searchResults.length === 0 && (
                     <div className="px-4 py-3 text-center">
-                      <p className="text-xs text-[#b8997a] dark:text-[#6b5030] italic">No results for "{searchQuery}"</p>
+                      <p className="text-xs italic" style={{ color: "var(--d-muted)" }}>No results</p>
                     </div>
                   )}
                   {searchResults.map((r, i) => (
-                    <div
-                      key={i} className="search-result"
-                      onClick={() => { navigateTo(r.date); clearSearch(); }}
-                    >
-                      <div className="text-xs font-bold text-[#8b5e3c] dark:text-[#c4a882]">{fmtShort(r.date)}</div>
-                      <div className="text-xs text-[#5c3414] dark:text-[#a07040] mt-0.5 line-clamp-2">{r.snippet}</div>
+                    <div key={i} className="d-result" onClick={() => { navigateTo(r.date); clearSearch(); }}>
+                      <div className="text-xs font-bold" style={{ color: "var(--d-accent)" }}>{fmtShort(r.date)}</div>
+                      <div className="text-xs mt-0.5 line-clamp-2" style={{ color: "var(--d-text2)" }}>{r.snippet}</div>
                     </div>
                   ))}
                 </div>
@@ -1135,308 +1034,285 @@ export default function DiaryPage() {
             </div>
           )}
 
-          {/* ── Calendar + page nav bar ── */}
-          <div className="diary-panel flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl px-3 sm:px-4 py-2.5">
-
-            {/* Calendar picker */}
+          {/* ───────── CALENDAR + NAV BAR ───────── */}
+          <div className="d-panel flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl px-3 sm:px-4 py-2.5">
             <div className="relative" ref={calRef}>
-              <button
-                onClick={() => setShowCal(v => !v)}
-                className="flex items-center gap-1.5 text-sm font-semibold text-[#3a1f00] dark:text-[#e8d5b0] hover:text-[#8b5e3c] dark:hover:text-[#c4a882] transition-colors"
-              >
+              <button onClick={() => setShowCal(v => !v)}
+                className="flex items-center gap-1.5 text-sm font-semibold transition-opacity hover:opacity-70"
+                style={{ color: "var(--d-text)" }}>
                 📅
-                <span className="diary-date-stamp hidden sm:inline">{fmtShort(currentDate)}</span>
-                <span className="diary-date-stamp sm:hidden text-[10px]">{fmtShort(currentDate)}</span>
-                <span className="text-[#b8997a] text-xs">{showCal ? "▴" : "▾"}</span>
+                {/* FIX #1: Single date format chosen by JS — no duplicate rendering */}
+                <span className="text-xs font-mono" style={{ color: "var(--d-text2)" }}>
+                  {isWide ? fmtMed(currentDate) : fmtShort(currentDate)}
+                </span>
+                <span className="text-[10px]" style={{ color: "var(--d-muted)" }}>{showCal ? "▴" : "▾"}</span>
               </button>
 
               {showCal && (
-                <div className="absolute top-full left-0 mt-2 z-40 diary-card rounded-2xl shadow-xl p-3 w-60 sm:w-64">
+                <div className="absolute top-full left-0 mt-2 z-40 d-card rounded-2xl shadow-xl p-3"
+                  style={{ minWidth: 252 }}>
                   <div className="flex items-center justify-between mb-2">
-                    <button
-                      onClick={() => setCalView(c => {
-                        const m = c.month === 0 ? 11 : c.month - 1;
-                        return { year: c.month === 0 ? c.year - 1 : c.year, month: m };
-                      })}
-                      className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[#e8d5b0] dark:hover:bg-[#2a1a0e] text-[#8b5e3c] dark:text-[#c4a882] transition-colors text-lg"
-                    >‹</button>
-                    <span className="text-xs font-bold text-[#3a1f00] dark:text-[#e8d5b0]">
-                      {new Date(calView.year, calView.month).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+                    <button onClick={calPrevMonth}
+                      className="w-7 h-7 flex items-center justify-center rounded-full transition-opacity hover:opacity-60 text-lg"
+                      style={{ color: "var(--d-accent)" }}>‹</button>
+                    <span className="text-xs font-bold" style={{ color: "var(--d-text)" }}>
+                      {new Date(calYear, calMonth).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
                     </span>
-                    <button
-                      onClick={() => setCalView(c => {
-                        const m = c.month === 11 ? 0 : c.month + 1;
-                        return { year: c.month === 11 ? c.year + 1 : c.year, month: m };
-                      })}
-                      className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-[#e8d5b0] dark:hover:bg-[#2a1a0e] text-[#8b5e3c] dark:text-[#c4a882] transition-colors text-lg"
-                    >›</button>
+                    <button onClick={calNextMonth}
+                      className="w-7 h-7 flex items-center justify-center rounded-full transition-opacity hover:opacity-60 text-lg"
+                      style={{ color: "var(--d-accent)" }}>›</button>
                   </div>
                   <div className="grid grid-cols-7 mb-1">
                     {["S","M","T","W","T","F","S"].map((l, i) => (
-                      <div key={i} className="flex items-center justify-center h-7 text-xs font-bold text-[#b8997a] dark:text-[#6b5030]">{l}</div>
+                      <div key={i} className="flex items-center justify-center h-7 text-[10px] font-bold"
+                        style={{ color: "var(--d-muted)" }}>{l}</div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-7 gap-0.5">{renderCal()}</div>
+                  <div className="grid grid-cols-7 gap-0.5" style={{ color: "var(--d-text2)" }}>
+                    {renderCal()}
+                  </div>
                 </div>
               )}
             </div>
 
             <div className="flex-1" />
 
-            {/* Today button */}
-            {currentDate !== getTODAY() && (
-              <button
-                onClick={() => navigateTo(getTODAY())}
-                className="text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl transition-colors text-white"
-                style={{ background: "#8b5e3c" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#6b4a2e")}
-                onMouseLeave={e => (e.currentTarget.style.background = "#8b5e3c")}
-              >
+            {currentDate !== todayStr() && (
+              <button onClick={() => navigateTo(todayStr())}
+                className="d-btn text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1">
                 ✦ Today
               </button>
             )}
 
-            {/* Page count + jump */}
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              <span className="text-xs text-[#8b6a40] dark:text-[#a07040] whitespace-nowrap">
-                <strong className="text-[#5c3414] dark:text-[#c4a882]">{currentPageIndex + 1}</strong>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs" style={{ color: "var(--d-muted)" }}>
+                <strong style={{ color: "var(--d-text2)" }}>{currentPageIndex + 1}</strong>
                 {" / "}
-                <strong className="text-[#5c3414] dark:text-[#c4a882]">{displayTotal}</strong>
+                <strong style={{ color: "var(--d-text2)" }}>{displayTotal}</strong>
               </span>
-              <input
-                type="number"
-                value={jumpInput}
+              <input type="number" value={jumpInput}
                 onChange={e => setJumpInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && jumpTo()}
-                placeholder="Go"
-                min={1} max={allDates.length}
-                className="diary-input w-12 text-xs text-center rounded-lg px-1.5 py-1.5"
-              />
-              <button
-                onClick={jumpTo}
-                className="text-xs bg-[#8b5e3c] hover:bg-[#6b4a2e] text-white px-2 py-1.5 rounded-lg transition-colors font-bold"
-              >→</button>
+                placeholder="Go" min={1} max={allDates.length}
+                className="d-input w-14 text-xs text-center rounded-xl px-2 py-1.5" />
+              <button onClick={jumpTo} className="d-btn text-xs font-bold px-2.5 py-1.5 rounded-xl">→</button>
             </div>
           </div>
 
-          {/* ── DIARY BOOK ── */}
-          <div className={[
-            "relative rounded-2xl overflow-hidden diary-book",
-            isFlipping ? (flipDir === "right" ? "flip-right" : "flip-left") : "",
-          ].join(" ")}>
-
-            <div className="diary-strip-top" />
-
+          {/* ───────── DIARY BOOK ───────── */}
+          <div className={`d-book relative ${animClass}`}>
+            <div className="d-strip" />
             <div className="flex">
+
               {/* Spine */}
-              <div className="diary-spine w-5 sm:w-7 shrink-0 flex flex-col items-center justify-around py-4 sm:py-6 gap-1.5 sm:gap-2">
-                {[...Array(7)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="diary-spine-dot rounded-full bg-[#1a0c04] border border-[#0a0602] shadow-inner"
-                    style={{ width: "8px", height: "8px" }}
-                  />
+              <div className="d-spine flex flex-col items-center justify-around py-4 sm:py-6">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="rounded-full"
+                    style={{ width: 7, height: 7, background: "rgba(0,0,0,.45)", border: "1px solid rgba(0,0,0,.22)" }} />
                 ))}
               </div>
 
-              {/* Main content */}
-              <div className="flex-1 px-2.5 sm:px-5 pt-3 pb-3 min-w-0">
+              {/* Main page */}
+              <div className="flex-1 px-3 sm:px-5 pt-3 pb-4 min-w-0">
 
-                {/* Page header */}
-                <div className="flex items-start justify-between gap-2 mb-3 pb-2 border-b border-[#d4b896] dark:border-[#3a2510]">
+                {/* ── Page header ── */}
+                <div className="flex items-start justify-between gap-2 mb-3 pb-2.5"
+                  style={{ borderBottom: "1px solid var(--d-rule)" }}>
 
                   {/* Heading picker */}
                   <div className="relative flex-1 min-w-0">
                     {canEdit ? (
-                      <button
-                        onClick={() => setShowHPicker(v => !v)}
-                        className={[
-                          "text-left tracking-wide transition-all leading-tight diary-heading-font w-full text-sm sm:text-base lg:text-lg font-bold",
-                          heading
-                            ? "text-[#8b2500] dark:text-[#d4845a]"
-                            : "text-[#b8997a] dark:text-[#6b5030] font-normal",
-                        ].join(" ")}
-                      >
+                      <button onClick={() => setShowHPicker(v => !v)}
+                        className="text-left w-full d-serif text-sm sm:text-base lg:text-lg font-bold transition-opacity hover:opacity-75 block"
+                        style={{ color: heading ? "var(--d-heading)" : "var(--d-muted)" }}>
                         <span className="block truncate">{heading || "Add heading…"}</span>
-                        <span className="ml-1 text-xs text-[#b8997a] not-italic font-normal">▾</span>
+                        <span className="ml-1 text-xs not-italic font-normal" style={{ color: "var(--d-muted)" }}>▾</span>
                       </button>
-                    ) : (
-                      heading ? (
-                        <p className="text-sm sm:text-base lg:text-lg font-bold text-[#8b2500] dark:text-[#d4845a] diary-heading-font truncate">
-                          {heading}
-                        </p>
-                      ) : null
-                    )}
+                    ) : heading ? (
+                      <p className="text-sm sm:text-base lg:text-lg font-bold d-serif truncate"
+                        style={{ color: "var(--d-heading)" }}>{heading}</p>
+                    ) : null}
 
-                    {showHeadingPicker && canEdit && (
-                      <div className="heading-picker absolute top-full left-0 mt-1 z-30 rounded-xl shadow-xl py-1 w-52 max-h-48 overflow-y-auto diary-scroll">
-                        <button
-                          onClick={() => { setHeading(""); setShowHPicker(false); }}
-                          className="w-full text-left px-4 py-2 text-xs text-[#b8997a] dark:text-[#6b5030] hover:bg-[#f0d9b5] dark:hover:bg-[#1e1408] italic"
-                        >
-                          — No heading —
-                        </button>
+                    {showHPicker && canEdit && (
+                      <div className="absolute top-full left-0 mt-1 z-30 d-card rounded-2xl shadow-xl py-1 w-56 max-h-48 overflow-y-auto d-scroll">
+                        <button onClick={() => { setHeading(""); setShowHPicker(false); }}
+                          className="w-full text-left px-4 py-2 text-xs italic transition-opacity hover:opacity-70"
+                          style={{ color: "var(--d-muted)" }}>— No heading —</button>
                         {headings.length === 0 && (
-                          <p className="px-4 py-2 text-xs text-[#b8997a] dark:text-[#6b5030]">Add headings in ⚙ settings</p>
+                          <p className="px-4 py-2 text-xs" style={{ color: "var(--d-muted)" }}>
+                            Add headings via ⚙ settings
+                          </p>
                         )}
                         {headings.map((h, i) => (
-                          <button
-                            key={i}
+                          <button key={i}
                             onClick={() => { setHeading(h.text); setShowHPicker(false); triggerAutoSave(); }}
-                            className={`w-full text-left px-4 py-2.5 text-sm font-bold hover:bg-[#f0d9b5] dark:hover:bg-[#1e1408] text-[#8b2500] dark:text-[#d4845a] transition-colors diary-heading-font ${heading === h.text ? "bg-[#f0d9b5] dark:bg-[#1e1408]" : ""}`}
-                          >
+                            className="w-full text-left px-4 py-2.5 text-sm font-bold d-serif transition-opacity hover:opacity-75"
+                            style={{
+                              color: "var(--d-heading)",
+                              background: heading === h.text ? "var(--d-hover)" : "transparent",
+                            }}>
                             {h.text}
-                            {h.isDefault && <span className="ml-2 text-xs text-[#b8997a] dark:text-[#6b5030] font-normal not-italic">default</span>}
+                            {h.isDefault && (
+                              <span className="ml-2 text-[10px] not-italic font-normal" style={{ color: "var(--d-muted)" }}>
+                                default
+                              </span>
+                            )}
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Date + status */}
-                  <div className="text-right shrink-0 ml-1">
-                    <div className="diary-datestamp diary-date-stamp font-semibold px-2 py-1.5 rounded-lg leading-tight text-[9px] sm:text-[10px] lg:text-xs">
-                      <span className="hidden sm:inline">{fmtLong(currentDate)}</span>
-                      <span className="sm:hidden">{fmtLongMobile(currentDate)}</span>
+                  {/* ── Date stamp — FIX #1 & #5: SINGLE date, no duplication ── */}
+                  <div className="text-right shrink-0 ml-2">
+                    <div className="inline-block px-2.5 py-1.5 rounded-xl leading-tight"
+                      style={{ background: "var(--d-stamp)", border: "1px solid var(--d-border2)", color: "var(--d-accent2)" }}>
+                      <span className="text-xs font-semibold">
+                        {isWide ? fmtFull(currentDate) : fmtMed(currentDate)}
+                      </span>
                     </div>
-                    {isLocked && <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-1">🔒 Locked</p>}
+                    {isLocked && <p className="text-xs font-bold mt-1 text-red-500">🔒 Locked</p>}
                     {!isLocked && entry && (
-                      <p className="text-[10px] sm:text-xs text-[#b8997a] dark:text-[#6b5030] mt-1">{editsLeft} edit{editsLeft !== 1 ? "s" : ""} left</p>
+                      <p className="text-[10px] sm:text-xs mt-1" style={{ color: "var(--d-muted)" }}>
+                        {editsLeft} edit{editsLeft !== 1 ? "s" : ""} left
+                      </p>
                     )}
                     {entry && deleteCount > 0 && (
-                      <p className={`text-[10px] sm:text-xs font-bold mt-1 ${deleteMaxed ? "text-red-500 dark:text-red-400" : "text-[#a07040] dark:text-[#c4a882]"}`}>
-                        {deleteMaxed ? "🚫 No deletes left" : `🗑️ ${deletesLeft} left`}
+                      <p className={`text-[10px] sm:text-xs font-bold mt-1 ${deleteMaxed ? "text-red-500" : ""}`}
+                        style={!deleteMaxed ? { color: "var(--d-accent)" } : {}}>
+                        {deleteMaxed ? "🚫 No deletes" : `🗑️ ${deletesLeft} del left`}
                       </p>
                     )}
                   </div>
                 </div>
 
-                {/* Toolbar */}
+                {/* ── Toolbar ── */}
                 {canEdit && (
-                  <div
-                    className="flex flex-wrap items-center gap-1 mb-2 pb-2 border-b border-[#d4b896] dark:border-[#3a2510]"
-                    onMouseDown={e => e.preventDefault()}
-                  >
-                    <button className="tbtn font-bold text-[12px]" title="Bold"      onClick={() => fmt("bold")}>B</button>
-                    <button className="tbtn italic text-[12px]"    title="Italic"    onClick={() => fmt("italic")}>I</button>
-                    <button className="tbtn underline text-[12px]" title="Underline" onClick={() => fmt("underline")}>U</button>
+                  <div className="flex flex-wrap items-center gap-1 mb-2 pb-2"
+                    style={{ borderBottom: "1px solid var(--d-rule)" }}
+                    onMouseDown={e => e.preventDefault()}>
 
-                    <div className="w-px h-5 bg-[#c4a882] dark:bg-[#5a3c20] mx-0.5" />
+                    <button className="tbtn font-bold"  title="Bold"      onClick={() => fmt("bold")}>B</button>
+                    <button className="tbtn italic"     title="Italic"    onClick={() => fmt("italic")}>I</button>
+                    <button className="tbtn underline"  title="Underline" onClick={() => fmt("underline")}>U</button>
+
+                    <div className="w-px h-5 mx-0.5" style={{ background: "var(--d-border2)" }} />
 
                     <button className="tbtn" title="Left"   onClick={() => fmt("justifyLeft")}>
-                      <svg width="12" height="10" viewBox="0 0 13 11" fill="currentColor">
-                        <rect x="0" y="0" width="13" height="1.5" rx=".75"/>
-                        <rect x="0" y="3.5" width="9" height="1.5" rx=".75"/>
-                        <rect x="0" y="7" width="11" height="1.5" rx=".75"/>
-                        <rect x="0" y="10" width="7" height="1" rx=".5"/>
+                      <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
+                        <rect x="0" y="0"   width="13" height="1.5" rx=".75"/>
+                        <rect x="0" y="3.5" width="9"  height="1.5" rx=".75"/>
+                        <rect x="0" y="7"   width="11" height="1.5" rx=".75"/>
+                        <rect x="0" y="10"  width="7"  height="1"   rx=".5"/>
                       </svg>
                     </button>
                     <button className="tbtn" title="Center" onClick={() => fmt("justifyCenter")}>
-                      <svg width="12" height="10" viewBox="0 0 13 11" fill="currentColor">
-                        <rect x="0" y="0" width="13" height="1.5" rx=".75"/>
-                        <rect x="2" y="3.5" width="9" height="1.5" rx=".75"/>
-                        <rect x="1" y="7" width="11" height="1.5" rx=".75"/>
-                        <rect x="3" y="10" width="7" height="1" rx=".5"/>
+                      <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
+                        <rect x="0" y="0"   width="13" height="1.5" rx=".75"/>
+                        <rect x="2" y="3.5" width="9"  height="1.5" rx=".75"/>
+                        <rect x="1" y="7"   width="11" height="1.5" rx=".75"/>
+                        <rect x="3" y="10"  width="7"  height="1"   rx=".5"/>
                       </svg>
                     </button>
                     <button className="tbtn" title="Right"  onClick={() => fmt("justifyRight")}>
-                      <svg width="12" height="10" viewBox="0 0 13 11" fill="currentColor">
-                        <rect x="0" y="0" width="13" height="1.5" rx=".75"/>
-                        <rect x="4" y="3.5" width="9" height="1.5" rx=".75"/>
-                        <rect x="2" y="7" width="11" height="1.5" rx=".75"/>
-                        <rect x="6" y="10" width="7" height="1" rx=".5"/>
+                      <svg width="13" height="11" viewBox="0 0 13 11" fill="currentColor">
+                        <rect x="0" y="0"   width="13" height="1.5" rx=".75"/>
+                        <rect x="4" y="3.5" width="9"  height="1.5" rx=".75"/>
+                        <rect x="2" y="7"   width="11" height="1.5" rx=".75"/>
+                        <rect x="6" y="10"  width="7"  height="1"   rx=".5"/>
                       </svg>
                     </button>
 
-                    <div className="w-px h-5 bg-[#c4a882] dark:bg-[#5a3c20] mx-0.5" />
+                    <div className="w-px h-5 mx-0.5" style={{ background: "var(--d-border2)" }} />
 
                     {/* Ink picker */}
                     <div className="relative" ref={inkRef}>
-                      <button
-                        className="tbtn gap-1 px-2 !w-auto text-[10px] sm:text-[11px] font-medium"
-                        title="Ink color"
-                        onClick={() => setShowInkPicker(v => !v)}
-                      >
+                      <button className="tbtn !w-auto px-2 gap-1.5 text-[11px] font-medium"
+                        title="Ink color" onClick={() => setShowInkPicker(v => !v)}>
                         <span style={{
-                          display: "inline-block", width: 9, height: 9, borderRadius: "50%",
+                          display: "inline-block", width: 10, height: 10, borderRadius: "50%", flexShrink: 0,
                           background: "linear-gradient(135deg,#b91c1c,#1d4ed8,#166534)",
-                          border: "1px solid #c4a882", flexShrink: 0,
+                          border: "1px solid var(--d-border2)",
                         }} />
                         <span className="hidden sm:inline">Ink</span>
-                        <span className="text-[8px] text-[#b8997a]">▾</span>
+                        <span className="text-[9px]" style={{ color: "var(--d-muted)" }}>▾</span>
                       </button>
 
                       {showInkPicker && (
-                        <div className="ink-popover" onMouseDown={e => e.preventDefault()}>
-                          <p className="text-[9px] font-bold text-[#8b6a40] dark:text-[#a07040] mb-2 uppercase tracking-widest">
-                            Select text then tap colour
-                          </p>
+                        <div className="ink-pop" onMouseDown={e => e.preventDefault()}>
+                          <p className="text-[9px] font-bold mb-2 uppercase tracking-widest"
+                            style={{ color: "var(--d-muted)" }}>Select text then tap colour</p>
                           <div className="grid grid-cols-4 gap-1.5 mb-3">
                             {INK_COLORS.map(c => (
-                              <button
-                                key={c.hex} title={c.label}
-                                onClick={() => applyInk(c.hex)}
-                                className="group flex flex-col items-center gap-1 p-1 rounded-lg hover:bg-[#f0d9b5] dark:hover:bg-[#2a1a0e] transition-colors"
-                              >
-                                <span
-                                  className="w-6 h-6 rounded-full border-2 border-white dark:border-[#3a2510] shadow-sm transition-transform group-hover:scale-110"
-                                  style={{ background: c.hex }}
-                                />
-                                <span className="text-[8px] text-[#8b6a40] dark:text-[#a07040] leading-none text-center">{c.label}</span>
+                              <button key={c.hex} title={c.label} onClick={() => applyInk(c.hex)}
+                                className="group flex flex-col items-center gap-1 p-1 rounded-xl transition-opacity hover:opacity-80">
+                                <span className="w-6 h-6 rounded-full border-2 border-white shadow-sm block transition-transform group-hover:scale-110"
+                                  style={{ background: c.hex }} />
+                                <span className="text-[8px] text-center leading-none" style={{ color: "var(--d-muted)" }}>{c.label}</span>
                               </button>
                             ))}
                           </div>
-                          <div className="flex items-center gap-2 pt-2 border-t border-[#e8d5b0] dark:border-[#3a2510]">
-                            <label className="text-[9px] text-[#8b6a40] dark:text-[#a07040] shrink-0 font-medium">Custom:</label>
-                            <input
-                              type="color" value={customInk}
+                          <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--d-rule)" }}>
+                            <label className="text-[9px] shrink-0 font-medium" style={{ color: "var(--d-muted)" }}>Custom:</label>
+                            <input type="color" value={customInk}
                               onChange={e => setCustomInk(e.target.value)}
-                              className="w-7 h-7 rounded-lg border border-[#c4a882] dark:border-[#5a3c20] cursor-pointer bg-transparent p-0.5"
-                            />
-                            <button
-                              onClick={() => applyInk(customInk)}
-                              className="flex-1 py-1 rounded-lg text-[10px] font-bold bg-[#8b5e3c] hover:bg-[#6b4a2e] text-white transition-colors"
-                            >
-                              Apply
-                            </button>
+                              className="w-7 h-7 rounded-lg cursor-pointer p-0.5"
+                              style={{ border: "1px solid var(--d-border2)", background: "transparent" }} />
+                            <button onClick={() => applyInk(customInk)}
+                              className="d-btn flex-1 py-1 rounded-xl text-[10px] font-bold">Apply</button>
                           </div>
                         </div>
                       )}
                     </div>
 
                     <div className="flex-1" />
-                    <span className={`text-[10px] sm:text-[11px] tabular-nums font-medium ${charCount > MAX_CHARS * 0.9 ? "text-amber-600 dark:text-amber-400" : "text-[#b8997a] dark:text-[#6b5030]"}`}>
+                    <span className={`text-[11px] tabular-nums font-medium ${charCount > MAX_CHARS * 0.9 ? "text-amber-500" : ""}`}
+                      style={charCount <= MAX_CHARS * 0.9 ? { color: "var(--d-muted)" } : {}}>
                       {charCount}/{MAX_CHARS}
                     </span>
                   </div>
                 )}
 
-                {/* Writing area */}
-                <div className="relative diary-lines" style={{ minHeight: "360px" }}>
-                  {loading ? (
-                    <div className="flex items-center justify-center h-36 sm:h-48">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-5 h-5 rounded-full border-2 border-[#8b5e3c] border-t-transparent animate-spin" />
-                        <p className="text-xs text-[#b8997a] dark:text-[#6b5030] font-medium diary-date-stamp">Opening page…</p>
+                {/* ── Writing area ── */}
+                {/*
+                  ROOT CAUSE FIX:
+                  Previously, the editor was inside a conditional: loading ? <spinner> : <editor>
+                  This UNMOUNTED the editor div when loading=true, making editorRef.current = null.
+                  So applyEntry's `editorRef.current.innerHTML = html` was a silent no-op.
+                  Fix: ALWAYS keep editor in DOM. Loading spinner is an absolute overlay on top.
+                  Now editorRef.current is always valid when applyEntry runs.
+                */}
+                <div className="relative d-ruled" style={{ minHeight: 340 }}>
+                  {/* Loading overlay — sits on top, editor stays mounted underneath */}
+                  {loading && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4"
+                      style={{ background: "var(--d-page)", borderRadius: 4 }}>
+                      <div className="flex gap-2">
+                        <span className="d-dot" />
+                        <span className="d-dot" />
+                        <span className="d-dot" />
                       </div>
+                      <p className="text-xs font-medium" style={{ color: "var(--d-muted)", fontFamily: "'Kalam',cursive" }}>
+                        Opening page…
+                      </p>
                     </div>
-                  ) : (
-                    <div
-                      ref={editorRef}
-                      contentEditable={canEdit}
-                      suppressContentEditableWarning
-                      className="diary-editor"
-                      data-placeholder={canEdit ? "Start writing…" : "No entry for this date."}
-                      onInput={handleInput}
-                      onPaste={handlePaste}
-                    />
                   )}
+                  {/* Editor always in DOM — ref is always valid */}
+                  <div
+                    ref={editorRef}
+                    contentEditable={canEdit && !loading}
+                    suppressContentEditableWarning
+                    className="d-editor"
+                    data-placeholder={getPlaceholder()}
+                    onInput={handleInput}
+                    onPaste={handlePaste}
+                  />
                 </div>
 
-                {/* Mood row */}
-                <div className="mt-3 pt-2.5 border-t border-[#d4b896] dark:border-[#3a2510]">
+                {/* ── Mood ── */}
+                <div className="mt-3 pt-2.5" style={{ borderTop: "1px solid var(--d-rule)" }}>
                   <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-xs font-semibold text-[#8b6a40] dark:text-[#a07040] mr-1 select-none">Mood:</span>
+                    <span className="text-xs font-semibold mr-1 select-none" style={{ color: "var(--d-muted)" }}>Mood:</span>
                     {MOODS.map(m => (
                       <div key={m.key} className="relative group">
                         <button
@@ -1444,24 +1320,17 @@ export default function DiaryPage() {
                           onClick={() => { setMood(mood === m.key ? null : m.key); triggerAutoSave(); }}
                           className={[
                             "w-8 h-8 text-lg rounded-full flex items-center justify-center transition-all select-none",
-                            mood === m.key
-                              ? "bg-[#eedfc0] dark:bg-[#2a1a0e] ring-2 ring-[#8b5e3c] scale-110 shadow"
-                              : "",
-                            canEdit
-                              ? "hover:bg-[#f0d9b5] dark:hover:bg-[#1e1408] hover:scale-105 cursor-pointer"
-                              : "opacity-50 cursor-default",
-                          ].join(" ")}
-                        >
+                            mood === m.key ? "mood-sel scale-110 shadow" : "",
+                            canEdit ? "hover:scale-105 cursor-pointer" : "opacity-50 cursor-default",
+                          ].join(" ")}>
                           {m.emoji}
                         </button>
-                        {/* Tooltip — hidden on mobile via pointer-events check */}
-                        <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 bg-[#3a1f00] dark:bg-[#1a0c06] text-white text-[10px] rounded px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 hidden sm:block">
-                          {m.label}
-                        </span>
+                        <span className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 text-white text-[10px] rounded-lg px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-20 hidden sm:block"
+                          style={{ background: "var(--d-text)" }}>{m.label}</span>
                       </div>
                     ))}
                     {mood && (
-                      <span className="ml-1 text-xs font-bold text-[#5c3414] dark:text-[#c4a882]">
+                      <span className="ml-1 text-xs font-bold" style={{ color: "var(--d-text2)" }}>
                         {MOODS.find(m => m.key === mood)?.emoji}{" "}
                         <span className="hidden sm:inline">{MOODS.find(m => m.key === mood)?.label}</span>
                       </span>
@@ -1469,111 +1338,89 @@ export default function DiaryPage() {
                   </div>
                 </div>
 
-                {/* Bottom action bar */}
-                <div className="mt-3 pt-2.5 border-t border-[#d4b896] dark:border-[#3a2510] flex items-center justify-between gap-2 flex-wrap">
+                {/* ── Bottom action bar ── */}
+                <div className="mt-3 pt-2.5 flex items-center justify-between gap-2 flex-wrap"
+                  style={{ borderTop: "1px solid var(--d-rule)" }}>
+
                   <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="text-xs text-[#b8997a] dark:text-[#6b5030] truncate">
+                    <span className="text-xs truncate" style={{ color: "var(--d-muted)" }}>
                       {isLocked
                         ? "🔒 Locked — no more edits"
-                        : entry
-                        ? `Manual saves: ${entry.editCount} / 5`
-                        : "New entry"}
+                        : entry ? `Manual saves: ${entry.editCount} / 5` : "New page"}
                     </span>
                     {deleteMsg && (
-                      <span className={`text-xs font-semibold ${deleteMsg.startsWith("🚫") || deleteMsg.startsWith("❌") ? "text-red-500 dark:text-red-400" : "text-[#8b5e3c] dark:text-[#c4a882]"}`}>
+                      <span className={`text-xs font-semibold ${deleteMsg.startsWith("🚫") || deleteMsg.startsWith("❌") ? "text-red-500" : ""}`}
+                        style={!deleteMsg.startsWith("🚫") && !deleteMsg.startsWith("❌")
+                          ? { color: "var(--d-accent)" } : {}}>
                         {deleteMsg}
                       </span>
                     )}
                   </div>
 
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap shrink-0">
-                    {/* Save status */}
-                    <span className={`text-xs font-medium transition-opacity min-w-[48px] text-right ${saveMsg ? "text-green-600 dark:text-green-400 opacity-100" : saving ? "text-[#8b5e3c] dark:text-[#c4a882] opacity-100" : "opacity-0"}`}>
+                    <span className={`text-xs font-medium min-w-[52px] text-right transition-opacity ${saveMsg || saving ? "opacity-100" : "opacity-0"}`}
+                      style={{ color: saving ? "var(--d-accent)" : "#22c55e" }}>
                       {saving ? "Saving…" : saveMsg}
                     </span>
 
-                    {/* Delete button */}
                     {canDeleteBase && entry && (
                       deleteMaxed ? (
-                        <button
-                          disabled title="Delete limit reached"
-                          className="flex items-center gap-1 opacity-40 cursor-not-allowed text-xs font-semibold px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-[#c4a882] dark:border-[#5a3c20] text-[#8b5e3c] dark:text-[#c4a882]"
-                        >
-                          🚫 <span className="hidden sm:inline">No Deletes Left</span>
+                        <button disabled
+                          className="flex items-center gap-1 opacity-30 cursor-not-allowed text-xs font-semibold px-3 py-1.5 rounded-xl"
+                          style={{ border: "1px solid var(--d-border2)", color: "var(--d-text2)" }}>
+                          🚫 <span className="hidden sm:inline">No Deletes</span>
                         </button>
                       ) : (
-                        <button
-                          onClick={() => setShowDeleteConfirm(true)}
+                        <button onClick={() => setShowDelConfirm(true)}
                           disabled={isDeleting || !canDelete}
-                          className="flex items-center gap-1 text-xs font-semibold px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
+                          className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{ border: "1px solid #fca5a5", color: "#dc2626", background: "rgba(220,38,38,.08)" }}>
                           🗑️
                           <span className="hidden sm:inline">Delete</span>
-                          <span className="px-1 py-0.5 text-[9px] sm:text-[10px] rounded-full bg-red-100 dark:bg-red-900/50 text-red-500 font-bold">
+                          <span className="px-1.5 py-0.5 text-[9px] rounded-full font-bold"
+                            style={{ background: "rgba(220,38,38,.12)", color: "#dc2626" }}>
                             {deletesLeft}/{MAX_DELETES}
                           </span>
                         </button>
                       )
                     )}
 
-                    {/* Save button */}
                     {canEdit && (
-                      <button
-                        onClick={handleManualSave}
-                        disabled={saving || isLocked}
-                        className="flex items-center gap-1 bg-[#8b5e3c] hover:bg-[#6b4a2e] disabled:opacity-40 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl transition-colors shadow-sm"
-                      >
-                        💾 <span className="hidden xs:inline sm:inline">Save</span>
+                      <button onClick={handleManualSave} disabled={saving || isLocked}
+                        className="d-btn flex items-center gap-1 text-xs sm:text-sm font-bold px-4 py-2 rounded-xl">
+                        💾 Save
                       </button>
                     )}
                   </div>
                 </div>
+
               </div>
 
               {/* Right binding */}
-              <div className="diary-binding-right" />
+              <div className="d-binding" />
             </div>
-
-            <div className="diary-strip-bot" />
+            <div className="d-strip" />
           </div>
 
-          {/* ── Navigation ── */}
+          {/* ───────── NAVIGATION ───────── */}
+          {/* FIX #5: No seconds countdown — just clean disabled state with subtle pulse */}
           <div className="flex items-center justify-between gap-2">
-            <button
-              onClick={goPrev}
+            <button onClick={goPrev}
               disabled={navCooldown || currentDate <= NINETY_AGO}
-              className={[
-                "flex items-center gap-1 sm:gap-1.5 px-3 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border",
-                navCooldown || currentDate <= NINETY_AGO
-                  ? "bg-[#f0e0c0] dark:bg-[#1e1408] text-[#c4a882] dark:text-[#5a3c20] border-[#e8d5b0] dark:border-[#2a1a0e] cursor-not-allowed"
-                  : "bg-[#fdf5e6] dark:bg-[#1e1408] text-[#5c3414] dark:text-[#c4a882] border-[#c4a882] dark:border-[#5a3c20] hover:bg-[#f0d9b5] dark:hover:bg-[#2a1a0e] hover:border-[#8b5e3c] shadow-sm active:scale-95",
-              ].join(" ")}
-            >
+              className={`d-nav${navCooldown ? " nav-cooling" : ""}`}>
               ◀ <span className="hidden sm:inline">Prev</span>
-              {navCooldown && <span className="font-mono text-[10px] sm:text-xs">{navSecs}s</span>}
             </button>
 
             <div className="text-center text-xs flex-1">
-              {currentDate === getTODAY()
-                ? <span className="font-bold text-[#8b5e3c] dark:text-[#c4a882]">✦ Today</span>
-                : <span className="text-[#8b6a40] dark:text-[#a07040]">
-                    {Math.abs(Math.round((strToDate(currentDate).getTime() - strToDate(getTODAY()).getTime()) / 86400000))} days ago
-                  </span>
-              }
+              <span style={{ color: currentDate === todayStr() ? "var(--d-accent)" : "var(--d-muted)", fontWeight: 600 }}>
+                {daysAway()}
+              </span>
             </div>
 
-            <button
-              onClick={goNext}
+            <button onClick={goNext}
               disabled={navCooldown || !canGoNext}
-              className={[
-                "flex items-center gap-1 sm:gap-1.5 px-3 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border",
-                navCooldown || !canGoNext
-                  ? "bg-[#f0e0c0] dark:bg-[#1e1408] text-[#c4a882] dark:text-[#5a3c20] border-[#e8d5b0] dark:border-[#2a1a0e] cursor-not-allowed"
-                  : "bg-[#fdf5e6] dark:bg-[#1e1408] text-[#5c3414] dark:text-[#c4a882] border-[#c4a882] dark:border-[#5a3c20] hover:bg-[#f0d9b5] dark:hover:bg-[#2a1a0e] hover:border-[#8b5e3c] shadow-sm active:scale-95",
-              ].join(" ")}
-            >
+              className={`d-nav${navCooldown ? " nav-cooling" : ""}`}>
               <span className="hidden sm:inline">Next</span> ▶
-              {navCooldown && <span className="font-mono text-[10px] sm:text-xs">{navSecs}s</span>}
             </button>
           </div>
 
