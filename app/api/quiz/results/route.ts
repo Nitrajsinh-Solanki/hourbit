@@ -1,11 +1,12 @@
 // app/api/quiz/results/route.ts — complete updated file
+// app/api/quiz/results/route.ts — complete updated file
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB }                 from "@/app/lib/mongodb";
 import { requireAuth }               from "@/app/lib/authGuard";
 import { QuizAttemptResult }         from "@/app/models/brain/QuizAttemptResult";
 import { Question }                  from "@/app/models/brain/Question";
-import { UserLevelProgress }         from "@/app/models/brain";
+import { Level, UserLevelProgress }  from "@/app/models/brain";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
@@ -39,15 +40,27 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Fetch progress to know exhaustion state for canReview
-  const progress = await UserLevelProgress.findOne({ userId, levelId })
-    .select("isExhausted isCompleted")
-    .lean();
+  // Fetch progress AND level to determine exhaustion state robustly
+  const [progress, level] = await Promise.all([
+    UserLevelProgress.findOne({ userId, levelId })
+      .select("isExhausted isCompleted attemptsUsed")
+      .lean(),
+    Level.findById(levelId)
+      .select("maxAttempts")
+      .lean(),
+  ]);
 
-  const isPassing    = result.score === 100;
-  const isExhausted  = progress?.isExhausted ?? false;
-  // ── FIX PROBLEM 5: canReview if passed OR exhausted ──
-  const canReview    = isPassing || isExhausted;
+  const isPassing   = result.score === 100;
+  const isExhausted = progress?.isExhausted ?? false;
+
+  // FIX: also treat as exhausted if attemptsUsed >= maxAttempts even if the
+  // isExhausted flag wasn't flushed to DB yet (edge case on last attempt).
+  const attemptsUsed    = progress?.attemptsUsed ?? 0;
+  const maxAttempts     = (level as any)?.maxAttempts ?? 1;
+  const effectivelyDone = isExhausted || (attemptsUsed >= maxAttempts && !isPassing);
+
+  // canReview: passed OR all attempts used up
+  const canReview = isPassing || effectivelyDone;
 
   const questionIds = (result.answers as any[]).map((a: any) => a.questionId);
   const questions   = await Question.find({ _id: { $in: questionIds } })

@@ -1,6 +1,20 @@
+// app/dashboard/layout.tsx
+// app/dashboard/layout.tsx
+//
+// XP CHANGES:
+//   Now reads from UserXp.totalXp (wallet) instead of aggregating.
+//   Three update paths:
+//     1. Mount → immediate fetch
+//     2. Poll every 30s → background sync
+//     3. "xp-updated" event → re-fetch immediately (after quiz submit)
+//     4. "xp-deduct" event → instant local subtraction (after hint click)
+//
+//   The "xp coming back" bug is fixed at the backend level (see hint/route.ts
+//   and submit/route.ts). This file's role is purely display.
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -26,7 +40,6 @@ import {
 } from "lucide-react";
 import Logo from "../components/Logo";
 
-// ── Nav items ──────────────────────────────────────────────────
 const NAV_ITEMS = [
   { label: "Today's Track", href: "/dashboard/today",    icon: Clock        },
   { label: "Go Date Wise",  href: "/dashboard/date-wise",icon: CalendarDays },
@@ -38,10 +51,9 @@ const NAV_ITEMS = [
   { label: "Profile",       href: "/dashboard/profile",  icon: User         },
 ];
 
-const SIDEBAR_WIDTH     = 232; // px — expanded
-const SIDEBAR_COLLAPSED = 64;  // px — icon-only rail
+const SIDEBAR_WIDTH     = 232;
+const SIDEBAR_COLLAPSED = 64;
 
-// ── CSS variable themes ────────────────────────────────────────
 const DARK_THEME = `
   :root {
     --bg:       #0f1117;
@@ -79,15 +91,12 @@ const LIGHT_THEME = `
     --danger:   #dc2626;
   }
   * { box-sizing: border-box; }
-  input, textarea, select, button {
-    font-family: inherit;
-  }
+  input, textarea, select, button { font-family: inherit; }
   input[type='number']::-webkit-inner-spin-button,
   input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type='number'] { -moz-appearance: textfield; }
 `;
 
-// ── Theme hook ─────────────────────────────────────────────────
 function useTheme() {
   const [dark, setDark] = useState(true);
 
@@ -119,13 +128,8 @@ function useTheme() {
   return { dark, toggle };
 }
 
-// ── Sidebar ────────────────────────────────────────────────────
 function Sidebar({
-  fullName,
-  mobileOpen,
-  onMobileClose,
-  collapsed,
-  onToggleCollapse,
+  fullName, mobileOpen, onMobileClose, collapsed, onToggleCollapse,
 }: {
   fullName: string;
   mobileOpen: boolean;
@@ -145,73 +149,32 @@ function Sidebar({
 
   return (
     <>
-      {/* Mobile overlay */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-30 md:hidden"
-          onClick={onMobileClose}
-          style={{ backdropFilter: "blur(2px)" }}
-        />
+        <div className="fixed inset-0 bg-black/60 z-30 md:hidden" onClick={onMobileClose}
+          style={{ backdropFilter: "blur(2px)" }} />
       )}
 
-      {/* ── MOBILE sidebar ── */}
+      {/* Mobile */}
       <aside
-        className={`
-          fixed top-0 left-0 h-screen z-40 flex flex-col md:hidden
-          transition-transform duration-300 ease-in-out
-          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
-        `}
-        style={{
-          width:         `${SIDEBAR_WIDTH}px`,
-          background:    "var(--bg)",
-          borderRight:   "1px solid var(--border2)",
-          paddingTop:    "64px",
-          paddingBottom: "64px",
-        }}
+        className={`fixed top-0 left-0 h-screen z-40 flex flex-col md:hidden transition-transform duration-300 ease-in-out ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
+        style={{ width: `${SIDEBAR_WIDTH}px`, background: "var(--bg)", borderRight: "1px solid var(--border2)", paddingTop: "64px", paddingBottom: "64px" }}
       >
-        <SidebarContent
-          fullName={fullName}
-          pathname={pathname}
-          collapsed={false}
-          onLinkClick={onMobileClose}
-          onLogout={handleLogout}
-          onToggleCollapse={undefined}
-        />
+        <SidebarContent fullName={fullName} pathname={pathname} collapsed={false} onLinkClick={onMobileClose} onLogout={handleLogout} onToggleCollapse={undefined} />
       </aside>
 
-      {/* ── DESKTOP sidebar ── */}
+      {/* Desktop */}
       <aside
         className="hidden md:flex fixed top-0 left-0 h-screen z-40 flex-col transition-all duration-300 ease-in-out"
-        style={{
-          width:         `${sidebarWidth}px`,
-          background:    "var(--bg)",
-          borderRight:   "1px solid var(--border2)",
-          paddingTop:    "64px",
-          paddingBottom: "64px",
-          overflow:      "hidden",
-        }}
+        style={{ width: `${sidebarWidth}px`, background: "var(--bg)", borderRight: "1px solid var(--border2)", paddingTop: "64px", paddingBottom: "64px", overflow: "hidden" }}
       >
-        <SidebarContent
-          fullName={fullName}
-          pathname={pathname}
-          collapsed={collapsed}
-          onLinkClick={() => {}}
-          onLogout={handleLogout}
-          onToggleCollapse={onToggleCollapse}
-        />
+        <SidebarContent fullName={fullName} pathname={pathname} collapsed={collapsed} onLinkClick={() => {}} onLogout={handleLogout} onToggleCollapse={onToggleCollapse} />
       </aside>
     </>
   );
 }
 
-// ── Sidebar inner content ──────────────────────────────────────
 function SidebarContent({
-  fullName,
-  pathname,
-  collapsed,
-  onLinkClick,
-  onLogout,
-  onToggleCollapse,
+  fullName, pathname, collapsed, onLinkClick, onLogout, onToggleCollapse,
 }: {
   fullName: string;
   pathname: string;
@@ -222,33 +185,17 @@ function SidebarContent({
 }) {
   return (
     <>
-      {/* Welcome / user row */}
       {!collapsed && (
-        <div
-          className="px-4 py-3 flex items-center justify-between"
-          style={{ borderBottom: "1px solid var(--border)" }}
-        >
+        <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
           <p className="text-[13px] font-medium truncate" style={{ color: "var(--text2)" }}>
-            Hi,{" "}
-            <span className="font-semibold" style={{ color: "var(--text)" }}>
-              {fullName || "User"}
-            </span>{" "}
-            👋
+            Hi, <span className="font-semibold" style={{ color: "var(--text)" }}>{fullName || "User"}</span> 👋
           </p>
           {onToggleCollapse && (
-            <button
-              onClick={onToggleCollapse}
-              title="Collapse sidebar"
+            <button onClick={onToggleCollapse} title="Collapse sidebar"
               className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer border-none"
               style={{ background: "var(--surface2)", color: "var(--text3)" }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.color = "var(--accent)";
-                (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)";
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.color = "var(--text3)";
-                (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
-              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--accent)"; (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text3)";  (e.currentTarget as HTMLElement).style.background = "var(--surface2)"; }}
             >
               <ChevronLeft size={14} />
             </button>
@@ -256,43 +203,24 @@ function SidebarContent({
         </div>
       )}
 
-      {/* Collapsed expand button */}
       {collapsed && onToggleCollapse && (
-        <div
-          className="flex items-center justify-center py-3"
-          style={{ borderBottom: "1px solid var(--border)" }}
-        >
-          <button
-            onClick={onToggleCollapse}
-            title="Expand sidebar"
+        <div className="flex items-center justify-center py-3" style={{ borderBottom: "1px solid var(--border)" }}>
+          <button onClick={onToggleCollapse} title="Expand sidebar"
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer border-none"
             style={{ background: "var(--surface2)", color: "var(--text3)" }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.color = "var(--accent)";
-              (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)";
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.color = "var(--text3)";
-              (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
-            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--accent)"; (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text3)";  (e.currentTarget as HTMLElement).style.background = "var(--surface2)"; }}
           >
             <ChevronRight size={14} />
           </button>
         </div>
       )}
 
-      {/* Nav items */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-0.5">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
-          const active =
-            pathname === href ||
-            (href === "/dashboard/today" && pathname === "/dashboard");
+          const active = pathname === href || (href === "/dashboard/today" && pathname === "/dashboard");
           return (
-            <Link
-              key={href}
-              href={href}
-              onClick={onLinkClick}
-              title={collapsed ? label : undefined}
+            <Link key={href} href={href} onClick={onLinkClick} title={collapsed ? label : undefined}
               className="flex items-center gap-3 rounded-xl text-[13px] font-medium transition-all duration-150 no-underline"
               style={{
                 background:     active ? "rgba(124,110,243,0.14)" : "transparent",
@@ -301,49 +229,22 @@ function SidebarContent({
                 padding:        collapsed ? "10px 0" : "10px 12px",
                 justifyContent: collapsed ? "center" : "flex-start",
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
-                  (e.currentTarget as HTMLElement).style.color      = "var(--text)";
-                }
-              }}
-              onMouseLeave={e => {
-                if (!active) {
-                  (e.currentTarget as HTMLElement).style.background = "transparent";
-                  (e.currentTarget as HTMLElement).style.color      = "var(--text2)";
-                }
-              }}
+              onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "var(--surface2)"; (e.currentTarget as HTMLElement).style.color = "var(--text)"; } }}
+              onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "var(--text2)"; } }}
             >
-              <Icon
-                size={16}
-                style={{ color: active ? "#7c6ef3" : "var(--text3)", flexShrink: 0 }}
-              />
+              <Icon size={16} style={{ color: active ? "#7c6ef3" : "var(--text3)", flexShrink: 0 }} />
               {!collapsed && label}
             </Link>
           );
         })}
       </nav>
 
-      {/* Logout */}
       <div className="px-2 py-3" style={{ borderTop: "1px solid var(--border)" }}>
-        <button
-          onClick={onLogout}
-          title={collapsed ? "Logout" : undefined}
+        <button onClick={onLogout} title={collapsed ? "Logout" : undefined}
           className="flex items-center gap-3 w-full rounded-xl text-[13px] font-medium transition-all duration-150 cursor-pointer border-none"
-          style={{
-            color:          "var(--text2)",
-            background:     "transparent",
-            padding:        collapsed ? "10px 0" : "10px 12px",
-            justifyContent: collapsed ? "center" : "flex-start",
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.color      = "#f87171";
-            (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.08)";
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.color      = "var(--text2)";
-            (e.currentTarget as HTMLElement).style.background = "transparent";
-          }}
+          style={{ color: "var(--text2)", background: "transparent", padding: collapsed ? "10px 0" : "10px 12px", justifyContent: collapsed ? "center" : "flex-start" }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#f87171"; (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.08)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text2)"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}
         >
           <LogOut size={16} style={{ color: "var(--text3)", flexShrink: 0 }} />
           {!collapsed && "Logout"}
@@ -353,35 +254,31 @@ function SidebarContent({
   );
 }
 
-// ── Top Navbar ─────────────────────────────────────────────────
 function DashNavbar({
   dark,
   onThemeToggle,
   onMobileMenuToggle,
   mobileOpen,
-  sidebarCollapsed,
   totalXp,
 }: {
   dark: boolean;
   onThemeToggle: () => void;
   onMobileMenuToggle: () => void;
   mobileOpen: boolean;
-  sidebarCollapsed: boolean;
   totalXp: number;
 }) {
-  const router     = useRouter();
-  const leftOffset = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
+  const router = useRouter();
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center justify-between px-5 transition-all duration-300"
+      className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center justify-between px-5"
       style={{
-        background:     "var(--bg)",
-        borderBottom:   "1px solid var(--border2)",
+        background: "var(--bg)",
+        borderBottom: "1px solid var(--border2)",
         backdropFilter: "blur(12px)",
       }}
     >
-      {/* Left: hamburger (mobile) + logo */}
+      {/* LEFT */}
       <div className="flex items-center gap-3">
         <button
           onClick={onMobileMenuToggle}
@@ -392,43 +289,48 @@ function DashNavbar({
           {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
 
-        <div
-          className="hidden md:flex transition-all duration-300"
-          style={{ width: `${leftOffset - 20}px`, overflow: "hidden" }}
-        >
+        {/* ✅ FIXED DESKTOP LOGO — NO MOVEMENT */}
+        <div className="hidden md:flex items-center">
           <Link href="/dashboard/today" className="flex items-center">
             <Logo />
           </Link>
         </div>
 
+        {/* Mobile logo */}
         <Link href="/dashboard/today" className="md:hidden flex items-center">
           <Logo />
         </Link>
       </div>
 
-      {/* Right controls */}
+      {/* RIGHT */}
       <div className="flex items-center gap-3">
-
         {/* XP badge */}
         <button
           onClick={() => router.push("/dashboard/quiz")}
-          title="Your Brain XP — click to visit Quiz"
+          title="Your Brain XP"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-none cursor-pointer transition-all hover:-translate-y-0.5"
           style={{
             background: "rgba(245,158,11,0.12)",
-            border:     "1px solid rgba(245,158,11,0.28)",
+            border: "1px solid rgba(245,158,11,0.28)",
           }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.22)";
-            (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.55)";
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              "rgba(245,158,11,0.22)";
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "rgba(245,158,11,0.55)";
           }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.12)";
-            (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.28)";
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              "rgba(245,158,11,0.12)";
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "rgba(245,158,11,0.28)";
           }}
         >
           <Zap size={13} style={{ color: "var(--amber)" }} />
-          <span className="font-mono font-bold text-[12px]" style={{ color: "var(--amber)" }}>
+          <span
+            className="font-mono font-bold text-[12px]"
+            style={{ color: "var(--amber)" }}
+          >
             {totalXp.toLocaleString()} XP
           </span>
         </button>
@@ -439,8 +341,8 @@ function DashNavbar({
           rel="noopener noreferrer"
           className="hidden lg:block text-[13px] transition-colors no-underline"
           style={{ color: "var(--text3)" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text3)")}
         >
           Developer —{" "}
           <span style={{ color: "var(--text2)", fontWeight: 500 }}>
@@ -454,16 +356,18 @@ function DashNavbar({
           className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer"
           style={{
             background: "var(--surface)",
-            border:     "1px solid var(--border2)",
-            color:      "var(--text2)",
+            border: "1px solid var(--border2)",
+            color: "var(--text2)",
           }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.5)";
-            (e.currentTarget as HTMLElement).style.color       = "var(--accent)";
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "rgba(124,110,243,0.5)";
+            (e.currentTarget as HTMLElement).style.color = "var(--accent)";
           }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)";
-            (e.currentTarget as HTMLElement).style.color       = "var(--text2)";
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "var(--border2)";
+            (e.currentTarget as HTMLElement).style.color = "var(--text2)";
           }}
         >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
@@ -473,46 +377,25 @@ function DashNavbar({
   );
 }
 
-// ── Bottom Footer ──────────────────────────────────────────────
 function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   const leftOffset = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
-
   return (
-    <footer
-      className="dash-footer fixed bottom-0 right-0 h-16 z-40 flex items-center justify-between px-5 transition-all duration-300"
-      style={{
-        left:           "0",
-        background:     "var(--bg)",
-        borderTop:      "1px solid var(--border2)",
-        backdropFilter: "blur(12px)",
-      }}
-    >
-      <style>{`
-        @media (min-width: 768px) {
-          .dash-footer { left: ${leftOffset}px !important; }
-        }
-      `}</style>
+    <footer className="dash-footer fixed bottom-0 right-0 h-16 z-40 flex items-center justify-between px-5 transition-all duration-300"
+      style={{ left: "0", background: "var(--bg)", borderTop: "1px solid var(--border2)", backdropFilter: "blur(12px)" }}>
+      <style>{`@media (min-width: 768px) { .dash-footer { left: ${leftOffset}px !important; } }`}</style>
       <p className="text-[12px] whitespace-nowrap" style={{ color: "var(--text3)" }}>
-        Made with <span style={{ color: "#e05252" }}>♥</span> —{" "}
-        <span style={{ color: "var(--text2)" }}>Nitrajsinh Solanki</span>
+        Made with <span style={{ color: "#e05252" }}>♥</span> — <span style={{ color: "var(--text2)" }}>Nitrajsinh Solanki</span>
       </p>
-
       <div className="flex items-center gap-4">
         {[
           { href: "https://www.linkedin.com/in/nitrajsinh-solanki-647b11293", icon: Linkedin, label: "LinkedIn"  },
           { href: "https://github.com/Nitrajsinh-Solanki",                    icon: Github,   label: "GitHub"    },
           { href: "https://my-portfolio-xi-ochre-28.vercel.app/",             icon: Globe,    label: "Portfolio" },
         ].map(({ href, icon: Icon, label }) => (
-          <a
-            key={label}
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-[12px] transition-colors no-underline"
-            style={{ color: "var(--text3)" }}
+          <a key={label} href={href} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[12px] transition-colors no-underline" style={{ color: "var(--text3)" }}
             onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}
-          >
+            onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
             <Icon size={13} />
             <span className="hidden sm:inline">{label}</span>
           </a>
@@ -522,7 +405,6 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   );
 }
 
-// ── Root Dashboard Layout ──────────────────────────────────────
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { dark, toggle } = useTheme();
 
@@ -532,7 +414,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [totalXp,          setTotalXp]          = useState(0);
   const router = useRouter();
 
-  // Persist sidebar collapse preference
   useEffect(() => {
     const stored = localStorage.getItem("hb-sidebar-collapsed");
     if (stored !== null) setSidebarCollapsed(stored === "true");
@@ -546,14 +427,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   };
 
-  // Auth check on mount
   useEffect(() => {
     fetch("/api/auth/me")
       .then(r => {
-        if (r.status === 401 || r.status === 403) {
-          router.replace("/auth/login");
-          return null;
-        }
+        if (r.status === 401 || r.status === 403) { router.replace("/auth/login"); return null; }
         return r.json();
       })
       .then(data => {
@@ -564,28 +441,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .catch(() => router.replace("/auth/login"));
   }, [router]);
 
-  // ── XP: single consolidated effect ────────────────────────────
-  // FIX: The original file had TWO separate useEffect blocks both calling
-  // refreshXp() on mount and both registering "xp-updated" listeners.
-  // This caused double DB round-trips on every mount and double XP fetches
-  // after every quiz completion. Consolidated into one block below.
-  const refreshXp = () => {
+  // ── XP state manager ──────────────────────────────────────────────────────
+  // Reads from UserXp.totalXp wallet (O(1) lookup, no aggregation).
+  //
+  // Four update triggers:
+  //   1. Mount               → immediate fetch
+  //   2. 30s poll            → background sync / drift correction
+  //   3. "xp-updated" event  → re-fetch after quiz submit (authoritative)
+  //   4. "xp-deduct" event   → instant local subtraction after hint (no round-trip)
+  const refreshXp = useCallback(() => {
     fetch("/api/quiz/xp")
       .then(r => r.json())
       .then(d => { if (d.success) setTotalXp(d.totalXp ?? 0); })
       .catch(() => {});
-  };
+  }, []);
 
   useEffect(() => {
-    // Initial fetch on mount
     refreshXp();
 
-    // "xp-updated" → full re-fetch after quiz submit/complete
-    const handleUpdated = () => refreshXp();
+    const pollId = setInterval(refreshXp, 30_000);
 
-    // "xp-deduct" → instant local deduction when hint is clicked
-    // No DB round-trip needed here — submit route recalculates from scratch
-    const handleDeduct = (e: Event) => {
+    const handleUpdated = () => refreshXp();
+    const handleDeduct  = (e: Event) => {
       const amount = (e as CustomEvent<{ amount: number }>).detail?.amount ?? 0;
       if (amount > 0) setTotalXp(prev => Math.max(0, prev - amount));
     };
@@ -594,12 +471,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     window.addEventListener("xp-deduct",  handleDeduct);
 
     return () => {
+      clearInterval(pollId);
       window.removeEventListener("xp-updated", handleUpdated);
       window.removeEventListener("xp-deduct",  handleDeduct);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshXp]);
 
-  // Close mobile sidebar on resize to desktop
   useEffect(() => {
     const handle = () => { if (window.innerWidth >= 768) setMobileOpen(false); };
     window.addEventListener("resize", handle);
@@ -611,44 +488,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
       <DashNavbar
-        dark={dark}
-        onThemeToggle={toggle}
+        dark={dark} onThemeToggle={toggle}
         onMobileMenuToggle={() => setMobileOpen(p => !p)}
         mobileOpen={mobileOpen}
-        sidebarCollapsed={sidebarCollapsed}
         totalXp={totalXp}
       />
-
       <Sidebar
-        fullName={fullName}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={toggleCollapse}
+        fullName={fullName} mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)}
+        collapsed={sidebarCollapsed} onToggleCollapse={toggleCollapse}
       />
-
-      {/* ── MAIN CONTENT AREA ── */}
-      <div
-        className="transition-all duration-300"
-        style={{
-          marginLeft:    "0px",
-          paddingTop:    "64px",
-          paddingBottom: "64px",
-          minHeight:     "100vh",
-        }}
-      >
-        <style>{`
-          @media (min-width: 768px) {
-            .dash-content-area { margin-left: ${desktopLeft}px !important; }
-          }
-        `}</style>
+      <div className="transition-all duration-300"
+        style={{ marginLeft: "0px", paddingTop: "64px", paddingBottom: "64px", minHeight: "100vh" }}>
+        <style>{`@media (min-width: 768px) { .dash-content-area { margin-left: ${desktopLeft}px !important; } }`}</style>
         <div className="dash-content-area transition-all duration-300">
           <main className="px-4 sm:px-6 md:px-8 lg:px-10 py-5 max-w-screen-2xl">
             {children}
           </main>
         </div>
       </div>
-
       <DashFooter sidebarCollapsed={sidebarCollapsed} />
     </div>
   );
