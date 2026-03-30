@@ -255,61 +255,120 @@ function SidebarContent({
 }
 
 function DashNavbar({
-  dark, onThemeToggle, onMobileMenuToggle, mobileOpen, sidebarCollapsed, totalXp,
+  dark,
+  onThemeToggle,
+  onMobileMenuToggle,
+  mobileOpen,
+  totalXp,
 }: {
   dark: boolean;
   onThemeToggle: () => void;
   onMobileMenuToggle: () => void;
   mobileOpen: boolean;
-  sidebarCollapsed: boolean;
   totalXp: number;
 }) {
-  const router     = useRouter();
-  const leftOffset = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
+  const router = useRouter();
 
   return (
-    <header className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center justify-between px-5 transition-all duration-300"
-      style={{ background: "var(--bg)", borderBottom: "1px solid var(--border2)", backdropFilter: "blur(12px)" }}>
-
+    <header
+      className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center justify-between px-5"
+      style={{
+        background: "var(--bg)",
+        borderBottom: "1px solid var(--border2)",
+        backdropFilter: "blur(12px)",
+      }}
+    >
+      {/* LEFT */}
       <div className="flex items-center gap-3">
-        <button onClick={onMobileMenuToggle}
+        <button
+          onClick={onMobileMenuToggle}
           className="md:hidden p-1.5 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
-          style={{ color: "var(--text2)" }} aria-label="Toggle menu">
+          style={{ color: "var(--text2)" }}
+          aria-label="Toggle menu"
+        >
           {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
-        <div className="hidden md:flex transition-all duration-300"
-          style={{ width: `${leftOffset - 20}px`, overflow: "hidden" }}>
-          <Link href="/dashboard/today" className="flex items-center"><Logo /></Link>
+
+        {/* ✅ FIXED DESKTOP LOGO — NO MOVEMENT */}
+        <div className="hidden md:flex items-center">
+          <Link href="/dashboard/today" className="flex items-center">
+            <Logo />
+          </Link>
         </div>
-        <Link href="/dashboard/today" className="md:hidden flex items-center"><Logo /></Link>
+
+        {/* Mobile logo */}
+        <Link href="/dashboard/today" className="md:hidden flex items-center">
+          <Logo />
+        </Link>
       </div>
 
+      {/* RIGHT */}
       <div className="flex items-center gap-3">
-        {/* XP badge — clicking goes to Quiz */}
-        <button onClick={() => router.push("/dashboard/quiz")} title="Your Brain XP"
+        {/* XP badge */}
+        <button
+          onClick={() => router.push("/dashboard/quiz")}
+          title="Your Brain XP"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-none cursor-pointer transition-all hover:-translate-y-0.5"
-          style={{ background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.28)" }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.22)"; (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.55)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background  = "rgba(245,158,11,0.12)"; (e.currentTarget as HTMLElement).style.borderColor = "rgba(245,158,11,0.28)"; }}
+          style={{
+            background: "rgba(245,158,11,0.12)",
+            border: "1px solid rgba(245,158,11,0.28)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              "rgba(245,158,11,0.22)";
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "rgba(245,158,11,0.55)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.background =
+              "rgba(245,158,11,0.12)";
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "rgba(245,158,11,0.28)";
+          }}
         >
           <Zap size={13} style={{ color: "var(--amber)" }} />
-          <span className="font-mono font-bold text-[12px]" style={{ color: "var(--amber)" }}>
+          <span
+            className="font-mono font-bold text-[12px]"
+            style={{ color: "var(--amber)" }}
+          >
             {totalXp.toLocaleString()} XP
           </span>
         </button>
 
-        <a href="https://my-portfolio-xi-ochre-28.vercel.app/" target="_blank" rel="noopener noreferrer"
-          className="hidden lg:block text-[13px] transition-colors no-underline" style={{ color: "var(--text3)" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "var(--text3)")}>
-          Developer — <span style={{ color: "var(--text2)", fontWeight: 500 }}>Nitrajsinh Solanki</span>
+        <a
+          href="https://my-portfolio-xi-ochre-28.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hidden lg:block text-[13px] transition-colors no-underline"
+          style={{ color: "var(--text3)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text3)")}
+        >
+          Developer —{" "}
+          <span style={{ color: "var(--text2)", fontWeight: 500 }}>
+            Nitrajsinh Solanki
+          </span>
         </a>
 
-        <button onClick={onThemeToggle} aria-label="Toggle theme"
+        <button
+          onClick={onThemeToggle}
+          aria-label="Toggle theme"
           className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer"
-          style={{ background: "var(--surface)", border: "1px solid var(--border2)", color: "var(--text2)" }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.5)"; (e.currentTarget as HTMLElement).style.color = "var(--accent)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)"; (e.currentTarget as HTMLElement).style.color = "var(--text2)"; }}
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border2)",
+            color: "var(--text2)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "rgba(124,110,243,0.5)";
+            (e.currentTarget as HTMLElement).style.color = "var(--accent)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.borderColor =
+              "var(--border2)";
+            (e.currentTarget as HTMLElement).style.color = "var(--text2)";
+          }}
         >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
@@ -431,7 +490,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <DashNavbar
         dark={dark} onThemeToggle={toggle}
         onMobileMenuToggle={() => setMobileOpen(p => !p)}
-        mobileOpen={mobileOpen} sidebarCollapsed={sidebarCollapsed}
+        mobileOpen={mobileOpen}
         totalXp={totalXp}
       />
       <Sidebar
