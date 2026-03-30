@@ -22,7 +22,7 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
 
   return (
     <div
-      className="rounded-2xl overflow-hidden"
+      className="rounded-2xl overflow-hidden w-full"
       style={{
         background: "var(--surface)",
         border: "1px solid var(--border2)",
@@ -32,7 +32,8 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
       <div
         style={{
           height: 4,
-          background: "linear-gradient(90deg, var(--accent) 0%, var(--green) 100%)",
+          background:
+            "linear-gradient(90deg, var(--accent) 0%, var(--green) 100%)",
         }}
       />
 
@@ -42,9 +43,10 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
           {/* ── Avatar ── */}
           <div className="relative shrink-0">
             <div
-              className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold"
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center text-xl sm:text-2xl font-bold"
               style={{
-                background: "linear-gradient(135deg, var(--accent) 0%, rgba(124,110,243,0.5) 100%)",
+                background:
+                  "linear-gradient(135deg, var(--accent) 0%, rgba(124,110,243,0.5) 100%)",
                 color: "#fff",
                 border: "2px solid rgba(124,110,243,0.3)",
                 boxShadow: "0 8px 32px rgba(124,110,243,0.25)",
@@ -52,9 +54,10 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
             >
               {initials}
             </div>
+
             {/* Online dot */}
             <span
-              className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2"
+              className="absolute -bottom-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border-2"
               style={{
                 background: "var(--green)",
                 borderColor: "var(--surface)",
@@ -65,9 +68,13 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
           {/* ── Identity ── */}
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h2 className="text-xl font-bold truncate" style={{ color: "var(--text)" }}>
+              <h2
+                className="text-lg sm:text-xl font-bold truncate"
+                style={{ color: "var(--text)" }}
+              >
                 {user.fullName || "Unnamed User"}
               </h2>
+
               <span
                 className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
                 style={{
@@ -81,12 +88,15 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
               </span>
             </div>
 
-            <p className="text-sm mb-4" style={{ color: "var(--text3)" }}>
+            <p
+              className="text-sm mb-4 break-all"
+              style={{ color: "var(--text3)" }}
+            >
               {user.email}
             </p>
 
             {/* ── Info chips grid ── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <InfoChip
                 icon={<Mail className="w-3.5 h-3.5" />}
                 label="Email"
@@ -119,9 +129,7 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
           </div>
 
           {/* ── Status pill (desktop right) ── */}
-          <div
-            className="hidden lg:flex flex-col items-end gap-2 shrink-0"
-          >
+          <div className="hidden lg:flex flex-col items-end gap-2 shrink-0">
             <div
               className="rounded-xl px-4 py-3 text-right"
               style={{
@@ -130,13 +138,24 @@ export default function ProfileHeader({ user }: { user: ProfileUser }) {
                 minWidth: 160,
               }}
             >
-              <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text4)" }}>
+              <p
+                className="text-[11px] font-bold uppercase tracking-widest mb-1"
+                style={{ color: "var(--text4)" }}
+              >
                 Status
               </p>
-              <p className="text-sm font-semibold" style={{ color: "var(--green)" }}>
+
+              <p
+                className="text-sm font-semibold"
+                style={{ color: "var(--green)" }}
+              >
                 Healthy & Ready
               </p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--text3)" }}>
+
+              <p
+                className="text-xs mt-0.5"
+                style={{ color: "var(--text3)" }}
+              >
                 All systems normal
               </p>
             </div>
@@ -163,7 +182,7 @@ function InfoChip({
 }) {
   return (
     <div
-      className="rounded-xl px-3 py-2.5 flex items-center gap-2.5"
+      className="rounded-xl px-3 py-2.5 flex items-center gap-2.5 min-w-0"
       style={{
         background: "var(--surface2)",
         border: "1px solid var(--border2)",
@@ -175,11 +194,20 @@ function InfoChip({
       >
         {icon}
       </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
+
+      <div className="min-w-0 flex-1">
+        <p
+          className="text-[10px] font-semibold uppercase tracking-wider"
+          style={{ color: "var(--text4)" }}
+        >
           {label}
         </p>
-        <p className="text-xs font-semibold truncate mt-0.5" style={{ color: "var(--text)" }} title={value}>
+
+        <p
+          className="text-xs font-semibold truncate mt-0.5"
+          style={{ color: "var(--text)" }}
+          title={value}
+        >
           {value}
         </p>
       </div>
