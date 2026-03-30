@@ -11,6 +11,11 @@ import User from "@/app/models/User";
 const IST_TIMEZONE = "Asia/Kolkata";
 
 // ---------- TIME HELPERS ----------
+
+/**
+ * Convert a Date/string to IST and return { year, month, day } parts.
+ * Used for bucketing logs into the correct IST calendar day.
+ */
 function toISTDateParts(dateInput: Date | string | null | undefined) {
   if (!dateInput) return null;
   const d = new Date(dateInput);
@@ -23,13 +28,33 @@ function toISTDateParts(dateInput: Date | string | null | undefined) {
     day: "2-digit",
   }).formatToParts(d);
 
-  const year = Number(parts.find((p) => p.type === "year")?.value);
-  const month = Number(parts.find((p) => p.type === "month")?.value);
-  const day = Number(parts.find((p) => p.type === "day")?.value);
-
-  return { year, month, day };
+  return {
+    year:  Number(parts.find(p => p.type === "year")?.value),
+    month: Number(parts.find(p => p.type === "month")?.value),
+    day:   Number(parts.find(p => p.type === "day")?.value),
+  };
 }
 
+/**
+ * TIME DISPLAY FUNCTION
+ *
+ * ⚠️  IMPORTANT — read this if times look wrong in the Analysis page:
+ *
+ * How entryTime/exitTime are stored in MongoDB determines which function to use:
+ *
+ * Case A — times stored CORRECTLY as UTC:
+ *   User picks 9:00 PM IST → frontend does new Date() with local time
+ *   → stored as 15:30 UTC (IST minus 5:30)
+ *   → use toISTHHMM() below  (converts UTC back to IST)
+ *
+ * Case B — times stored as LOCAL wall-clock in UTC (common Next.js mistake):
+ *   User picks 9:00 PM → frontend does new Date(`...T21:00:00.000Z`)
+ *   → stored as 21:00 UTC  (no offset subtracted)
+ *   → use toUTCHHMM() below  (reads UTC hours directly, no conversion)
+ *
+ * If Analysis shows times ~5h 30m LATER than Today's Track → you're in Case B.
+ * Switch the two lines at the bottom of this block.
+ */
 function toISTHHMM(dateInput: Date | string | null | undefined): string | null {
   if (!dateInput) return null;
   const d = new Date(dateInput);
@@ -42,13 +67,29 @@ function toISTHHMM(dateInput: Date | string | null | undefined): string | null {
     hour12: false,
   }).formatToParts(d);
 
-  const hh = parts.find((p) => p.type === "hour")?.value ?? "00";
-  const mm = parts.find((p) => p.type === "minute")?.value ?? "00";
-
+  const hh = parts.find(p => p.type === "hour")?.value   ?? "00";
+  const mm = parts.find(p => p.type === "minute")?.value ?? "00";
   return `${hh}:${mm}`;
 }
 
-function hhmmToMins(hhmm: string | null) {
+/** Reads UTC hours directly — use when times are stored as local-time-in-UTC (Case B). */
+function toUTCHHMM(dateInput: Date | string | null | undefined): string | null {
+  if (!dateInput) return null;
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return null;
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * 👉 CHANGE THIS if times look wrong.
+ *    If Analysis times are ~5h 30m ahead of Today's Track → switch to toUTCHHMM
+ *    If they match → keep toISTHHMM
+ */
+const toDisplayHHMM = toUTCHHMM;   // ← toggle: toUTCHHMM  |  toISTHHMM
+
+// ----------
+
+function hhmmToMins(hhmm: string | null): number | null {
   if (!hhmm) return null;
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
@@ -76,7 +117,7 @@ export async function GET(req: Request) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
 
     const { searchParams } = new URL(req.url);
-    const year = parseInt(searchParams.get("year") ?? "");
+    const year  = parseInt(searchParams.get("year")  ?? "");
     const month = parseInt(searchParams.get("month") ?? "");
 
     if (!year || !month || month < 1 || month > 12) {
@@ -94,69 +135,51 @@ export async function GET(req: Request) {
 
     const userDefaultHours: number = (user as any)?.defaultWorkHours ?? 8.5;
 
-    // Use a wider UTC range to safely capture IST month edges
+    // Wide UTC window to safely capture IST month edges
     const from = new Date(Date.UTC(year, month - 1, 1, -6, 0, 0));
-    const to   = new Date(Date.UTC(year, month, 1, 6, 0, 0));
+    const to   = new Date(Date.UTC(year, month,     1,  6, 0, 0));
 
     const prevYear = month === 1 ? year - 1 : year;
-    const prevMon = month === 1 ? 12 : month - 1;
+    const prevMon  = month === 1 ? 12 : month - 1;
     const prevFrom = new Date(Date.UTC(prevYear, prevMon - 1, 1, -6, 0, 0));
-    const prevTo   = new Date(Date.UTC(prevYear, prevMon, 1, 6, 0, 0));
+    const prevTo   = new Date(Date.UTC(prevYear, prevMon,     1,  6, 0, 0));
 
     const [logsRaw, prevLogsRaw] = await Promise.all([
-      WorkLog.find({
-        userId: decoded.userId,
-        date: { $gte: from, $lt: to },
-      }).lean(),
-      WorkLog.find({
-        userId: decoded.userId,
-        date: { $gte: prevFrom, $lt: prevTo },
-      }).lean(),
+      WorkLog.find({ userId: decoded.userId, date: { $gte: from, $lt: to } }).lean(),
+      WorkLog.find({ userId: decoded.userId, date: { $gte: prevFrom, $lt: prevTo } }).lean(),
     ]);
 
-    // Filter logs by IST month/year
-    const logs = logsRaw.filter((log: any) => {
-      const p = toISTDateParts(log.date);
-      return p && p.year === year && p.month === month;
-    });
-
-    const prevLogs = prevLogsRaw.filter((log: any) => {
-      const p = toISTDateParts(log.date);
-      return p && p.year === prevYear && p.month === prevMon;
-    });
+    // Filter by IST calendar month
+    const logs     = logsRaw.filter((log: any) => { const p = toISTDateParts(log.date); return p && p.year === year     && p.month === month;   });
+    const prevLogs = prevLogsRaw.filter((log: any) => { const p = toISTDateParts(log.date); return p && p.year === prevYear && p.month === prevMon; });
 
     const toH = (s: number) => Math.round((s / 3600) * 100) / 100;
 
     const daysInMonth = new Date(year, month, 0).getDate();
+    const nowIST      = toISTDateParts(new Date())!;
+    const todayKey    = `${nowIST.year}-${String(nowIST.month).padStart(2,"0")}-${String(nowIST.day).padStart(2,"0")}`;
 
-    const nowIST = toISTDateParts(new Date())!;
-    const todayISTKey = `${nowIST.year}-${String(nowIST.month).padStart(2, "0")}-${String(nowIST.day).padStart(2, "0")}`;
-
-    // Group by IST day (NOT UTC DAY)
+    // Index logs by IST day
     const logByDay: Record<number, any> = {};
     for (const log of logs) {
       const p = toISTDateParts(log.date);
-      if (!p) continue;
-      logByDay[p.day] = log;
+      if (p) logByDay[p.day] = log;
     }
 
     const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
-      const day = i + 1;
+      const day       = i + 1;
       const dateLocal = new Date(year, month - 1, day);
-      const dow = dateLocal.getDay();
+      const dow       = dateLocal.getDay();
       const isWeekend = dow === 0 || dow === 6;
-
-      const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      const isFuture = key > todayISTKey;
-
-      const log = logByDay[day];
+      const key       = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+      const isFuture  = key > todayKey;
+      const log       = logByDay[day];
 
       let requiredH: number;
       if (log) {
-        requiredH =
-          (log as any).requiredWorkHoursOverride != null
-            ? (log as any).requiredWorkHoursOverride
-            : (log.requiredWorkHours ?? userDefaultHours);
+        requiredH = (log as any).requiredWorkHoursOverride != null
+          ? (log as any).requiredWorkHoursOverride
+          : (log.requiredWorkHours ?? userDefaultHours);
       } else {
         requiredH = userDefaultHours;
       }
@@ -166,93 +189,81 @@ export async function GET(req: Request) {
         dow,
         isWeekend,
         isFuture,
-        isHoliday: log?.isHoliday ?? false,
-        hasEntry: !!(log && !log.isHoliday && log.entryTime),
-        productiveH: log && !log.isHoliday ? toH(log.productiveTime ?? 0) : 0,
-        officeH: log && !log.isHoliday ? toH(log.totalOfficeTime ?? 0) : 0,
-        breakH: log && !log.isHoliday ? toH(log.totalBreakTime ?? 0) : 0,
+        isHoliday:  log?.isHoliday ?? false,
+        hasEntry:   !!(log && !log.isHoliday && log.entryTime),
+        productiveH: log && !log.isHoliday ? toH(log.productiveTime   ?? 0) : 0,
+        officeH:     log && !log.isHoliday ? toH(log.totalOfficeTime  ?? 0) : 0,
+        breakH:      log && !log.isHoliday ? toH(log.totalBreakTime   ?? 0) : 0,
         requiredH,
 
-        // RAW ISO (optional, for debugging)
+        // Raw ISO (kept for debugging)
         entryTime: log?.entryTime ? new Date(log.entryTime).toISOString() : null,
-        exitTime: log?.exitTime ? new Date(log.exitTime).toISOString() : null,
+        exitTime:  log?.exitTime  ? new Date(log.exitTime).toISOString()  : null,
 
-        // CLEAN LOCAL ANALYSIS VALUES
-        entryTimeLocal: toISTHHMM(log?.entryTime),
-        exitTimeLocal: toISTHHMM(log?.exitTime),
+        // Display-ready HH:mm — consistent with how Today's Track shows times
+        entryTimeLocal: toDisplayHHMM(log?.entryTime),
+        exitTimeLocal:  toDisplayHHMM(log?.exitTime),
 
-        notes: log?.notes ?? "",
+        notes:  log?.notes  ?? "",
         breaks: log?.breaks ?? [],
       };
     });
 
-    const holidayDays = dailyData.filter((d) => d.isHoliday);
-    const weekendDays = dailyData.filter((d) => d.isWeekend && !d.isFuture && !d.isHoliday);
-    const stdWorkDays = dailyData.filter((d) => !d.isWeekend && !d.isFuture && !d.isHoliday);
-    const loggedDays = dailyData.filter((d) => d.hasEntry);
-    const missingDays = stdWorkDays.filter((d) => !d.hasEntry);
+    const holidayDays  = dailyData.filter(d => d.isHoliday);
+    const weekendDays  = dailyData.filter(d => d.isWeekend && !d.isFuture && !d.isHoliday);
+    const stdWorkDays  = dailyData.filter(d => !d.isWeekend && !d.isFuture && !d.isHoliday);
+    const loggedDays   = dailyData.filter(d => d.hasEntry);
+    const missingDays  = stdWorkDays.filter(d => !d.hasEntry);
 
     let totalRequiredH = 0;
     for (const d of dailyData) {
       if (d.isFuture || d.isHoliday) continue;
-      if (d.isWeekend) {
-        if (d.hasEntry) totalRequiredH += d.requiredH;
-      } else {
-        totalRequiredH += d.requiredH;
-      }
+      if (d.isWeekend) { if (d.hasEntry) totalRequiredH += d.requiredH; }
+      else totalRequiredH += d.requiredH;
     }
     totalRequiredH = Math.round(totalRequiredH * 100) / 100;
 
     const totalProductiveH = Math.round(loggedDays.reduce((a, d) => a + d.productiveH, 0) * 100) / 100;
-    const totalOfficeH = Math.round(loggedDays.reduce((a, d) => a + d.officeH, 0) * 100) / 100;
-    const totalBreakH = Math.round(loggedDays.reduce((a, d) => a + d.breakH, 0) * 100) / 100;
-    const overtimeH = Math.round(Math.max(0, totalProductiveH - totalRequiredH) * 100) / 100;
-    const underworkH = Math.round(Math.max(0, totalRequiredH - totalProductiveH) * 100) / 100;
+    const totalOfficeH     = Math.round(loggedDays.reduce((a, d) => a + d.officeH,     0) * 100) / 100;
+    const totalBreakH      = Math.round(loggedDays.reduce((a, d) => a + d.breakH,      0) * 100) / 100;
+    const overtimeH        = Math.round(Math.max(0, totalProductiveH - totalRequiredH) * 100) / 100;
+    const underworkH       = Math.round(Math.max(0, totalRequiredH - totalProductiveH) * 100) / 100;
 
-    const consistencyScore =
-      totalRequiredH > 0
-        ? Math.min(100, Math.round((totalProductiveH / totalRequiredH) * 100))
-        : 0;
+    const consistencyScore = totalRequiredH > 0
+      ? Math.min(100, Math.round((totalProductiveH / totalRequiredH) * 100))
+      : 0;
 
-    const totalWorkDays = stdWorkDays.length + weekendDays.filter((d) => d.hasEntry).length;
+    const totalWorkDays = stdWorkDays.length + weekendDays.filter(d => d.hasEntry).length;
 
-    const weeks: {
-      weekNum: number;
-      days: typeof dailyData;
-      totalProductiveH: number;
-      totalRequiredH: number;
-    }[] = [];
-
+    // Weekly breakdown
+    const weeks: { weekNum: number; days: typeof dailyData; totalProductiveH: number; totalRequiredH: number }[] = [];
     for (let i = 0; i < dailyData.length; i += 7) {
       const slice = dailyData.slice(i, i + 7);
-      const wReq = slice.reduce((a, d) => {
+      const wReq  = slice.reduce((a, d) => {
         if (d.isFuture || d.isHoliday) return a;
         if (d.isWeekend && !d.hasEntry) return a;
         return a + d.requiredH;
       }, 0);
-
       weeks.push({
-        weekNum: weeks.length + 1,
-        days: slice,
+        weekNum:        weeks.length + 1,
+        days:           slice,
         totalProductiveH: Math.round(slice.reduce((a, d) => a + d.productiveH, 0) * 100) / 100,
-        totalRequiredH: Math.round(wReq * 100) / 100,
+        totalRequiredH:   Math.round(wReq * 100) / 100,
       });
     }
 
-    // Entry/Exit pattern analysis should use IST local HH:mm
+    // Entry/exit pattern analysis — use same display function for consistency
     const entryMins: number[] = [];
-    const exitMins: number[] = [];
-
+    const exitMins:  number[] = [];
     for (const d of loggedDays) {
       const e = hhmmToMins(d.entryTimeLocal);
       const x = hhmmToMins(d.exitTimeLocal);
       if (e !== null) entryMins.push(e);
       if (x !== null) exitMins.push(x);
     }
+    const avgArr = (a: number[]) => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
 
-    const avgArr = (a: number[]) =>
-      a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
-
+    // Break breakdown
     let teaC = 0, lunchC = 0, customC = 0;
     let teaS = 0, lunchS = 0, customS = 0;
     let longestBreakSecs = 0, maxBreaksInDay = 0;
@@ -261,27 +272,27 @@ export async function GET(req: Request) {
       if ((log as any).isHoliday) continue;
       const breaks = (log as any).breaks ?? [];
       if (breaks.length > maxBreaksInDay) maxBreaksInDay = breaks.length;
-
       for (const b of breaks) {
         const dur = b.duration ?? 0;
-        if (b.type === "tea") { teaC++; teaS += dur; }
-        else if (b.type === "lunch") { lunchC++; lunchS += dur; }
-        else { customC++; customS += dur; }
-
+        if (b.type === "tea")        { teaC++;    teaS    += dur; }
+        else if (b.type === "lunch") { lunchC++;  lunchS  += dur; }
+        else                         { customC++; customS += dur; }
         if (dur > longestBreakSecs) longestBreakSecs = dur;
       }
     }
 
     const totalBreakCount = teaC + lunchC + customC;
-    const avgBreakSecs =
-      totalBreakCount > 0 ? Math.round((teaS + lunchS + customS) / totalBreakCount) : 0;
+    const avgBreakSecs    = totalBreakCount > 0
+      ? Math.round((teaS + lunchS + customS) / totalBreakCount)
+      : 0;
 
-    const sorted = [...loggedDays].sort((a, b) => b.productiveH - a.productiveH);
-    const bestDay = sorted[0] ?? null;
-    const worstDay = sorted[sorted.length - 1] ?? null;
+    // Best / worst day
+    const sorted   = [...loggedDays].sort((a, b) => b.productiveH - a.productiveH);
+    const bestDay  = sorted[0]                    ?? null;
+    const worstDay = sorted[sorted.length - 1]    ?? null;
 
-    let currentStreak = 0;
-    let streakBroken = false;
+    // Streak calculation
+    let currentStreak = 0, streakBroken = false;
     for (let i = dailyData.length - 1; i >= 0; i--) {
       const d = dailyData[i];
       if (d.isFuture || d.isHoliday) continue;
@@ -294,63 +305,50 @@ export async function GET(req: Request) {
     for (const d of dailyData) {
       if (d.isFuture || d.isHoliday) continue;
       if (d.isWeekend && !d.hasEntry) continue;
-      if (d.hasEntry) {
-        lTemp++;
-        if (lTemp > longestStreak) longestStreak = lTemp;
-      } else {
-        lTemp = 0;
-      }
+      if (d.hasEntry) { lTemp++; if (lTemp > longestStreak) longestStreak = lTemp; }
+      else lTemp = 0;
     }
 
-    const prevLogged = prevLogs.filter((l: any) => !l.isHoliday && l.entryTime);
-    const prevProductiveH =
-      Math.round(prevLogged.reduce((a: number, l: any) => a + toH(l.productiveTime ?? 0), 0) * 100) / 100;
+    // Prev month summary
+    const prevLogged      = prevLogs.filter((l: any) => !l.isHoliday && l.entryTime);
+    const prevProductiveH = Math.round(
+      prevLogged.reduce((a: number, l: any) => a + toH(l.productiveTime ?? 0), 0) * 100
+    ) / 100;
 
     return NextResponse.json({
       success: true,
       data: {
-        year,
-        month,
-        daysInMonth,
-        dailyData,
+        year, month, daysInMonth, dailyData,
         totalLoggedDays: loggedDays.length,
         totalWorkDays,
         totalMissingDays: missingDays.length,
         totalHolidays: holidayDays.length,
         totalWeekends: weekendDays.length,
-        totalProductiveH,
-        totalOfficeH,
-        totalBreakH,
-        totalRequiredH,
-        overtimeH,
-        underworkH,
-        consistencyScore,
+        totalProductiveH, totalOfficeH, totalBreakH, totalRequiredH,
+        overtimeH, underworkH, consistencyScore,
         weeks,
 
-        avgEntryTime: minsToHHMM(avgArr(entryMins)),
-        avgExitTime: minsToHHMM(avgArr(exitMins)),
-        earliestEntry: minsToHHMM(entryMins.length ? Math.min(...entryMins) : null),
-        latestExit: minsToHHMM(exitMins.length ? Math.max(...exitMins) : null),
+        avgEntryTime:   minsToHHMM(avgArr(entryMins)),
+        avgExitTime:    minsToHHMM(avgArr(exitMins)),
+        earliestEntry:  minsToHHMM(entryMins.length ? Math.min(...entryMins) : null),
+        latestExit:     minsToHHMM(exitMins.length  ? Math.max(...exitMins)  : null),
 
         breakBreakdown: {
-          tea: { count: teaC, totalH: toH(teaS) },
-          lunch: { count: lunchC, totalH: toH(lunchS) },
+          tea:    { count: teaC,    totalH: toH(teaS)    },
+          lunch:  { count: lunchC,  totalH: toH(lunchS)  },
           custom: { count: customC, totalH: toH(customS) },
         },
-
         longestBreakMins: Math.round(longestBreakSecs / 60),
         maxBreaksInDay,
         avgBreakMins: Math.round(avgBreakSecs / 60),
 
-        bestDay: bestDay ? { day: bestDay.day, productiveH: bestDay.productiveH } : null,
+        bestDay:  bestDay  ? { day: bestDay.day,  productiveH: bestDay.productiveH  } : null,
         worstDay: worstDay ? { day: worstDay.day, productiveH: worstDay.productiveH } : null,
 
-        currentStreak,
-        longestStreak,
+        currentStreak, longestStreak,
 
         prevMonth: {
-          year: prevYear,
-          month: prevMon,
+          year: prevYear, month: prevMon,
           loggedDays: prevLogged.length,
           productiveH: prevProductiveH,
         },
@@ -358,17 +356,9 @@ export async function GET(req: Request) {
     });
   } catch (error: any) {
     console.error("ANALYSIS ERROR:", error);
-
     if (error.name === "JsonWebTokenError") {
-      return NextResponse.json(
-        { success: false, message: "Invalid token" },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, message: "Invalid token" }, { status: 401 });
     }
-
-    return NextResponse.json(
-      { success: false, message: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
   }
 }
