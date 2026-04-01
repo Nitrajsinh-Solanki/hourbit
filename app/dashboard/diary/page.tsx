@@ -1,12 +1,7 @@
 "use client";
 // app/dashboard/diary/page.tsx
-// FIXES:
-// 1. Date shown twice — replaced dual responsive spans with single JS-based format
-// 2. Dark mode — MutationObserver watches document.documentElement for .dark class
-// 3. Wrong placeholder — differentiated between no-entry vs locked-empty vs editable
-// 4. Search bar — cleaner layout, better UX, no layout shift
-// 5. Nav cooldown — removed seconds display, cleaner disabled state
-// 6. General UX — cleaned up cluttered toolbar, better status messages
+// FIX: Removed 90-day viewing restriction - users can VIEW all entries
+// but can only EDIT/CREATE entries from the last 90 days
 
 import React, {
   useState, useEffect, useRef, useCallback, useMemo,
@@ -161,7 +156,7 @@ export default function DiaryPage() {
   const [saving,      setSaving]      = useState(false);
   const [saveMsg,     setSaveMsg]     = useState("");
 
-  // ── FIX #2: Dark mode detection via MutationObserver ─────────
+  // ── Dark mode detection via MutationObserver ─────────
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.classList.contains("dark"));
@@ -171,7 +166,7 @@ export default function DiaryPage() {
     return () => obs.disconnect();
   }, []);
 
-  // ── FIX #1: Screen-width state for date format ────────────────
+  // ── Screen-width state for date format ────────────────
   const [isWide, setIsWide] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 640px)");
@@ -234,11 +229,18 @@ export default function DiaryPage() {
   // ── Derived ──────────────────────────────────────────────────
   const isLocked      = entry?.isLocked ?? false;
   const editsLeft     = 5 - (entry?.editCount ?? 0);
+  
+  // FIX: canEdit now only checks if date is within 90 days AND not future AND not locked
+  // (removed the check that prevented viewing old entries)
   const canEdit       = !isFuture(currentDate) && currentDate >= NINETY_AGO && !isLocked;
+  
   const canGoNext     = !isFuture(addDays(currentDate, 1));
   const deleteCount   = entry?.deleteCount ?? 0;
   const deletesLeft   = MAX_DELETES - deleteCount;
+  
+  // FIX: canDeleteBase now only checks 90-day limit (for deleting, not viewing)
   const canDeleteBase = !isFuture(currentDate) && currentDate >= NINETY_AGO;
+  
   const canDelete     = canDeleteBase && !!entry &&
     !!(entry.content?.trim() || entry.heading?.trim() || entry.mood) &&
     deletesLeft > 0;
@@ -299,8 +301,6 @@ export default function DiaryPage() {
   useEffect(() => { headingsRef.current = headings; }, [headings]);
 
   // ── SAFETY NET: re-sync editor content after loading completes ──
-  // Even though editor is always in DOM now, this catches any edge case
-  // where React reconciliation might clear innerHTML on attribute change.
   useEffect(() => {
     if (!loading && editorRef.current) {
       const expected = entry?.content ?? "";
@@ -432,7 +432,6 @@ export default function DiaryPage() {
   function startCooldown() {
     setNavCooldown(true);
     if (cooldownRef.current) clearInterval(cooldownRef.current);
-    // FIX #5: No more seconds countdown display — just a clean disabled state
     cooldownRef.current = setTimeout(() => {
       setNavCooldown(false);
     }, NAV_COOLDOWN_MS);
@@ -451,6 +450,8 @@ export default function DiaryPage() {
 
   // ── Navigation ────────────────────────────────────────────────
   function navigateTo(target: string, dir?: "left" | "right") {
+    // FIX: Removed the check that prevented navigating to dates older than 90 days
+    // Users can now VIEW any date, just can't EDIT dates older than 90 days
     if (target === currentDate || isFuture(target)) return;
     flushDirty(currentDate);
 
@@ -470,7 +471,8 @@ export default function DiaryPage() {
   function goPrev() {
     if (navCooldown) return;
     const prev = addDays(currentDate, -1);
-    if (prev >= NINETY_AGO) navigateTo(prev, "left");
+    // FIX: Removed NINETY_AGO check - users can navigate to any past date
+    navigateTo(prev, "left");
   }
 
   function goNext() {
@@ -543,7 +545,7 @@ export default function DiaryPage() {
   // ── Calendar rendering ────────────────────────────────────────
   function renderCal(): React.ReactElement[] {
     const today  = todayStr();
-    const ninety = addDays(today, -90);
+    // FIX: Removed ninety variable - no longer needed for calendar rendering
     const firstDOW    = new Date(calYear, calMonth, 1).getDay();
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
 
@@ -554,7 +556,8 @@ export default function DiaryPage() {
       const ds  = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       const cur = ds === currentDate;
       const tod = ds === today;
-      const dis = isFuture(ds) || ds < ninety;
+      // FIX: Only disable future dates in calendar, not old dates
+      const dis = isFuture(ds);
       const has = allDates.includes(ds);
 
       cells.push(
@@ -604,13 +607,17 @@ export default function DiaryPage() {
     return diff > 0 ? `${diff} day${diff !== 1 ? "s" : ""} ago` : "Future";
   }
 
-  // ── FIX #3: Correct placeholder text ─────────────────────────
+  // ── Placeholder text ─────────────────────────────────────────
   function getPlaceholder(): string {
     if (canEdit) return "Write your thoughts for today…";
     if (entry) {
       if (isLocked) return "This entry is locked — no further edits allowed.";
+      // FIX: New message for read-only old entries
+      if (currentDate < NINETY_AGO) return "This entry is read-only (older than 90 days).";
       return "Nothing written for this date.";
     }
+    // FIX: Differentiate between no entry (within 90 days) vs old date
+    if (currentDate < NINETY_AGO) return "No entry for this date (read-only period).";
     return "No entry found for this date.";
   }
 
@@ -646,7 +653,6 @@ export default function DiaryPage() {
           --d-shadow2: rgba(80,40,10,.32);
         }
 
-        /* FIX #2: Dark mode — toggled via isDark JS state → .diary-dark class */
         .diary-root.diary-dark {
           --d-bg:      #0d0804;
           --d-page:    #181008;
@@ -770,7 +776,6 @@ export default function DiaryPage() {
         .d-nav:disabled { opacity: .35; cursor: not-allowed; }
         @media(max-width:480px){ .d-nav { padding: 8px 14px; font-size: 12px; } }
 
-        /* FIX #5: Cleaner flip animations — no cooldown seconds badge */
         .flip-out-right { animation: foR .25s ease forwards; transform-origin: left  center; }
         .flip-out-left  { animation: foL .25s ease forwards; transform-origin: right center; }
         .flip-in-right  { animation: fiR .28s ease forwards; transform-origin: left  center; }
@@ -815,12 +820,10 @@ export default function DiaryPage() {
         .d-serif  { font-family: 'Lora', Georgia, serif; font-style: italic; }
         .mood-sel { outline: 2.5px solid var(--d-accent); outline-offset: 2px; background: var(--d-stamp); }
 
-        /* Nav cooldown — simple pulse instead of seconds badge */
         .nav-cooling { animation: navPulse 1s ease-in-out infinite; }
         @keyframes navPulse { 0%,100%{opacity:.35} 50%{opacity:.55} }
       `}</style>
 
-      {/* FIX #2: Apply .diary-dark when isDark is true */}
       <div className={`diary-root${isDark ? " diary-dark" : ""}`}>
         <div className="max-w-3xl mx-auto px-2 sm:px-4 py-3 sm:py-5 flex flex-col gap-3">
 
@@ -927,14 +930,12 @@ export default function DiaryPage() {
           )}
 
           {/* ───────── TOP BAR ───────── */}
-          {/* FIX #4: Cleaner search bar — full width, well-aligned */}
           <div className="flex items-center gap-2">
             <h1 className="flex items-center gap-2 text-xl font-bold shrink-0 d-serif" style={{ color: "var(--d-text)" }}>
               <span>📔</span>
               <span className="hidden sm:inline">Diary</span>
             </h1>
 
-            {/* Desktop search — properly contained, no overflow */}
             {isWide && (
             <div className="relative flex-1" ref={searchBoxRef}>
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none"
@@ -982,7 +983,6 @@ export default function DiaryPage() {
             </div>
             )}
 
-            {/* Mobile search toggle — only on narrow screens */}
             {!isWide && (
             <button className="tbtn !w-9 !h-9 !rounded-xl text-base"
               onClick={() => setShowMobSearch(v => !v)} aria-label="Search">🔍</button>
@@ -995,7 +995,6 @@ export default function DiaryPage() {
             </button>
           </div>
 
-          {/* Mobile search dropdown — only show when !isWide AND toggled */}
           {showMobSearch && !isWide && (
             <div ref={searchBoxRef}>
               <div className="relative flex items-center">
@@ -1041,7 +1040,6 @@ export default function DiaryPage() {
                 className="flex items-center gap-1.5 text-sm font-semibold transition-opacity hover:opacity-70"
                 style={{ color: "var(--d-text)" }}>
                 📅
-                {/* FIX #1: Single date format chosen by JS — no duplicate rendering */}
                 <span className="text-xs font-mono" style={{ color: "var(--d-text2)" }}>
                   {isWide ? fmtMed(currentDate) : fmtShort(currentDate)}
                 </span>
@@ -1104,7 +1102,6 @@ export default function DiaryPage() {
             <div className="d-strip" />
             <div className="flex">
 
-              {/* Spine */}
               <div className="d-spine flex flex-col items-center justify-around py-4 sm:py-6">
                 {[...Array(8)].map((_, i) => (
                   <div key={i} className="rounded-full"
@@ -1112,14 +1109,11 @@ export default function DiaryPage() {
                 ))}
               </div>
 
-              {/* Main page */}
               <div className="flex-1 px-3 sm:px-5 pt-3 pb-4 min-w-0">
 
-                {/* ── Page header ── */}
                 <div className="flex items-start justify-between gap-2 mb-3 pb-2.5"
                   style={{ borderBottom: "1px solid var(--d-rule)" }}>
 
-                  {/* Heading picker */}
                   <div className="relative flex-1 min-w-0">
                     {canEdit ? (
                       <button onClick={() => setShowHPicker(v => !v)}
@@ -1163,7 +1157,6 @@ export default function DiaryPage() {
                     )}
                   </div>
 
-                  {/* ── Date stamp — FIX #1 & #5: SINGLE date, no duplication ── */}
                   <div className="text-right shrink-0 ml-2">
                     <div className="inline-block px-2.5 py-1.5 rounded-xl leading-tight"
                       style={{ background: "var(--d-stamp)", border: "1px solid var(--d-border2)", color: "var(--d-accent2)" }}>
@@ -1186,7 +1179,6 @@ export default function DiaryPage() {
                   </div>
                 </div>
 
-                {/* ── Toolbar ── */}
                 {canEdit && (
                   <div className="flex flex-wrap items-center gap-1 mb-2 pb-2"
                     style={{ borderBottom: "1px solid var(--d-rule)" }}
@@ -1225,7 +1217,6 @@ export default function DiaryPage() {
 
                     <div className="w-px h-5 mx-0.5" style={{ background: "var(--d-border2)" }} />
 
-                    {/* Ink picker */}
                     <div className="relative" ref={inkRef}>
                       <button className="tbtn !w-auto px-2 gap-1.5 text-[11px] font-medium"
                         title="Ink color" onClick={() => setShowInkPicker(v => !v)}>
@@ -1273,17 +1264,7 @@ export default function DiaryPage() {
                   </div>
                 )}
 
-                {/* ── Writing area ── */}
-                {/*
-                  ROOT CAUSE FIX:
-                  Previously, the editor was inside a conditional: loading ? <spinner> : <editor>
-                  This UNMOUNTED the editor div when loading=true, making editorRef.current = null.
-                  So applyEntry's `editorRef.current.innerHTML = html` was a silent no-op.
-                  Fix: ALWAYS keep editor in DOM. Loading spinner is an absolute overlay on top.
-                  Now editorRef.current is always valid when applyEntry runs.
-                */}
                 <div className="relative d-ruled" style={{ minHeight: 340 }}>
-                  {/* Loading overlay — sits on top, editor stays mounted underneath */}
                   {loading && (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4"
                       style={{ background: "var(--d-page)", borderRadius: 4 }}>
@@ -1297,7 +1278,6 @@ export default function DiaryPage() {
                       </p>
                     </div>
                   )}
-                  {/* Editor always in DOM — ref is always valid */}
                   <div
                     ref={editorRef}
                     contentEditable={canEdit && !loading}
@@ -1309,7 +1289,6 @@ export default function DiaryPage() {
                   />
                 </div>
 
-                {/* ── Mood ── */}
                 <div className="mt-3 pt-2.5" style={{ borderTop: "1px solid var(--d-rule)" }}>
                   <div className="flex flex-wrap items-center gap-1">
                     <span className="text-xs font-semibold mr-1 select-none" style={{ color: "var(--d-muted)" }}>Mood:</span>
@@ -1338,7 +1317,6 @@ export default function DiaryPage() {
                   </div>
                 </div>
 
-                {/* ── Bottom action bar ── */}
                 <div className="mt-3 pt-2.5 flex items-center justify-between gap-2 flex-wrap"
                   style={{ borderTop: "1px solid var(--d-rule)" }}>
 
@@ -1396,17 +1374,15 @@ export default function DiaryPage() {
 
               </div>
 
-              {/* Right binding */}
               <div className="d-binding" />
             </div>
             <div className="d-strip" />
           </div>
 
           {/* ───────── NAVIGATION ───────── */}
-          {/* FIX #5: No seconds countdown — just clean disabled state with subtle pulse */}
           <div className="flex items-center justify-between gap-2">
             <button onClick={goPrev}
-              disabled={navCooldown || currentDate <= NINETY_AGO}
+              disabled={navCooldown}
               className={`d-nav${navCooldown ? " nav-cooling" : ""}`}>
               ◀ <span className="hidden sm:inline">Prev</span>
             </button>
