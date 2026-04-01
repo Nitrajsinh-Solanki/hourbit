@@ -1,11 +1,6 @@
 // app/api/diary/entry/route.ts
-// KEY FIX #3: PATCH only increments editCount when body.incrementEdit === true
-// Auto-save passes incrementEdit: false → content saved, editCount unchanged
-// Manual Save button passes incrementEdit: true → editCount +1
-//
-// NEW: DELETE handler — clears content/heading/mood/editCount/isLocked for a date
-//      but keeps the doc alive to preserve deleteCount.
-//      deleteCount is per-date and permanent: max 3 deletes per date ever.
+// FIX: Removed 90-day restriction on GET (users can VIEW any entry)
+// 90-day restriction remains for POST/PATCH/DELETE (users can only EDIT recent entries)
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
@@ -35,17 +30,23 @@ function isWithin90Days(s: string): boolean {
   return toMidnightUTC(s) >= l;
 }
 
+// GET - View any entry (no 90-day restriction)
 export async function GET(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error:"Unauthorized" }, { status:401 });
   const date = new URL(req.url).searchParams.get("date");
   if (!date) return NextResponse.json({ error:"date required" }, { status:400 });
+  
+  // FIX: Removed isWithin90Days check - users can view any date
+  // Only check if date is not in the future
   if (isFutureDate(date)) return NextResponse.json({ error:"Future not allowed" }, { status:403 });
+  
   await connectDB();
   const entry = await DiaryEntry.findOne({ userId, entryDate: toMidnightUTC(date) }).lean();
   return NextResponse.json({ entry: entry ?? null });
 }
 
+// POST - Create entry (90-day restriction applies)
 export async function POST(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error:"Unauthorized" }, { status:401 });
@@ -53,7 +54,10 @@ export async function POST(req: NextRequest) {
   const { date, content="", heading="", textColor="black", mood=null } = body;
   if (!date) return NextResponse.json({ error:"date required" }, { status:400 });
   if (isFutureDate(date)) return NextResponse.json({ error:"Future not allowed" }, { status:403 });
+  
+  // Keep 90-day restriction for CREATING entries
   if (!isWithin90Days(date)) return NextResponse.json({ error:"Outside 90-day window" }, { status:403 });
+  
   if (content.length > 1500) return NextResponse.json({ error:"Too long" }, { status:400 });
   await connectDB();
 
@@ -78,6 +82,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ entry }, { status:201 });
 }
 
+// PATCH - Edit entry (90-day restriction applies)
 export async function PATCH(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error:"Unauthorized" }, { status:401 });
@@ -85,6 +90,10 @@ export async function PATCH(req: NextRequest) {
   const { date, content, heading, textColor, mood, incrementEdit } = body;
   if (!date) return NextResponse.json({ error:"date required" }, { status:400 });
   if (isFutureDate(date)) return NextResponse.json({ error:"Future not allowed" }, { status:403 });
+  
+  // Keep 90-day restriction for EDITING entries
+  if (!isWithin90Days(date)) return NextResponse.json({ error:"Outside 90-day window" }, { status:403 });
+  
   await connectDB();
   const entry = await DiaryEntry.findOne({ userId, entryDate: toMidnightUTC(date) });
   if (!entry) return NextResponse.json({ error:"Not found" }, { status:404 });
@@ -112,12 +121,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ entry });
 }
 
-// ── DELETE: wipe content but keep doc alive to track deleteCount ──
-// Body: { date: "YYYY-MM-DD" }
-// Rules:
-//   • Max 3 deletes per date (permanent, date-wise)
-//   • Clears: content, heading, mood, editCount → 0, isLocked → false
-//   • Preserves: deleteCount (incremented), entryDate, userId
+// DELETE - Delete entry content (90-day restriction applies)
 export async function DELETE(req: NextRequest) {
   const userId = await getUserId();
   if (!userId) return NextResponse.json({ error:"Unauthorized" }, { status:401 });
@@ -126,6 +130,9 @@ export async function DELETE(req: NextRequest) {
   const { date } = body;
   if (!date) return NextResponse.json({ error:"date required" }, { status:400 });
   if (isFutureDate(date)) return NextResponse.json({ error:"Future not allowed" }, { status:403 });
+  
+  // Keep 90-day restriction for DELETING entries
+  if (!isWithin90Days(date)) return NextResponse.json({ error:"Outside 90-day window" }, { status:403 });
 
   await connectDB();
 
