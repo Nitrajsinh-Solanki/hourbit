@@ -12,6 +12,7 @@ import {
   Palmtree, Building2, TrendingUp, Settings2,
 } from "lucide-react";
 import Link from "next/link";
+import { useDiaryReminder } from "@/app/hooks/useDiaryReminder";
 
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -751,6 +752,7 @@ export default function TodayTrackPage() {
   // Dirty tracking
   const [savedSnapshot, setSavedSnapshot] = useState<SavedSnapshot>({ ...EMPTY_SNAPSHOT });
   const [everSaved,     setEverSaved]     = useState(false);
+  const { triggerDiaryReminder } = useDiaryReminder();
 
   // Live now-minutes — ticks every minute so stats update when no exit set
   const [nowMins, setNowMins] = useState(() => {
@@ -1039,6 +1041,8 @@ export default function TodayTrackPage() {
 
       if (data.success) {
         toast.success("Work log saved! 🎉");
+    const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
+    await triggerDiaryReminder(entryTime, exitTime, today);
         const savedHours: number = data.data?.requiredWorkHours ?? requiredWorkHours;
         setSavedSnapshot({
           entryTime, exitTime,
