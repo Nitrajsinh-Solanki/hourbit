@@ -1,4 +1,4 @@
-// app/expenses/add-money/route.ts
+// app/api/expenses/add-expense/route.ts
 import { NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
 import Wallet from "@/app/models/Wallet";
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     const userId = authResult.payload.userId;
     const body = await request.json();
-    const { amount, paymentMethod, note, date } = body;
+    const { amount, paymentMethod, category, note, date } = body;
 
     if (!amount || amount <= 0) {
       return NextResponse.json(
@@ -33,6 +33,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!category) {
+      return NextResponse.json(
+        { error: "Category is required" },
+        { status: 400 }
+      );
+    }
+
     if (!date) {
       return NextResponse.json(
         { error: "Date is required" },
@@ -44,7 +51,7 @@ export async function POST(request: Request) {
     const now = new Date();
     if (transactionDate > now) {
       return NextResponse.json(
-        { error: "Cannot add money for future dates" },
+        { error: "Cannot add expense for future dates" },
         { status: 400 }
       );
     }
@@ -53,7 +60,7 @@ export async function POST(request: Request) {
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
     if (transactionDate < ninetyDaysAgo) {
       return NextResponse.json(
-        { error: "Cannot add money for dates older than 90 days" },
+        { error: "Cannot add expense for dates older than 90 days" },
         { status: 400 }
       );
     }
@@ -69,25 +76,38 @@ export async function POST(request: Request) {
       });
     }
 
+    const currentBalance =
+      paymentMethod === "cash" ? wallet.cashBalance : wallet.onlineBalance;
+
+    if (currentBalance < amount) {
+      return NextResponse.json(
+        {
+          error: `Insufficient ${paymentMethod} balance. Available: ₹${currentBalance}`,
+        },
+        { status: 400 }
+      );
+    }
+
     if (paymentMethod === "cash") {
-      wallet.cashBalance += amount;
+      wallet.cashBalance -= amount;
     } else {
-      wallet.onlineBalance += amount;
+      wallet.onlineBalance -= amount;
     }
     await wallet.save();
 
     const transaction = await Transaction.create({
       userId,
-      type: "add_money",
+      type: "expense",
       amount,
       paymentMethod,
+      category,
       note: note || "",
       date: transactionDate,
     });
 
     return NextResponse.json({
       success: true,
-      message: "Money added successfully",
+      message: "Expense added successfully",
       transaction,
       wallet: {
         cashBalance: wallet.cashBalance,
@@ -96,9 +116,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: any) {
-    console.error("Error adding money:", error);
+    console.error("Error adding expense:", error);
     return NextResponse.json(
-      { error: "Failed to add money" },
+      { error: "Failed to add expense" },
       { status: 500 }
     );
   }

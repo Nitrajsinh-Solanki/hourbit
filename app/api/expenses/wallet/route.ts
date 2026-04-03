@@ -1,4 +1,4 @@
-// app/expenses/wallet/route.ts
+// app/api/expenses/wallet/route.ts
 import { NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
 import Wallet from "@/app/models/Wallet";
