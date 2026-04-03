@@ -20,6 +20,7 @@ import {
   Loader2,
   Lightbulb,
   Tag,
+  CalendarDays,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -210,6 +211,86 @@ function InputField({
   );
 }
 
+function DateField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  min?: string;
+  max?: string;
+}) {
+  const openPicker = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    // Native date picker support in modern browsers
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+    } else {
+      input.focus();
+      input.click();
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium" style={{ color: "var(--text2)" }}>
+        {label}
+      </label>
+
+      <div className="relative">
+        <input
+          type="date"
+          value={value}
+          min={min}
+          max={max}
+          onChange={(e) => onChange(e.target.value)}
+          ref={(el) => {
+            // no-op, just allows openPicker target via wrapper click if needed later
+          }}
+          className="w-full rounded-xl px-3 py-2.5 pr-11 text-sm outline-none transition-all appearance-none cursor-pointer"
+          style={{
+            background: "var(--bg)",
+            border: "1px solid var(--border2)",
+            color: "var(--text)",
+            colorScheme: "dark light",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "var(--accent)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border2)";
+          }}
+          onClick={(e) => {
+            const input = e.currentTarget;
+            if (typeof input.showPicker === "function") {
+              input.showPicker();
+            }
+          }}
+        />
+
+        <button
+          type="button"
+          onClick={(e) => {
+            const input = e.currentTarget
+              .parentElement
+              ?.querySelector("input[type='date']") as HTMLInputElement | null;
+            openPicker(input);
+          }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center"
+          style={{ color: "var(--text3)" }}
+          tabIndex={-1}
+        >
+          <CalendarDays size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SelectField({
   label,
   options,
@@ -338,13 +419,13 @@ function AddMoneyModal({
             { value: "online", label: "💳 Online" },
           ]}
         />
-        <InputField
-          label="Date"
-          type="date"
-          value={date}
-          max={todayStr()}
-          onChange={(e) => setDate(e.target.value)}
-        />
+       <DateField
+  label="Date"
+  value={date}
+  max={todayStr()}
+  min={new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+  onChange={setDate}
+/>
         <InputField
           label="Note (optional)"
           type="text"
@@ -458,13 +539,13 @@ function AddExpenseModal({
             ...categories.map((c) => ({ value: c, label: c })),
           ]}
         />
-        <InputField
-          label="Date"
-          type="date"
-          value={date}
-          max={todayStr()}
-          onChange={(e) => setDate(e.target.value)}
-        />
+        <DateField
+  label="Date"
+  value={date}
+  max={todayStr()}
+  min={new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+  onChange={setDate}
+/>
         <InputField
           label="Note (optional)"
           type="text"
