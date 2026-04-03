@@ -1,4 +1,6 @@
-// hourbit\app\models\User.ts
+// app/models/User.ts
+// UPDATED: Added `resetOtpVerified` + `resetOtpVerifiedAt` fields to fix
+// the CRITICAL BUG in reset-password (password was changeable without OTP).
 
 import mongoose, { Schema } from "mongoose";
 import bcrypt from "bcryptjs";
@@ -22,7 +24,7 @@ const DeviceSchema = new Schema(
       type: Date,
     },
 
-    /* Per-device ban fields — NEW */
+    /* Per-device ban fields */
     isBanned: {
       type:    Boolean,
       default: false,
@@ -79,16 +81,10 @@ const UserSchema = new Schema(
     },
 
     /*
-     * NEW: account-level status controlled by admin.
-     *
+     * Account-level status controlled by admin:
      *  "active"    — normal, can log in
      *  "suspended" — temporarily blocked (blockedUntil stores the lift date)
-     *  "banned"    — permanently banned, ALL JWT requests rejected, devices cleared
-     *
-     * NOTE: the old `isBlocked` / `blockedUntil` pair is KEPT for the
-     * existing brute-force / failed-login lockout. They are separate concerns:
-     *   isBlocked    = auto temp-lock after too many bad passwords
-     *   status       = manual admin action
+     *  "banned"    — permanently banned
      */
     status: {
       type:    String,
@@ -97,7 +93,6 @@ const UserSchema = new Schema(
       index:   true,
     },
 
-    /* Reason & timestamp stored when admin bans/suspends — NEW */
     banReason: {
       type:    String,
       default: "",
@@ -117,7 +112,35 @@ const UserSchema = new Schema(
     otp:       String,
     otpExpiry: Date,
 
-    /* Login security — brute-force lockout (unchanged) */
+    // ─────────────────────────────────────────────────────────────────────
+    // CRITICAL BUG FIX: reset-password used to change the password without
+    // verifying the OTP first. These two fields create a server-side
+    // "proof of OTP verification" that reset-password MUST check before
+    // changing the password. No amount of client-side tampering can bypass
+    // this because it lives in the database.
+    //
+    // Flow:
+    //   1. /forgot-password  → sends OTP, sets otp + otpExpiry
+    //   2. /verify-reset-otp → checks OTP, sets resetOtpVerified=true +
+    //                          resetOtpVerifiedAt=now, does NOT clear otp yet
+    //   3. /reset-password   → checks resetOtpVerified===true AND
+    //                          resetOtpVerifiedAt is < 15 minutes ago,
+    //                          THEN changes password + clears all OTP fields
+    //
+    // resetOtpVerifiedAt is an extra safety net: even if someone somehow
+    // sets resetOtpVerified=true, it expires in 15 minutes.
+    // ─────────────────────────────────────────────────────────────────────
+    resetOtpVerified: {
+      type:    Boolean,
+      default: false,
+    },
+
+    resetOtpVerifiedAt: {
+      type:    Date,
+      default: null,
+    },
+
+    /* Login security — brute-force lockout */
     loginAttempts: {
       type:    Number,
       default: 0,
