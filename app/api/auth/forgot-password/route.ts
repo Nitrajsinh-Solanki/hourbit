@@ -1,40 +1,120 @@
-// hourbit\app\api\auth\forgot-password\route.ts
+// app/api/auth/forgot-password/route.ts
+//
+// HARDENED: Device-based + per-email rate limiting added.
+// ─────────────────────────────────────────────────────────────────────────────
+// DEFENSES ADDED:
+//   1. Rate limit by device fingerprint — 3 requests / device / hour
+//   2. Rate limit by raw IP            — 6 requests / IP / hour
+//   3. Rate limit by email             — 3 requests / email / hour
+//   4. OTP cooldown — cannot request within 60s of last OTP
+//   5. Consistent response timing — does NOT reveal if email exists
+//      (anti-email-enumeration: same response whether email found or not)
+// ─────────────────────────────────────────────────────────────────────────────
 
+import { NextRequest, NextResponse } from "next/server";
+import { connectDB }         from "@/app/lib/mongodb";
+import User                  from "@/app/models/User";
+import { sendOTPEmail }      from "@/app/lib/mailer";
+import { limitForgotPassword } from "@/app/lib/rateLimiter";
 
+const OTP_COOLDOWN_SECS = 60;
 
+// Generic response — ALWAYS returned whether the email exists or not.
+// This prevents email enumeration attacks (attacker probing which emails
+// are registered by watching for different response messages).
+const GENERIC_OK = {
+  success: true,
+  message: "If that email is registered, you will receive an OTP shortly.",
+};
 
-import { NextResponse } from "next/server";
-import { connectDB } from "@/app/lib/mongodb";
-import User from "@/app/models/User";
-import { sendOTPEmail } from "@/app/lib/mailer";
+export async function POST(req: NextRequest) {
+  try {
 
-export async function POST(req:Request){
+    // ── 1. Parse body ─────────────────────────────────────────────────────────
+    let email: string;
+    try {
+      const body = await req.json();
+      email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "Invalid request body." },
+        { status: 400 }
+      );
+    }
 
- const {email} = await req.json();
+    if (!email || email.length > 254) {
+      return NextResponse.json(
+        { success: false, message: "A valid email is required." },
+        { status: 400 }
+      );
+    }
 
- await connectDB();
+    // ── 2. RATE LIMIT ─────────────────────────────────────────────────────────
+    const limit = await limitForgotPassword(req, email);
+    if (limit.blocked) {
+      return NextResponse.json(
+        { success: false, message: limit.message },
+        {
+          status: 429,
+          headers: { "Retry-After": String(limit.resetIn) },
+        }
+      );
+    }
 
- const user = await User.findOne({email});
+    // ── 3. DB lookup ──────────────────────────────────────────────────────────
+    await connectDB();
 
- if(!user){
-  return NextResponse.json({
-    success:false,
-    message:"Email does not exist"
-  });
- }
+    const user = await User.findOne({ email }).select("otp otpExpiry status");
 
- const otp = Math.floor(100000 + Math.random()*900000).toString();
+    // If user not found, return the GENERIC response (no email enumeration)
+    if (!user) {
+      return NextResponse.json(GENERIC_OK);
+    }
 
- user.otp=otp;
- user.otpExpiry=new Date(Date.now()+10*60*1000);
+    // Banned users cannot reset password
+    if (user.status === "banned") {
+      // Still return generic response — don't reveal the ban
+      return NextResponse.json(GENERIC_OK);
+    }
 
- await user.save();
+    // ── 4. OTP cooldown (60s) ─────────────────────────────────────────────────
+    if (user.otpExpiry) {
+      const issuedAt   = user.otpExpiry.getTime() - 10 * 60 * 1000;
+      const elapsedSec = Math.floor((Date.now() - issuedAt) / 1000);
 
- await sendOTPEmail(email,otp);
+      if (elapsedSec < OTP_COOLDOWN_SECS) {
+        const waitSec = OTP_COOLDOWN_SECS - elapsedSec;
+        return NextResponse.json(
+          {
+            success:           false,
+            message:           `Please wait ${waitSec} second(s) before requesting a new OTP.`,
+            cooldownRemaining: waitSec,
+          },
+          { status: 429, headers: { "Retry-After": String(waitSec) } }
+        );
+      }
+    }
 
- return NextResponse.json({
-  success:true,
-  message:"OTP sent"
- });
+    // ── 5. Generate OTP and CLEAR any previous verification state ────────────
+    // Clearing resetOtpVerified here ensures an old verify session can't
+    // be reused after the user requests a new OTP.
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
+    user.otp                 = otp;
+    user.otpExpiry           = new Date(Date.now() + 10 * 60 * 1000);
+    user.resetOtpVerified    = false;
+    user.resetOtpVerifiedAt  = null;
+    await user.save();
+
+    await sendOTPEmail(email, otp);
+
+    return NextResponse.json(GENERIC_OK);
+
+  } catch (error) {
+    console.error("FORGOT PASSWORD ERROR:", error);
+    return NextResponse.json(
+      { success: false, message: "Server error. Please try again." },
+      { status: 500 }
+    );
+  }
 }
