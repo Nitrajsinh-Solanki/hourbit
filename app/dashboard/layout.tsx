@@ -37,6 +37,7 @@ import {
   ChevronRight,
   Brain,
   Zap,
+  Wallet,
 } from "lucide-react";
 import Logo from "../components/Logo";
 
@@ -48,6 +49,7 @@ const NAV_ITEMS = [
   { label: "Brain Quiz",    href: "/dashboard/quiz",     icon: Brain        },
   { label: "Diary",         href: "/dashboard/diary",    icon: BookOpen     },
   { label: "Typing Test",   href: "/dashboard/typing",   icon: Keyboard     },
+  { label: "Expenses",      href: "/dashboard/expenses", icon: Wallet       },
   { label: "Profile",       href: "/dashboard/profile",  icon: User         },
 ];
 
