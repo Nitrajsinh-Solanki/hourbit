@@ -3,34 +3,16 @@
 // A beautiful custom toast that nudges the user to write their diary
 // after they save today's work log (entry + exit time both present).
 //
-// HOW IT WORKS:
-//   1. After a successful save with BOTH entryTime AND exitTime filled:
-//   2. Call GET /api/diary/check-date?date=YYYY-MM-DD
-//   3. If exists === false  → call showDiaryReminderToast(router)
-//   4. If exists === true   → do nothing (user already journaled today 🎉)
-//
-// USAGE (in your today's track page, inside handleSave):
-//
-//   import { showDiaryReminderToast } from "@/app/components/DiaryReminderToast";
-//   import { useRouter } from "next/navigation";
-//
-//   const router = useRouter();
-//
-//   // after successful save:
-//   const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
-//   const diaryCheck = await fetch(`/api/diary/check-date?date=${today}`);
-//   const { exists } = await diaryCheck.json();
-//   if (!exists) showDiaryReminderToast(router);
+// Auto-dismisses immediately when the user navigates to a different route.
 
 "use client";
 
 import toast                         from "react-hot-toast";
-import { useRouter }                  from "next/navigation";
+import { useRouter, usePathname }    from "next/navigation";
+import { useEffect }                 from "react";
 import { BookOpen, X, ArrowRight, Sparkles } from "lucide-react";
 
 // ─── Funny message bank ──────────────────────────────────────────────────────
-// 50% chance English, 50% chance Hindi — picked randomly each call.
-
 const ENGLISH_MSGS: { emoji: string; title: string; body: string }[] = [
   {
     emoji: "🧠",
@@ -437,7 +419,7 @@ const HINDI_MSGS: { emoji: string; title: string; body: string }[] = [
   },
   {
     emoji: "🫗",
-    title: "Tu Bahut Jagah Bich Gaya Hai Aaj",
+    title: "Tu Bahut Jagah Bic Gaya Hai Aaj",
     body: "Soch yahan, feelings wahan, energy khatam. Diary wapas container mein daalta hai sab. Likh.",
   },
   {
@@ -557,7 +539,6 @@ function FloatingOrbs() {
         pointerEvents: "none",
       }}
     >
-      {/* Top-right large orb */}
       <div
         style={{
           position:     "absolute",
@@ -570,7 +551,6 @@ function FloatingOrbs() {
           animation:    "hb-orb-pulse 4s ease-in-out infinite",
         }}
       />
-      {/* Bottom-left smaller orb */}
       <div
         style={{
           position:     "absolute",
@@ -583,7 +563,6 @@ function FloatingOrbs() {
           animation:    "hb-orb-pulse 4s ease-in-out infinite 2s",
         }}
       />
-      {/* Mid accent */}
       <div
         style={{
           position:     "absolute",
@@ -636,20 +615,33 @@ function SparkleParticles() {
 
 // ─── Custom Toast Renderer ─────────────────────────────────────────────────
 interface ToastRendererProps {
-  toastId:   string;
-  emoji:     string;
-  title:     string;
-  body:      string;
-  onWrite:   () => void;
-  onDismiss: () => void;
+  toastId:       string;
+  emoji:         string;
+  title:         string;
+  body:          string;
+  spawnPathname: string; // pathname where the toast was created
+  onWrite:       () => void;
+  onDismiss:     () => void;
 }
 
 function DiaryToastRenderer({
-  toastId, emoji, title, body, onWrite, onDismiss,
+  toastId, emoji, title, body, spawnPathname, onWrite, onDismiss,
 }: ToastRendererProps) {
+
+  // ── Auto-dismiss when user navigates away ──────────────────────────────
+  const currentPathname = usePathname();
+
+  useEffect(() => {
+    // If the current pathname differs from where the toast was spawned,
+    // dismiss immediately.
+    if (currentPathname !== spawnPathname) {
+      toast.dismiss(toastId);
+    }
+  }, [currentPathname, spawnPathname, toastId]);
+
   return (
     <>
-      {/* ── Global keyframes (injected once, harmless if duplicated) ── */}
+      {/* ── Global keyframes ── */}
       <style>{`
         @keyframes hb-slide-in {
           0%   { opacity: 0; transform: translateX(80px) scale(0.88) rotate(2deg); }
@@ -699,27 +691,26 @@ function DiaryToastRenderer({
       {/* ── Outer shell ── */}
       <div
         style={{
-          position:     "relative",
-          display:      "flex",
-          flexDirection:"column",
-          gap:          "12px",
-          background:   "linear-gradient(145deg, #12102b 0%, #1a1535 40%, #0e1e45 100%)",
-          border:       "1px solid rgba(140,124,255,0.38)",
-          borderRadius: "20px",
-          padding:      "18px 20px 14px",
-          minWidth:     "320px",
-          maxWidth:     "380px",
+          position:      "relative",
+          display:       "flex",
+          flexDirection: "column",
+          gap:           "12px",
+          background:    "linear-gradient(145deg, #12102b 0%, #1a1535 40%, #0e1e45 100%)",
+          border:        "1px solid rgba(140,124,255,0.38)",
+          borderRadius:  "20px",
+          padding:       "18px 20px 14px",
+          minWidth:      "320px",
+          maxWidth:      "380px",
           boxShadow: [
             "0 0 0 1px rgba(255,255,255,0.04)",
             "0 12px 40px rgba(0,0,0,0.55)",
             "0 4px 16px rgba(124,110,243,0.28)",
             "inset 0 1px 0 rgba(255,255,255,0.07)",
           ].join(", "),
-          animation:    "hb-slide-in 0.55s cubic-bezier(0.34,1.26,0.64,1) both",
-          overflow:     "hidden",
+          animation: "hb-slide-in 0.55s cubic-bezier(0.34,1.26,0.64,1) both",
+          overflow:  "hidden",
         }}
       >
-        {/* Decorative blobs + sparkles */}
         <FloatingOrbs />
         <SparkleParticles />
 
@@ -765,8 +756,6 @@ function DiaryToastRenderer({
 
         {/* ── Header row ── */}
         <div style={{ display: "flex", alignItems: "center", gap: "12px", paddingRight: "32px", position: "relative", zIndex: 1 }}>
-
-          {/* Animated icon pill */}
           <div
             style={{
               flexShrink:     0,
@@ -786,34 +775,32 @@ function DiaryToastRenderer({
           </div>
 
           <div style={{ flex: 1 }}>
-            {/* Badge label */}
             <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "3px" }}>
               <Sparkles size={10} color="rgba(200,180,255,0.8)" />
               <span
                 style={{
-                  fontSize:      "10px",
-                  fontWeight:    700,
-                  color:         "rgba(190,170,255,0.85)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  background:    "linear-gradient(90deg, rgba(190,170,255,0.85), rgba(140,180,255,0.8), rgba(190,170,255,0.85))",
-                  backgroundSize: "200% auto",
+                  fontSize:             "10px",
+                  fontWeight:           700,
+                  color:                "rgba(190,170,255,0.85)",
+                  letterSpacing:        "0.1em",
+                  textTransform:        "uppercase",
+                  background:           "linear-gradient(90deg, rgba(190,170,255,0.85), rgba(140,180,255,0.8), rgba(190,170,255,0.85))",
+                  backgroundSize:       "200% auto",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor:  "transparent",
-                  animation:     "hb-badge-shine 3s linear infinite",
+                  animation:            "hb-badge-shine 3s linear infinite",
                 }}
               >
                 📔 Diary Reminder
               </span>
             </div>
-            {/* Title */}
             <p
               style={{
-                margin:     0,
-                fontSize:   "15px",
-                fontWeight: 700,
-                color:      "#edeaff",
-                lineHeight: 1.25,
+                margin:        0,
+                fontSize:      "15px",
+                fontWeight:    700,
+                color:         "#edeaff",
+                lineHeight:    1.25,
                 letterSpacing: "-0.01em",
               }}
             >
@@ -848,7 +835,6 @@ function DiaryToastRenderer({
 
         {/* ── CTA buttons ── */}
         <div style={{ display: "flex", gap: "8px", position: "relative", zIndex: 1 }}>
-          {/* Primary: Write Diary */}
           <button
             className="hb-btn-write"
             onClick={onWrite}
@@ -876,21 +862,20 @@ function DiaryToastRenderer({
             <ArrowRight size={13} strokeWidth={2.5} />
           </button>
 
-          {/* Secondary: Later */}
           <button
             className="hb-btn-later"
             onClick={onDismiss}
             style={{
-              background:     "rgba(255,255,255,0.06)",
-              border:         "1px solid rgba(255,255,255,0.1)",
-              borderRadius:   "12px",
-              padding:        "9px 16px",
-              color:          "rgba(210,200,240,0.75)",
-              fontSize:       "13px",
-              fontWeight:     500,
-              cursor:         "pointer",
-              transition:     "all 0.22s ease",
-              whiteSpace:     "nowrap",
+              background:   "rgba(255,255,255,0.06)",
+              border:       "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "12px",
+              padding:      "9px 16px",
+              color:        "rgba(210,200,240,0.75)",
+              fontSize:     "13px",
+              fontWeight:   500,
+              cursor:       "pointer",
+              transition:   "all 0.22s ease",
+              whiteSpace:   "nowrap",
             }}
           >
             Later
@@ -908,7 +893,6 @@ function DiaryToastRenderer({
             zIndex:       1,
           }}
         >
-          {/* Track glow */}
           <div
             style={{
               position:        "absolute",
@@ -928,22 +912,24 @@ function DiaryToastRenderer({
 
 // ─── Public function — call this from your handleSave ─────────────────────
 export function showDiaryReminderToast(
-  router: ReturnType<typeof useRouter>
+  router:   ReturnType<typeof useRouter>,
+  pathname: string   // pass usePathname() from the calling component
 ): void {
   const msg = getRandomMsg();
 
   toast.custom(
     (t) => (
       <DiaryToastRenderer
-        toastId   = {t.id}
-        emoji     = {msg.emoji}
-        title     = {msg.title}
-        body      = {msg.body}
-        onWrite   = {() => {
+        toastId       = {t.id}
+        emoji         = {msg.emoji}
+        title         = {msg.title}
+        body          = {msg.body}
+        spawnPathname = {pathname}
+        onWrite       = {() => {
           toast.dismiss(t.id);
           router.push("/dashboard/diary");
         }}
-        onDismiss = {() => toast.dismiss(t.id)}
+        onDismiss     = {() => toast.dismiss(t.id)}
       />
     ),
     {
