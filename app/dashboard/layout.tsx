@@ -1,20 +1,8 @@
 // app/dashboard/layout.tsx
-// app/dashboard/layout.tsx
-//
-// XP CHANGES:
-//   Now reads from UserXp.totalXp (wallet) instead of aggregating.
-//   Three update paths:
-//     1. Mount → immediate fetch
-//     2. Poll every 30s → background sync
-//     3. "xp-updated" event → re-fetch immediately (after quiz submit)
-//     4. "xp-deduct" event → instant local subtraction (after hint click)
-//
-//   The "xp coming back" bug is fixed at the backend level (see hint/route.ts
-//   and submit/route.ts). This file's role is purely display.
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -36,7 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Brain,
-  Zap,
   Wallet,
 } from "lucide-react";
 import Logo from "../components/Logo";
@@ -261,16 +248,12 @@ function DashNavbar({
   onThemeToggle,
   onMobileMenuToggle,
   mobileOpen,
-  totalXp,
 }: {
   dark: boolean;
   onThemeToggle: () => void;
   onMobileMenuToggle: () => void;
   mobileOpen: boolean;
-  totalXp: number;
 }) {
-  const router = useRouter();
-
   return (
     <header
       className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center justify-between px-5"
@@ -291,14 +274,12 @@ function DashNavbar({
           {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
 
-        {/* ✅ FIXED DESKTOP LOGO — NO MOVEMENT */}
         <div className="hidden md:flex items-center">
           <Link href="/dashboard/today" className="flex items-center">
             <Logo />
           </Link>
         </div>
 
-        {/* Mobile logo */}
         <Link href="/dashboard/today" className="md:hidden flex items-center">
           <Logo />
         </Link>
@@ -306,37 +287,6 @@ function DashNavbar({
 
       {/* RIGHT */}
       <div className="flex items-center gap-3">
-        {/* XP badge */}
-        <button
-          onClick={() => router.push("/dashboard/quiz")}
-          title="Your Brain XP"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-none cursor-pointer transition-all hover:-translate-y-0.5"
-          style={{
-            background: "rgba(245,158,11,0.12)",
-            border: "1px solid rgba(245,158,11,0.28)",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background =
-              "rgba(245,158,11,0.22)";
-            (e.currentTarget as HTMLElement).style.borderColor =
-              "rgba(245,158,11,0.55)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background =
-              "rgba(245,158,11,0.12)";
-            (e.currentTarget as HTMLElement).style.borderColor =
-              "rgba(245,158,11,0.28)";
-          }}
-        >
-          <Zap size={13} style={{ color: "var(--amber)" }} />
-          <span
-            className="font-mono font-bold text-[12px]"
-            style={{ color: "var(--amber)" }}
-          >
-            {totalXp.toLocaleString()} XP
-          </span>
-        </button>
-
         <a
           href="https://my-portfolio-xi-ochre-28.vercel.app/"
           target="_blank"
@@ -362,13 +312,11 @@ function DashNavbar({
             color: "var(--text2)",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.borderColor =
-              "rgba(124,110,243,0.5)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.5)";
             (e.currentTarget as HTMLElement).style.color = "var(--accent)";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.borderColor =
-              "var(--border2)";
+            (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)";
             (e.currentTarget as HTMLElement).style.color = "var(--text2)";
           }}
         >
@@ -413,7 +361,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileOpen,       setMobileOpen]       = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [fullName,         setFullName]         = useState("");
-  const [totalXp,          setTotalXp]          = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -443,42 +390,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .catch(() => router.replace("/auth/login"));
   }, [router]);
 
-  // ── XP state manager ──────────────────────────────────────────────────────
-  // Reads from UserXp.totalXp wallet (O(1) lookup, no aggregation).
-  //
-  // Four update triggers:
-  //   1. Mount               → immediate fetch
-  //   2. 30s poll            → background sync / drift correction
-  //   3. "xp-updated" event  → re-fetch after quiz submit (authoritative)
-  //   4. "xp-deduct" event   → instant local subtraction after hint (no round-trip)
-  const refreshXp = useCallback(() => {
-    fetch("/api/quiz/xp")
-      .then(r => r.json())
-      .then(d => { if (d.success) setTotalXp(d.totalXp ?? 0); })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    refreshXp();
-
-    const pollId = setInterval(refreshXp, 30_000);
-
-    const handleUpdated = () => refreshXp();
-    const handleDeduct  = (e: Event) => {
-      const amount = (e as CustomEvent<{ amount: number }>).detail?.amount ?? 0;
-      if (amount > 0) setTotalXp(prev => Math.max(0, prev - amount));
-    };
-
-    window.addEventListener("xp-updated", handleUpdated);
-    window.addEventListener("xp-deduct",  handleDeduct);
-
-    return () => {
-      clearInterval(pollId);
-      window.removeEventListener("xp-updated", handleUpdated);
-      window.removeEventListener("xp-deduct",  handleDeduct);
-    };
-  }, [refreshXp]);
-
   useEffect(() => {
     const handle = () => { if (window.innerWidth >= 768) setMobileOpen(false); };
     window.addEventListener("resize", handle);
@@ -493,7 +404,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         dark={dark} onThemeToggle={toggle}
         onMobileMenuToggle={() => setMobileOpen(p => !p)}
         mobileOpen={mobileOpen}
-        totalXp={totalXp}
       />
       <Sidebar
         fullName={fullName} mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)}
