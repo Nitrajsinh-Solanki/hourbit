@@ -8,6 +8,15 @@ import toast from "react-hot-toast";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+type CursorStyle =
+  | "laser"
+  | "electric"
+  | "glitch"
+  | "flame"
+  | "poison"
+  | "heartbeat"
+  | "minimal";
+
 type TypingMode =
   | "smallLetters" | "mixedLetters" | "punctuation"
   | "numbers"      | "numbersIncluded";
@@ -27,8 +36,38 @@ interface TestResult {
   charactersTyped: number; duration: number;
 }
 interface WordToken {
-  chars: string[];   // chars of word + trailing space
-  startIdx: number;  // index in the global char array
+  chars: string[];
+  startIdx: number;
+}
+
+// ─── Cursor style config ─────────────────────────────────────────────────────
+
+const CURSOR_STYLES: {
+  key: CursorStyle; label: string; icon: string; title: string;
+}[] = [
+  { key: "laser",     label: "Laser",     icon: "⚡", title: "Laser — precision neon beam"         },
+  { key: "electric",  label: "Electric",  icon: "⚔",  title: "Electric Blade — sharp energy blade" },
+  { key: "glitch",    label: "Glitch",    icon: "◈",  title: "Glitch — cyberpunk RGB flicker"      },
+  { key: "flame",     label: "Flame",     icon: "🔥", title: "Flame — fiery ember caret"           },
+  { key: "poison",    label: "Poison",    icon: "☠",  title: "Poison Needle — toxic neon spike"    },
+  { key: "heartbeat", label: "Heartbeat", icon: "♥",  title: "Heartbeat — pulsing alive caret"     },
+  { key: "minimal",   label: "Minimal",   icon: "▎",  title: "Minimal — clean classic caret"       },
+];
+
+const CURSOR_LS_KEY = "ty_cursor_style_v2";
+const DEFAULT_CURSOR: CursorStyle = "laser";
+
+function safeReadCursor(): CursorStyle {
+  try {
+    const v = localStorage.getItem(CURSOR_LS_KEY) as CursorStyle | null;
+    const valid: CursorStyle[] = ["laser","electric","glitch","flame","poison","heartbeat","minimal"];
+    if (v && valid.includes(v)) return v;
+  } catch { /* unavailable */ }
+  return DEFAULT_CURSOR;
+}
+
+function safeWriteCursor(v: CursorStyle) {
+  try { localStorage.setItem(CURSOR_LS_KEY, v); } catch { /* unavailable */ }
 }
 
 // ─── Word bank ───────────────────────────────────────────────────────────────
@@ -60,9 +99,9 @@ const COMMON_WORDS = [
   "west","ground","interest","reach","fast","several","notice","whether",
   "leave","miles","grow","four","carry","state",
 ];
-const PUNCT  = [".", ",", ";", ":", "!", "?", "-"];
-const NUMS   = ["1","2","3","4","5","6","7","8","9","0","12","23","45","67",
-                "89","100","2024","42","99","15","500"];
+const PUNCT = [".", ",", ";", ":", "!", "?", "-"];
+const NUMS  = ["1","2","3","4","5","6","7","8","9","0","12","23","45","67",
+               "89","100","2024","42","99","15","500"];
 
 function pickWord(mode: TypingMode): string {
   const base = COMMON_WORDS[Math.floor(Math.random() * COMMON_WORDS.length)];
@@ -82,7 +121,6 @@ function pickWord(mode: TypingMode): string {
   }
 }
 
-// ── Generate initial tokens (finite, used at test start) ──────────────────
 function generateTokens(mode: TypingMode, count = 200): WordToken[] {
   const tokens: WordToken[] = [];
   let idx = 0;
@@ -95,13 +133,11 @@ function generateTokens(mode: TypingMode, count = 200): WordToken[] {
   return tokens;
 }
 
-// ── Append more tokens starting from a given char offset ────────────────────
-// All appended words get a trailing space so the user can keep typing freely.
 function appendTokens(mode: TypingMode, count = 150, startOffset: number): WordToken[] {
   const tokens: WordToken[] = [];
   let idx = startOffset;
   for (let i = 0; i < count; i++) {
-    const w    = pickWord(mode) + " "; // always trailing space for appended words
+    const w     = pickWord(mode) + " ";
     const chars = w.split("");
     tokens.push({ chars, startIdx: idx });
     idx += chars.length;
@@ -118,12 +154,11 @@ function fmtDur(s: number): string {
 }
 
 const EMPTY_STATS: TimerStats = {
-  highestWpm:0, accuracyAtHighestWpm:0,
-  highestAccuracy:0, wpmAtHighestAccuracy:0,
-  totalTests:0, averageWpm:0,
+  highestWpm: 0, accuracyAtHighestWpm: 0,
+  highestAccuracy: 0, wpmAtHighestAccuracy: 0,
+  totalTests: 0, averageWpm: 0,
 };
 
-// Module-level stats cache (survives re-renders, cleared on page unload)
 const statsCache = new Map<number, StatsResponse>();
 
 // ─── StatsCard ───────────────────────────────────────────────────────────────
@@ -135,18 +170,18 @@ function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
   if (loading)
     return (
       <div className="rounded-2xl p-4 sm:p-5 animate-pulse"
-        style={{ background:"var(--surface)", border:"1px solid var(--border2)", minHeight:88 }} />
+        style={{ background: "var(--surface)", border: "1px solid var(--border2)", minHeight: 88 }} />
     );
   return (
     <div className="rounded-2xl p-4 sm:p-5 flex flex-col gap-1"
-      style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+      style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
       <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest"
-        style={{ color:"var(--text3)" }}>{title}</div>
-      <div className="text-xl sm:text-2xl font-bold font-mono leading-tight" style={{ color:accent }}>
+        style={{ color: "var(--text3)" }}>{title}</div>
+      <div className="text-xl sm:text-2xl font-bold font-mono leading-tight" style={{ color: accent }}>
         {primary}
       </div>
-      <div className="text-xs" style={{ color:"var(--text2)" }}>{sub1}</div>
-      {sub2 && <div className="text-[11px]" style={{ color:"var(--text3)" }}>{sub2}</div>}
+      <div className="text-xs" style={{ color: "var(--text2)" }}>{sub1}</div>
+      {sub2 && <div className="text-[11px]" style={{ color: "var(--text3)" }}>{sub2}</div>}
     </div>
   );
 }
@@ -154,13 +189,25 @@ function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 const DEFAULT_TIMERS = [15, 30, 60, 120];
-
-// How many chars ahead of the cursor we keep buffered.
-// When the buffer drops below this, we append more words.
 const LOOKAHEAD_THRESHOLD = 300;
 
 export default function TypingPage() {
 
+  // ── Cursor style — SSR-safe: read localStorage only after mount ───────────
+  const [cursorStyle, _setCursorStyle] = useState<CursorStyle>(DEFAULT_CURSOR);
+  const [cursorMounted, setCursorMounted] = useState(false);
+
+  useEffect(() => {
+    _setCursorStyle(safeReadCursor());
+    setCursorMounted(true);
+  }, []);
+
+  const setCursorStyle = useCallback((s: CursorStyle) => {
+    _setCursorStyle(s);
+    safeWriteCursor(s);
+  }, []);
+
+  // ── Core state ────────────────────────────────────────────────────────────
   const [selectedTimer, setSelectedTimer] = useState(30);
   const [typingMode, setTypingMode]       = useState<TypingMode>("smallLetters");
   const [customTimers, setCustomTimers]   = useState<CustomTimer[]>([]);
@@ -202,7 +249,7 @@ export default function TypingPage() {
   useEffect(() => { selectedTimerRef.current = selectedTimer; }, [selectedTimer]);
   useEffect(() => { typingModeRef.current    = typingMode;    }, [typingMode]);
 
-  // ── Stats fetch with session cache ───────────────────────────────────────
+  // ── Stats fetch ───────────────────────────────────────────────────────────
 
   const fetchStats = useCallback(async (timer: number, force = false) => {
     if (!force && statsCache.has(timer)) {
@@ -235,26 +282,16 @@ export default function TypingPage() {
   useEffect(() => { fetchStats(selectedTimer); }, [selectedTimer, fetchStats]);
 
   // ── Dynamic word extension ────────────────────────────────────────────────
-  //
-  // Called on every keystroke while the test is running.
-  // If the cursor is within LOOKAHEAD_THRESHOLD chars of the last generated
-  // character, we silently append 150 more words so the user never runs out.
-  // The new tokens continue the global char index, so all existing state
-  // (typedChars, charStates, scroll) remains valid with no resets.
 
   const maybeExtendWords = useCallback((cursorIdx: number) => {
     const current = wordsRef.current;
     if (!current.length) return;
-
-    const lastToken   = current[current.length - 1];
-    const totalChars  = lastToken.startIdx + lastToken.chars.length;
-    const charsAhead  = totalChars - cursorIdx;
-
-    if (charsAhead < LOOKAHEAD_THRESHOLD) {
+    const lastToken  = current[current.length - 1];
+    const totalChars = lastToken.startIdx + lastToken.chars.length;
+    if (totalChars - cursorIdx < LOOKAHEAD_THRESHOLD) {
       const newTokens  = appendTokens(typingModeRef.current, 150, totalChars);
       const extended   = [...current, ...newTokens];
       wordsRef.current = extended;
-      // Extend the wordElsRef array to accommodate new word elements
       wordElsRef.current = [...wordElsRef.current, ...new Array(newTokens.length).fill(null)];
       setWords(extended);
     }
@@ -264,7 +301,6 @@ export default function TypingPage() {
 
   const updateScroll = useCallback((cursorCharIdx: number) => {
     if (!clipRef.current || !textBlockRef.current) return;
-
     const wTokens = wordsRef.current;
     let activeWi  = wTokens.length - 1;
     for (let i = 0; i < wTokens.length; i++) {
@@ -273,26 +309,16 @@ export default function TypingPage() {
         activeWi = i; break;
       }
     }
-
     const wordEl = wordElsRef.current[activeWi];
     if (!wordEl) return;
-
     const clipRect        = clipRef.current.getBoundingClientRect();
     const wordRect        = wordEl.getBoundingClientRect();
     const wordTopInLayout = wordRect.top - clipRect.top - lineOffsetRef.current;
-
-    const lineH      = wordEl.offsetHeight || 40;
-    const currentRow = Math.round(wordTopInLayout / lineH);
-
+    const lineH           = wordEl.offsetHeight || 40;
+    const currentRow      = Math.round(wordTopInLayout / lineH);
     if (currentRow === lastRowRef.current) return;
     lastRowRef.current = currentRow;
-
-    if (currentRow <= 0) {
-      lineOffsetRef.current = 0;
-    } else {
-      lineOffsetRef.current = -(currentRow * lineH);
-    }
-
+    lineOffsetRef.current = currentRow <= 0 ? 0 : -(currentRow * lineH);
     setScrollTick(t => t + 1);
   }, []);
 
@@ -304,20 +330,17 @@ export default function TypingPage() {
     saveIdRef.current = runId;
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const typed    = [...typedRef.current];
-    const dur      = selectedTimerRef.current;
-    const mode     = typingModeRef.current;
-
+    const typed      = [...typedRef.current];
+    const dur        = selectedTimerRef.current;
+    const mode       = typingModeRef.current;
     const chars      = typed.length;
     const elapsedSec = startTimeRef.current > 0
-      ? (Date.now() - startTimeRef.current) / 1000
-      : dur;
+      ? (Date.now() - startTimeRef.current) / 1000 : dur;
     const minutes    = elapsedSec / 60;
     const rawWpm     = minutes > 0 ? Math.round((chars / 5) / minutes) : 0;
-
-    const totalKS      = keystrokesRef.current;
-    const rawErr       = rawErrorsRef.current;
-    const accuracy     = totalKS > 0 ? Math.round(((totalKS - rawErr) / totalKS) * 100) : 0;
+    const totalKS    = keystrokesRef.current;
+    const rawErr     = rawErrorsRef.current;
+    const accuracy   = totalKS > 0 ? Math.round(((totalKS - rawErr) / totalKS) * 100) : 0;
     const effectiveWpm = Math.round(rawWpm * Math.pow(accuracy / 100, 2));
 
     const r: TestResult = {
@@ -351,10 +374,10 @@ export default function TypingPage() {
     lineOffsetRef.current = 0;
     lastRowRef.current    = -1;
 
-    const tokens         = generateTokens(typingModeRef.current, 200);
-    wordsRef.current     = tokens;
-    typedRef.current     = [];
-    wordElsRef.current   = [];
+    const tokens       = generateTokens(typingModeRef.current, 200);
+    wordsRef.current   = tokens;
+    typedRef.current   = [];
+    wordElsRef.current = [];
     keystrokesRef.current = 0;
     rawErrorsRef.current  = 0;
 
@@ -394,7 +417,6 @@ export default function TypingPage() {
       }
       if (e.key.length !== 1) return;
 
-      // Start timer
       if (testStateRef.current === "idle") {
         startTimeRef.current = Date.now();
         testStateRef.current = "running";
@@ -415,10 +437,7 @@ export default function TypingPage() {
       typedRef.current = [...typedRef.current, e.key];
       const next = [...typedRef.current];
       setTypedChars(next);
-
-      // ── KEY FIX: extend the word list if the cursor is getting close to the end ──
       maybeExtendWords(next.length);
-
       updateScroll(next.length);
     },
     [endTest, initTest, updateScroll, maybeExtendWords],
@@ -445,7 +464,7 @@ export default function TypingPage() {
     setAddingTimer(true);
     try {
       const res  = await fetch("/api/typing/timers", {
-        method:"POST", headers:{"Content-Type":"application/json"},
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ duration: dur }),
       });
       const data = await res.json();
@@ -463,7 +482,7 @@ export default function TypingPage() {
     setDeletingTimer(true);
     try {
       const res  = await fetch("/api/typing/timers", {
-        method:"DELETE", headers:{"Content-Type":"application/json"},
+        method: "DELETE", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timerId: confirmDel._id, duration: confirmDel.duration }),
       });
       const data = await res.json();
@@ -486,11 +505,11 @@ export default function TypingPage() {
   const globalTotal = statsData?.globalTotalTests ?? 0;
 
   const MODES: { key: TypingMode; label: string; title: string }[] = [
-    { key:"smallLetters",    label:"abc", title:"Lowercase only"   },
-    { key:"mixedLetters",    label:"Abc", title:"Mixed case"       },
-    { key:"punctuation",     label:"!,.", title:"With punctuation" },
-    { key:"numbers",         label:"123", title:"Numbers only"     },
-    { key:"numbersIncluded", label:"ab1", title:"Words + numbers"  },
+    { key: "smallLetters",    label: "abc", title: "Lowercase only"   },
+    { key: "mixedLetters",    label: "Abc", title: "Mixed case"       },
+    { key: "punctuation",     label: "!,.", title: "With punctuation" },
+    { key: "numbers",         label: "123", title: "Numbers only"     },
+    { key: "numbersIncluded", label: "ab1", title: "Words + numbers"  },
   ];
 
   const liveWpm = useMemo(() => {
@@ -508,11 +527,21 @@ export default function TypingPage() {
 
   return (
     <div className="min-h-screen flex flex-col gap-4 sm:gap-6 pb-10"
-      style={{ background:"var(--bg)", color:"var(--text)" }}>
+      style={{ background: "var(--bg)", color: "var(--text)" }}>
 
-      {/* ── Injected styles ── */}
+      {/* ══════════════════════════════════════════════════════════════════════
+          ALL CURSOR + SELECTOR STYLES
+          Performance contract:
+          - data-cursor attribute on wrapper drives ALL visual switching
+          - No per-character JS, no inline style objects, no animation state
+          - All keyframes use GPU-compositable properties: opacity, transform,
+            box-shadow. No width/height/top/left changes = zero layout thrash.
+          - step-end timings (glitch, minimal) = zero interpolated frames
+          - contain:strict on .ty-caret isolates paint to 2px element
+          ══════════════════════════════════════════════════════════════════════ */}
       <style>{`
-        .tc-p  { color: var(--tc-p,  #7a7a8c); }
+        /* ── Char colours ── */
+        .tc-p  { color: var(--tc-p, #7a7a8c); }
         .tc-ok { color: var(--tc-ok, var(--green, #22d3a0)); }
         .tc-er {
           color: var(--tc-er, var(--danger, #f87171));
@@ -523,44 +552,359 @@ export default function TypingPage() {
         body[data-theme="light"] { --tc-p: #55556a; }
         @media (prefers-color-scheme: light) { :root { --tc-p: #55556a; } }
 
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-
-        .wt {
-          display: inline-flex;
-          white-space: nowrap;
-          flex-shrink: 0;
-        }
-
-        .ty-text {
-          font-size: clamp(16px, 1.6vw + 8px, 24px);
-          line-height: 2.4;
-          letter-spacing: 0.02em;
-        }
-
-        .ty-focused { box-shadow: 0 0 0 2.5px rgba(124,110,243,.45); }
-        .ty-panel   { border-radius: 16px; transition: box-shadow .2s; }
-
+        /* ── Typing layout ── */
+        .wt { display:inline-flex; white-space:nowrap; flex-shrink:0; }
+        .ty-text { font-size:clamp(16px,1.6vw + 8px,24px); line-height:2.4; letter-spacing:.02em; }
+        .ty-focused { box-shadow:0 0 0 2.5px rgba(124,110,243,.45); }
+        .ty-panel   { border-radius:16px; transition:box-shadow .2s; }
         .ty-overlay {
           position:absolute; inset:0; border-radius:12px; z-index:20;
           display:flex; align-items:center; justify-content:center;
-          background:rgba(0,0,0,.50);
-          backdrop-filter:blur(3px);
-          cursor:pointer;
+          background:rgba(0,0,0,.50); backdrop-filter:blur(3px); cursor:pointer;
+        }
+
+        /* ════════════════════════════════════════════════
+           CARET BASE
+           ════════════════════════════════════════════════ */
+        .ty-caret {
+          position: absolute;
+          left: -1px;
+          top: 10%;
+          bottom: 6%;
+          width: 2px;
+          border-radius: 2px;
+          pointer-events: none;
+          will-change: opacity, transform, box-shadow;
+          contain: strict;
+          overflow: visible;
+        }
+
+        /* ════════════════════════════════════════════════
+           1. LASER — purple-white neon beam, breathe pulse
+           ════════════════════════════════════════════════ */
+        @keyframes laser-breathe {
+          0%,100% {
+            opacity:1;
+            box-shadow:0 0 5px 2px rgba(167,139,250,.8),
+                       0 0 14px 3px rgba(139,92,246,.5),
+                       0 0 28px 5px rgba(109,40,217,.2);
+          }
+          50% {
+            opacity:.45;
+            box-shadow:0 0 3px 1px rgba(167,139,250,.3),
+                       0 0 8px 2px rgba(139,92,246,.18);
+          }
+        }
+        [data-cursor="laser"] .ty-caret {
+          width:2px;
+          background:linear-gradient(180deg,
+            transparent 0%, rgba(233,213,255,.9) 15%,
+            #c4b5fd 45%, #a78bfa 55%,
+            rgba(233,213,255,.9) 85%, transparent 100%);
+          animation:laser-breathe 1s ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="laser"] .ty-caret,
+        @media (prefers-color-scheme:light) {
+          [data-cursor="laser"] .ty-caret {
+            background:linear-gradient(180deg,
+              transparent 0%, rgba(109,40,217,.85) 15%,
+              #7c3aed 45%, #6d28d9 55%,
+              rgba(109,40,217,.85) 85%, transparent 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           2. ELECTRIC BLADE — icy blue energy, surge flicker
+           ════════════════════════════════════════════════ */
+        @keyframes electric-surge {
+          0%,100% {
+            opacity:1;
+            box-shadow:0 0 4px 1px rgba(125,211,252,.85),
+                       0 0 14px 3px rgba(56,189,248,.55),
+                       0 0 28px 6px rgba(14,165,233,.25);
+          }
+          35% { opacity:.65; box-shadow:0 0 2px 1px rgba(125,211,252,.35),0 0 6px 2px rgba(56,189,248,.2); }
+          65% {
+            opacity:1;
+            box-shadow:0 0 7px 2px rgba(125,211,252,1),
+                       0 0 20px 5px rgba(56,189,248,.75),
+                       0 0 40px 9px rgba(14,165,233,.38);
+          }
+          82% { opacity:.8; box-shadow:0 0 4px 1px rgba(125,211,252,.7),0 0 14px 3px rgba(56,189,248,.45); }
+        }
+        [data-cursor="electric"] .ty-caret {
+          width:2px;
+          background:linear-gradient(180deg,
+            transparent 0%, rgba(224,242,254,.7) 8%,
+            #fff 20%, #bae6fd 35%,
+            #38bdf8 55%, #0ea5e9 75%,
+            rgba(14,165,233,.4) 90%, transparent 100%);
+          animation:electric-surge 700ms ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="electric"] .ty-caret {
+          background:linear-gradient(180deg,
+            transparent 0%, rgba(3,105,161,.65) 10%,
+            #0284c7 30%, #0369a1 55%,
+            rgba(3,105,161,.5) 85%, transparent 100%);
+        }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="electric"] .ty-caret {
+            background:linear-gradient(180deg,
+              transparent 0%, rgba(3,105,161,.65) 10%,
+              #0284c7 30%, #0369a1 55%,
+              rgba(3,105,161,.5) 85%, transparent 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           3. GLITCH — RGB split, cyberpunk step-end stutter
+           ════════════════════════════════════════════════ */
+        @keyframes glitch-main {
+          0%,88%,100% { opacity:1; transform:translateX(0) skewY(0deg); }
+          89%  { opacity:.6; transform:translateX(-1px) skewY(.5deg); }
+          91%  { opacity:.9; transform:translateX(1.5px) skewY(-.4deg); }
+          93%  { opacity:.5; transform:translateX(-1px) skewY(.3deg); }
+          95%  { opacity:.8; transform:translateX(.5px); }
+          97%  { opacity:1;  transform:translateX(0); }
+        }
+        @keyframes glitch-r {
+          0%,88%,100% { opacity:0; transform:translateX(0); }
+          89%  { opacity:.78; transform:translateX(2.5px); }
+          92%  { opacity:.5;  transform:translateX(-1px); }
+          96%  { opacity:0; }
+        }
+        @keyframes glitch-b {
+          0%,88%,100% { opacity:0; transform:translateX(0); }
+          90%  { opacity:.65; transform:translateX(-2.5px); }
+          93%  { opacity:.45; transform:translateX(1px); }
+          97%  { opacity:0; }
+        }
+        [data-cursor="glitch"] .ty-caret {
+          width:2px;
+          background:#67e8f9;
+          box-shadow:0 0 6px 1px rgba(103,232,249,.7);
+          animation:glitch-main 2s step-end infinite;
+        }
+        [data-cursor="glitch"] .ty-caret::before,
+        [data-cursor="glitch"] .ty-caret::after {
+          content:''; position:absolute; inset:0;
+          width:2px; border-radius:2px; pointer-events:none;
+        }
+        [data-cursor="glitch"] .ty-caret::before {
+          background:#f87171;
+          animation:glitch-r 2s step-end infinite;
+        }
+        [data-cursor="glitch"] .ty-caret::after {
+          background:#60a5fa;
+          animation:glitch-b 2s step-end infinite;
+        }
+        body[data-theme="light"] [data-cursor="glitch"] .ty-caret { background:#0891b2; box-shadow:0 0 5px 1px rgba(8,145,178,.6); }
+        body[data-theme="light"] [data-cursor="glitch"] .ty-caret::before { background:#dc2626; }
+        body[data-theme="light"] [data-cursor="glitch"] .ty-caret::after  { background:#2563eb; }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="glitch"] .ty-caret { background:#0891b2; box-shadow:0 0 5px 1px rgba(8,145,178,.6); }
+          [data-cursor="glitch"] .ty-caret::before { background:#dc2626; }
+          [data-cursor="glitch"] .ty-caret::after  { background:#2563eb; }
+        }
+
+        /* ════════════════════════════════════════════════
+           4. FLAME — white-hot core → amber → deep red
+           scaleX wobble only (transform-origin:bottom)
+           Zero layout shift. Redesigned for clarity.
+           ════════════════════════════════════════════════ */
+        @keyframes flame-burn {
+          0%   { transform:scaleX(1);    box-shadow:0 -3px 10px 2px rgba(251,146,60,.8),  0 0 18px 5px rgba(239,68,68,.42); }
+          20%  { transform:scaleX(1.2);  box-shadow:0 -5px 15px 3px rgba(251,146,60,.95), 0 0 24px 7px rgba(239,68,68,.52); }
+          42%  { transform:scaleX(.82);  box-shadow:0 -2px 7px 1px rgba(251,146,60,.55),  0 0 12px 3px rgba(239,68,68,.3); }
+          60%  { transform:scaleX(1.14); box-shadow:0 -6px 18px 4px rgba(251,146,60,.9),  0 0 28px 8px rgba(239,68,68,.48); }
+          80%  { transform:scaleX(.88);  box-shadow:0 -3px 10px 2px rgba(251,146,60,.72), 0 0 16px 4px rgba(239,68,68,.38); }
+          100% { transform:scaleX(1);    box-shadow:0 -3px 10px 2px rgba(251,146,60,.8),  0 0 18px 5px rgba(239,68,68,.42); }
+        }
+        [data-cursor="flame"] .ty-caret {
+          width:3px;
+          border-radius:2px 2px 1px 1px;
+          transform-origin:bottom center;
+          background:linear-gradient(180deg,
+            rgba(255,255,255,.98) 0%,
+            #fef3c7 8%, #fde68a 16%,
+            #fb923c 34%, #f97316 52%,
+            #ef4444 72%, rgba(127,29,29,.55) 100%);
+          animation:flame-burn 230ms ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="flame"] .ty-caret {
+          background:linear-gradient(180deg,
+            #fff 0%, #fde68a 14%,
+            #f97316 40%, #dc2626 70%,
+            rgba(127,29,29,.5) 100%);
+        }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="flame"] .ty-caret {
+            background:linear-gradient(180deg,
+              #fff 0%, #fde68a 14%,
+              #f97316 40%, #dc2626 70%,
+              rgba(127,29,29,.5) 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           5. POISON NEEDLE — toxic neon green sinister pulse
+           ════════════════════════════════════════════════ */
+        @keyframes poison-pulse {
+          0%,100% {
+            opacity:1;
+            box-shadow:0 0 5px 2px rgba(74,222,128,.82),
+                       0 0 14px 4px rgba(22,163,74,.52),
+                       0 0 26px 6px rgba(21,128,61,.26);
+          }
+          35% { opacity:.55; box-shadow:0 0 2px 1px rgba(74,222,128,.35),0 0 6px 2px rgba(22,163,74,.2); }
+          68% {
+            opacity:.95;
+            box-shadow:0 0 6px 2px rgba(74,222,128,.88),
+                       0 0 18px 5px rgba(22,163,74,.58),
+                       0 0 34px 8px rgba(21,128,61,.32);
+          }
+        }
+        [data-cursor="poison"] .ty-caret {
+          width:2px;
+          background:linear-gradient(180deg,
+            rgba(255,255,255,.92) 0%,
+            #bbf7d0 10%, #4ade80 30%,
+            #22c55e 55%, #16a34a 78%,
+            rgba(21,128,61,.3) 100%);
+          animation:poison-pulse 1.4s ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="poison"] .ty-caret {
+          background:linear-gradient(180deg,
+            rgba(255,255,255,.8) 0%,
+            #86efac 12%, #16a34a 38%,
+            #15803d 64%, rgba(20,83,45,.4) 100%);
+        }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="poison"] .ty-caret {
+            background:linear-gradient(180deg,
+              rgba(255,255,255,.8) 0%,
+              #86efac 12%, #16a34a 38%,
+              #15803d 64%, rgba(20,83,45,.4) 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           6. HEARTBEAT — double-beat pulse, cardiac monitor
+           Long rest between beats feels genuinely alive.
+           ════════════════════════════════════════════════ */
+        @keyframes heartbeat {
+          0%   { opacity:.35; box-shadow:0 0 2px 1px rgba(248,113,113,.18); }
+          10%  { opacity:1;   box-shadow:0 0 8px 2px rgba(248,113,113,.92),0 0 20px 6px rgba(239,68,68,.52); }
+          20%  { opacity:.45; box-shadow:0 0 3px 1px rgba(248,113,113,.28); }
+          30%  { opacity:1;   box-shadow:0 0 11px 3px rgba(248,113,113,.96),0 0 28px 8px rgba(239,68,68,.56); }
+          44%  { opacity:.3;  box-shadow:0 0 2px 1px rgba(248,113,113,.14); }
+          100% { opacity:.35; box-shadow:0 0 2px 1px rgba(248,113,113,.18); }
+        }
+        [data-cursor="heartbeat"] .ty-caret {
+          width:2px;
+          background:linear-gradient(180deg,
+            rgba(255,255,255,.62) 0%,
+            #fca5a5 18%, #f87171 42%,
+            #ef4444 65%, rgba(185,28,28,.5) 100%);
+          animation:heartbeat 900ms ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="heartbeat"] .ty-caret {
+          background:linear-gradient(180deg,
+            rgba(255,255,255,.6) 0%,
+            #fca5a5 18%, #ef4444 42%,
+            #dc2626 65%, rgba(153,27,27,.5) 100%);
+        }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="heartbeat"] .ty-caret {
+            background:linear-gradient(180deg,
+              rgba(255,255,255,.6) 0%,
+              #fca5a5 18%, #ef4444 42%,
+              #dc2626 65%, rgba(153,27,27,.5) 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           7. MINIMAL — clean step-end blink, zero glow
+           Single CSS variable color — lightest of all.
+           ════════════════════════════════════════════════ */
+        @keyframes minimal-blink {
+          0%,49%  { opacity:1; }
+          50%,100% { opacity:0; }
+        }
+        [data-cursor="minimal"] .ty-caret {
+          width:2px;
+          background:var(--accent, #7c6ef3);
+          border-radius:1px;
+          box-shadow:none;
+          animation:minimal-blink 1.05s step-end infinite;
+        }
+
+        /* ════════════════════════════════════════════════
+           CURSOR SELECTOR UI — compact labeled pill row
+           ════════════════════════════════════════════════ */
+        .cs-row   { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+        .cs-label {
+          font-size:10px; font-weight:700; letter-spacing:.08em;
+          text-transform:uppercase; color:var(--text3);
+          flex-shrink:0; min-width:46px;
+        }
+        .cs-pills { display:flex; flex-wrap:wrap; gap:4px; }
+        .cs-pill  {
+          display:inline-flex; align-items:center; gap:3px;
+          padding:3px 9px 3px 7px; border-radius:7px;
+          font-size:10.5px; font-weight:600; letter-spacing:.015em;
+          cursor:pointer; white-space:nowrap;
+          border:1px solid var(--border2);
+          background:transparent; color:var(--text3);
+          user-select:none; -webkit-tap-highlight-color:transparent;
+          transition:background 130ms ease, color 130ms ease,
+                     border-color 130ms ease, box-shadow 130ms ease;
+          line-height:1;
+        }
+        .cs-pill:hover:not(.cs-pill--active) { color:var(--text2); background:var(--surface2); }
+        .cs-icon { font-size:10px; opacity:.82; }
+
+        /* active — dark theme */
+        .cs-pill--laser.cs-pill--active     { background:rgba(139,92,246,.18);  border-color:rgba(167,139,250,.55); color:#ddd6fe; box-shadow:0 0 10px rgba(139,92,246,.28); }
+        .cs-pill--electric.cs-pill--active  { background:rgba(56,189,248,.14);  border-color:rgba(125,211,252,.5);  color:#bae6fd; box-shadow:0 0 10px rgba(56,189,248,.25); }
+        .cs-pill--glitch.cs-pill--active    { background:rgba(103,232,249,.12); border-color:rgba(103,232,249,.45); color:#a5f3fc; box-shadow:0 0 10px rgba(103,232,249,.2); }
+        .cs-pill--flame.cs-pill--active     { background:rgba(251,146,60,.14);  border-color:rgba(251,146,60,.5);   color:#fed7aa; box-shadow:0 0 10px rgba(251,146,60,.22); }
+        .cs-pill--poison.cs-pill--active    { background:rgba(74,222,128,.13);  border-color:rgba(74,222,128,.48);  color:#bbf7d0; box-shadow:0 0 10px rgba(74,222,128,.22); }
+        .cs-pill--heartbeat.cs-pill--active { background:rgba(248,113,113,.13); border-color:rgba(248,113,113,.48); color:#fecaca; box-shadow:0 0 10px rgba(248,113,113,.22); }
+        .cs-pill--minimal.cs-pill--active   { background:rgba(124,110,243,.14); border-color:rgba(167,139,250,.45); color:var(--accent2,#c4b5fd); }
+
+        /* active — light theme */
+        body[data-theme="light"] .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--glitch.cs-pill--active    { background:rgba(8,145,178,.08);   border-color:rgba(8,145,178,.4);   color:#0e7490; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--flame.cs-pill--active     { background:rgba(194,65,12,.08);   border-color:rgba(194,65,12,.4);   color:#c2410c; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
+
+        @media (prefers-color-scheme:light) {
+          .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
+          .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
+          .cs-pill--glitch.cs-pill--active    { background:rgba(8,145,178,.08);   border-color:rgba(8,145,178,.4);   color:#0e7490; box-shadow:none; }
+          .cs-pill--flame.cs-pill--active     { background:rgba(194,65,12,.08);   border-color:rgba(194,65,12,.4);   color:#c2410c; box-shadow:none; }
+          .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
+          .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
+          .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
         }
       `}</style>
 
       {/* ── Header ── */}
       <div className="flex items-center gap-2 pt-1 flex-wrap">
-        <span style={{ color:"var(--accent)", fontSize:22 }}>⌨</span>
-        <h1 className="text-lg sm:text-xl font-bold" style={{ color:"var(--text)" }}>Typing Practice</h1>
+        <span style={{ color: "var(--accent)", fontSize: 22 }}>⌨</span>
+        <h1 className="text-lg sm:text-xl font-bold" style={{ color: "var(--text)" }}>Typing Practice</h1>
         <span className="text-xs font-semibold px-2 py-0.5 rounded-full font-mono"
-          style={{ background:"rgba(124,110,243,.15)", color:"var(--accent2)", border:"1px solid rgba(124,110,243,.25)" }}>
+          style={{ background: "rgba(124,110,243,.15)", color: "var(--accent2)", border: "1px solid rgba(124,110,243,.25)" }}>
           {timerLabel}
         </span>
         <div className="ml-auto flex items-center gap-1.5 text-[10px] sm:text-xs font-mono"
-          style={{ color:"var(--text3)" }}>
+          style={{ color: "var(--text3)" }}>
           <kbd className="px-1.5 py-0.5 rounded"
-            style={{ background:"var(--surface2)", border:"1px solid var(--border2)" }}>Tab</kbd>
+            style={{ background: "var(--surface2)", border: "1px solid var(--border2)" }}>Tab</kbd>
           restart
         </div>
       </div>
@@ -581,9 +925,9 @@ export default function TypingPage() {
 
       {/* ── Typing panel ── */}
       <div className="flex flex-col gap-3 sm:gap-5 p-4 sm:p-6 ty-panel"
-        style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+        style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
 
-        {/* Controls */}
+        {/* Controls row */}
         <div className="flex flex-wrap items-center justify-between gap-2">
 
           {/* Timer buttons */}
@@ -592,9 +936,9 @@ export default function TypingPage() {
               <button key={t} onClick={() => setSelectedTimer(t)}
                 className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all"
                 style={{
-                  background: selectedTimer===t ? "var(--accent)"  : "var(--surface2)",
-                  color:      selectedTimer===t ? "#fff"            : "var(--text2)",
-                  border:     selectedTimer===t ? "1px solid var(--accent)" : "1px solid var(--border2)",
+                  background: selectedTimer === t ? "var(--accent)"  : "var(--surface2)",
+                  color:      selectedTimer === t ? "#fff"            : "var(--text2)",
+                  border:     selectedTimer === t ? "1px solid var(--accent)" : "1px solid var(--border2)",
                 }}>
                 {fmtDur(t)}
               </button>
@@ -605,52 +949,52 @@ export default function TypingPage() {
                 <button onClick={() => setSelectedTimer(ct.duration)}
                   className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all pr-5"
                   style={{
-                    background: selectedTimer===ct.duration ? "var(--accent)"  : "var(--surface2)",
-                    color:      selectedTimer===ct.duration ? "#fff"            : "var(--text2)",
-                    border:     selectedTimer===ct.duration ? "1px solid var(--accent)" : "1px solid var(--border2)",
+                    background: selectedTimer === ct.duration ? "var(--accent)"  : "var(--surface2)",
+                    color:      selectedTimer === ct.duration ? "#fff"            : "var(--text2)",
+                    border:     selectedTimer === ct.duration ? "1px solid var(--accent)" : "1px solid var(--border2)",
                   }}>
                   {fmtDur(ct.duration)}
                 </button>
                 <button onClick={() => setConfirmDel(ct)}
                   className="absolute right-0.5 top-1/2 -translate-y-1/2 text-xs w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ color:"var(--danger)" }}>×</button>
+                  style={{ color: "var(--danger)" }}>×</button>
               </div>
             ))}
 
             {customTimers.length < 3 && (
               <button onClick={() => setShowAddTimer(!showAddTimer)}
                 className="px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium"
-                style={{ background:"transparent", color:"var(--text3)", border:"1px dashed var(--border2)" }}
+                style={{ background: "transparent", color: "var(--text3)", border: "1px dashed var(--border2)" }}
                 title="Add custom timer">+</button>
             )}
 
             {showAddTimer && (
               <div className="flex items-center gap-1.5 rounded-lg px-2 py-1"
-                style={{ background:"var(--surface2)", border:"1px solid var(--border2)" }}>
+                style={{ background: "var(--surface2)", border: "1px solid var(--border2)" }}>
                 <input type="number" value={newTimerDur} onChange={e => setNewTimerDur(e.target.value)}
                   placeholder="sec" min={1} max={3600}
                   className="bg-transparent text-xs sm:text-sm w-14 outline-none font-mono"
-                  style={{ color:"var(--text)" }}
-                  onKeyDown={e => e.key==="Enter" && handleAddTimer()} />
+                  style={{ color: "var(--text)" }}
+                  onKeyDown={e => e.key === "Enter" && handleAddTimer()} />
                 <button onClick={handleAddTimer} disabled={addingTimer}
-                  className="text-xs font-medium disabled:opacity-50" style={{ color:"var(--accent)" }}>
+                  className="text-xs font-medium disabled:opacity-50" style={{ color: "var(--accent)" }}>
                   {addingTimer ? "…" : "add"}
                 </button>
                 <button onClick={() => setShowAddTimer(false)} className="text-xs"
-                  style={{ color:"var(--text3)" }}>×</button>
+                  style={{ color: "var(--text3)" }}>×</button>
               </div>
             )}
           </div>
 
-          {/* Mode */}
+          {/* Mode buttons */}
           <div className="flex items-center gap-0.5 sm:gap-1">
             {MODES.map(({ key, label, title }) => (
               <button key={key} onClick={() => setTypingMode(key)} title={title}
                 className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-[10px] sm:text-xs font-mono font-medium transition-all"
                 style={{
-                  background: typingMode===key ? "rgba(124,110,243,.15)" : "transparent",
-                  color:      typingMode===key ? "var(--accent2)"         : "var(--text3)",
-                  border:     typingMode===key ? "1px solid rgba(124,110,243,.35)" : "1px solid transparent",
+                  background: typingMode === key ? "rgba(124,110,243,.15)" : "transparent",
+                  color:      typingMode === key ? "var(--accent2)"         : "var(--text3)",
+                  border:     typingMode === key ? "1px solid rgba(124,110,243,.35)" : "1px solid transparent",
                 }}>
                 {label}
               </button>
@@ -658,34 +1002,63 @@ export default function TypingPage() {
           </div>
         </div>
 
+        {/* ── Cursor Selector ───────────────────────────────────────────────
+            Shown only after mount (cursorMounted) to avoid SSR hydration
+            mismatch. Selection is instantly saved to localStorage — user
+            preference is automatically restored on every visit.
+            ─────────────────────────────────────────────────────────────── */}
+        {cursorMounted && (
+          <div className="cs-row">
+            <span className="cs-label">Cursor</span>
+            <div className="cs-pills">
+              {CURSOR_STYLES.map(({ key, label, icon, title: ttip }) => (
+                <button
+                  key={key}
+                  onClick={() => setCursorStyle(key)}
+                  title={ttip}
+                  aria-pressed={cursorStyle === key}
+                  className={`cs-pill cs-pill--${key}${cursorStyle === key ? " cs-pill--active" : ""}`}
+                >
+                  <span className="cs-icon" aria-hidden="true">{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Timer + live stats row */}
         <div className="flex items-center justify-between">
           <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums transition-colors"
             style={{
-              color: testState==="running" && timeLeft<=5
+              color: testState === "running" && timeLeft <= 5
                 ? "var(--danger)"
-                : testState==="running"
+                : testState === "running"
                   ? "var(--accent2)"
                   : "var(--text3)",
             }}>
             {timeLeft}
           </span>
 
-          {testState==="idle" && (
-            <span className="text-xs sm:text-sm animate-pulse" style={{ color:"var(--text3)" }}>
+          {testState === "idle" && (
+            <span className="text-xs sm:text-sm animate-pulse" style={{ color: "var(--text3)" }}>
               click the text and start typing
             </span>
           )}
-          {testState==="running" && (
+          {testState === "running" && (
             <div className="flex items-center gap-3 font-mono text-xs sm:text-sm"
-              style={{ color:"var(--text3)" }}>
-              {liveWpm !== null && <span style={{ color:"var(--accent2)" }}>{liveWpm} wpm</span>}
+              style={{ color: "var(--text3)" }}>
+              {liveWpm !== null && <span style={{ color: "var(--accent2)" }}>{liveWpm} wpm</span>}
               <span>{typedChars.length} chars</span>
             </div>
           )}
         </div>
 
-        {/* ── THE TYPING AREA ─────────────────────────────────────────────── */}
+        {/* ── TYPING AREA ───────────────────────────────────────────────────
+            data-cursor on this wrapper is the ONLY mechanism for style
+            switching. CSS cascade + attribute selectors handle everything.
+            Changing cursor style = 1 string state update, nothing else.
+            ─────────────────────────────────────────────────────────────── */}
         <div
           ref={wrapperRef}
           tabIndex={0}
@@ -693,11 +1066,11 @@ export default function TypingPage() {
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           onClick={() => wrapperRef.current?.focus()}
+          data-cursor={cursorStyle}
           className={`relative outline-none select-none cursor-text ty-panel ${isFocused ? "ty-focused" : ""}`}
           aria-label="Typing area — click and start typing"
           style={{ outline: "none" }}
         >
-          {/* ── Clip viewport — 4 lines tall ── */}
           <div
             ref={clipRef}
             className="overflow-hidden relative"
@@ -707,14 +1080,14 @@ export default function TypingPage() {
               borderRadius: 12,
             }}>
 
-            {/* Top fade mask */}
+            {/* Top fade */}
             <div className="absolute top-0 left-0 right-0 pointer-events-none z-10"
-              style={{ height:"2em", background:"linear-gradient(to bottom, var(--surface), transparent)" }} />
-            {/* Bottom fade mask */}
+              style={{ height: "2em", background: "linear-gradient(to bottom, var(--surface), transparent)" }} />
+            {/* Bottom fade */}
             <div className="absolute bottom-0 left-0 right-0 pointer-events-none z-10"
-              style={{ height:"2em", background:"linear-gradient(to top, var(--surface), transparent)" }} />
+              style={{ height: "2em", background: "linear-gradient(to top, var(--surface), transparent)" }} />
 
-            {/* Click-to-focus overlay */}
+            {/* Focus overlay */}
             {!isFocused && testState !== "finished" && (
               <div className="ty-overlay" onClick={() => wrapperRef.current?.focus()}>
                 <div className="flex flex-col items-center gap-2 text-white text-center px-4">
@@ -725,7 +1098,7 @@ export default function TypingPage() {
               </div>
             )}
 
-            {/* ── Text block — shifts up via transform ── */}
+            {/* Text block */}
             <div
               ref={textBlockRef}
               className="ty-text font-mono"
@@ -758,17 +1131,10 @@ export default function TypingPage() {
                           state === "incorrect" ? "tc-er" :
                           "tc-p"
                         }
-                        style={isCur ? { color:"var(--text)", position:"relative" } : undefined}
+                        style={isCur ? { color: "var(--text)", position: "relative" } : undefined}
                       >
-                        {/* Cursor bar */}
-                        {isCur && (
-                          <span style={{
-                            position:"absolute", left:-1, top:"15%", bottom:"10%",
-                            width:2, borderRadius:1,
-                            background:"var(--accent)",
-                            animation:"blink 1s step-end infinite",
-                          }} />
-                        )}
+                        {/* Caret: class + data-cursor cascade handles all visuals */}
+                        {isCur && <span className="ty-caret" aria-hidden="true" />}
                         {ch === " " ? "\u00A0" : ch}
                       </span>
                     );
@@ -783,69 +1149,69 @@ export default function TypingPage() {
         <div className="flex items-center justify-center gap-3">
           <button onClick={initTest}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm transition-all"
-            style={{ color:"var(--text3)", background:"transparent", border:"1px solid transparent" }}
+            style={{ color: "var(--text3)", background: "transparent", border: "1px solid transparent" }}
             onMouseEnter={e => {
               const el = e.currentTarget as HTMLElement;
-              el.style.color="var(--text2)"; el.style.background="var(--surface2)";
-              el.style.border="1px solid var(--border2)";
+              el.style.color = "var(--text2)"; el.style.background = "var(--surface2)";
+              el.style.border = "1px solid var(--border2)";
             }}
             onMouseLeave={e => {
               const el = e.currentTarget as HTMLElement;
-              el.style.color="var(--text3)"; el.style.background="transparent";
-              el.style.border="1px solid transparent";
+              el.style.color = "var(--text3)"; el.style.background = "transparent";
+              el.style.border = "1px solid transparent";
             }}>
-            <span style={{ fontSize:16 }}>↺</span> restart
+            <span style={{ fontSize: 16 }}>↺</span> restart
           </button>
-          <span className="text-[10px] sm:text-xs font-mono" style={{ color:"var(--text3)" }}>
+          <span className="text-[10px] sm:text-xs font-mono" style={{ color: "var(--text3)" }}>
             <kbd className="px-1.5 py-0.5 rounded text-[10px]"
-              style={{ background:"var(--surface2)", border:"1px solid var(--border2)" }}>Tab</kbd>
+              style={{ background: "var(--surface2)", border: "1px solid var(--border2)" }}>Tab</kbd>
             {" "}quick restart
           </span>
         </div>
       </div>
 
-      {/* ── Result modal — bottom-sheet on mobile ── */}
+      {/* ── Result modal ── */}
       {testState === "finished" && result && (
         <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
-          style={{ background:"rgba(0,0,0,.82)", backdropFilter:"blur(6px)" }}>
+          style={{ background: "rgba(0,0,0,.82)", backdropFilter: "blur(6px)" }}>
           <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-2xl p-6 sm:p-8 flex flex-col gap-5"
-            style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
+            style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
 
             <div className="text-center">
               <div className="text-[10px] font-bold uppercase tracking-widest mb-1"
-                style={{ color:"var(--text3)" }}>
+                style={{ color: "var(--text3)" }}>
                 {timerLabel} · {typingMode}
               </div>
-              <h2 className="text-lg sm:text-xl font-bold" style={{ color:"var(--text)" }}>
+              <h2 className="text-lg sm:text-xl font-bold" style={{ color: "var(--text)" }}>
                 Test Complete
               </h2>
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {[
-                { label:"Effective WPM",  value:`${result.effectiveWpm}`, sub:"speed × accuracy²",     color:"var(--accent2)" },
-                { label:"Accuracy",       value:`${result.accuracy}%`,    sub:`${result.totalKeystrokes} keystrokes`, color:"var(--green)"   },
-                { label:"Raw WPM",        value:`${result.wpm}`,          sub:"before accuracy penalty",color:"#38bdf8"        },
-                { label:"Errors Made",    value:`${result.errors}`,       sub:"incl. corrected",        color:"var(--danger)"  },
+                { label: "Effective WPM",  value: `${result.effectiveWpm}`, sub: "speed × accuracy²",      color: "var(--accent2)" },
+                { label: "Accuracy",       value: `${result.accuracy}%`,    sub: `${result.totalKeystrokes} keystrokes`, color: "var(--green)"   },
+                { label: "Raw WPM",        value: `${result.wpm}`,          sub: "before accuracy penalty", color: "#38bdf8"        },
+                { label: "Errors Made",    value: `${result.errors}`,       sub: "incl. corrected",         color: "var(--danger)"  },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} className="rounded-xl p-3 sm:p-4 text-center"
-                  style={{ background:"var(--surface2)", border:"1px solid var(--border)" }}>
+                  style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
                   <div className="text-2xl sm:text-3xl font-bold font-mono" style={{ color }}>{value}</div>
                   <div className="text-[9px] sm:text-[10px] mt-1 uppercase tracking-widest font-semibold"
-                    style={{ color:"var(--text3)" }}>{label}</div>
-                  <div className="text-[9px] mt-0.5" style={{ color:"var(--text3)" }}>{sub}</div>
+                    style={{ color: "var(--text3)" }}>{label}</div>
+                  <div className="text-[9px] mt-0.5" style={{ color: "var(--text3)" }}>{sub}</div>
                 </div>
               ))}
             </div>
 
             <div className="flex flex-col gap-1">
               {result.effectiveWpm > 0 && result.effectiveWpm >= s.highestWpm && s.highestWpm > 0 && (
-                <div className="text-xs text-center font-semibold" style={{ color:"var(--accent2)" }}>
+                <div className="text-xs text-center font-semibold" style={{ color: "var(--accent2)" }}>
                   🎉 New best speed on {timerLabel}!
                 </div>
               )}
               {result.accuracy > 0 && result.accuracy >= s.highestAccuracy && s.highestAccuracy > 0 && (
-                <div className="text-xs text-center font-semibold" style={{ color:"var(--green)" }}>
+                <div className="text-xs text-center font-semibold" style={{ color: "var(--green)" }}>
                   🎯 New best accuracy on {timerLabel}!
                 </div>
               )}
@@ -853,9 +1219,9 @@ export default function TypingPage() {
 
             <button onClick={initTest}
               className="w-full py-3 rounded-xl text-sm font-semibold transition-opacity"
-              style={{ background:"var(--accent)", color:"#fff" }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity=".85"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity="1"; }}>
+              style={{ background: "var(--accent)", color: "#fff" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = ".85"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}>
               Next Test ↵
               <span className="ml-2 text-xs opacity-70 font-mono">or Tab / Enter</span>
             </button>
@@ -866,26 +1232,26 @@ export default function TypingPage() {
       {/* ── Delete timer confirm ── */}
       {confirmDel && (
         <div className="fixed inset-0 flex items-end sm:items-center justify-center z-50"
-          style={{ background:"rgba(0,0,0,.72)", backdropFilter:"blur(6px)" }}>
+          style={{ background: "rgba(0,0,0,.72)", backdropFilter: "blur(6px)" }}>
           <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-2xl p-5 sm:p-6"
-            style={{ background:"var(--surface)", border:"1px solid var(--border2)" }}>
-            <h3 className="text-base font-semibold mb-2" style={{ color:"var(--text)" }}>
+            style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
+            <h3 className="text-base font-semibold mb-2" style={{ color: "var(--text)" }}>
               Delete Custom Timer
             </h3>
-            <p className="text-sm mb-5" style={{ color:"var(--text2)" }}>
+            <p className="text-sm mb-5" style={{ color: "var(--text2)" }}>
               All history for the{" "}
-              <span className="font-mono" style={{ color:"var(--text)" }}>{fmtDur(confirmDel.duration)}</span>{" "}
-              timer will be <span style={{ color:"var(--danger)" }}>permanently deleted</span>.
+              <span className="font-mono" style={{ color: "var(--text)" }}>{fmtDur(confirmDel.duration)}</span>{" "}
+              timer will be <span style={{ color: "var(--danger)" }}>permanently deleted</span>.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmDel(null)}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium"
-                style={{ background:"var(--surface2)", color:"var(--text2)", border:"1px solid var(--border2)" }}>
+                style={{ background: "var(--surface2)", color: "var(--text2)", border: "1px solid var(--border2)" }}>
                 Cancel
               </button>
               <button onClick={handleDeleteTimer} disabled={deletingTimer}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50"
-                style={{ background:"rgba(248,113,113,.12)", color:"var(--danger)", border:"1px solid rgba(248,113,113,.3)" }}>
+                style={{ background: "rgba(248,113,113,.12)", color: "var(--danger)", border: "1px solid rgba(248,113,113,.3)" }}>
                 {deletingTimer ? "Deleting…" : "Delete"}
               </button>
             </div>
