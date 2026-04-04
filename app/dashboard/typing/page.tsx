@@ -4,6 +4,7 @@
 import React, {
   useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -529,16 +530,6 @@ export default function TypingPage() {
     <div className="min-h-screen flex flex-col gap-4 sm:gap-6 pb-10"
       style={{ background: "var(--bg)", color: "var(--text)" }}>
 
-      {/* ══════════════════════════════════════════════════════════════════════
-          ALL CURSOR + SELECTOR STYLES
-          Performance contract:
-          - data-cursor attribute on wrapper drives ALL visual switching
-          - No per-character JS, no inline style objects, no animation state
-          - All keyframes use GPU-compositable properties: opacity, transform,
-            box-shadow. No width/height/top/left changes = zero layout thrash.
-          - step-end timings (glitch, minimal) = zero interpolated frames
-          - contain:strict on .ty-caret isolates paint to 2px element
-          ══════════════════════════════════════════════════════════════════════ */}
       <style>{`
         /* ── Char colours ── */
         .tc-p  { color: var(--tc-p, #7a7a8c); }
@@ -563,6 +554,24 @@ export default function TypingPage() {
           background:rgba(0,0,0,.50); backdrop-filter:blur(3px); cursor:pointer;
         }
 
+        /* ── History link hover ── */
+        .ty-hist-link {
+          display: inline-flex; align-items: center; gap: 5px;
+          padding: 5px 12px; border-radius: 9px;
+          font-size: 11px; font-weight: 600; letter-spacing: .01em;
+          text-decoration: none;
+          color: var(--text3);
+          border: 1px solid var(--border2);
+          background: transparent;
+          transition: color 140ms, background 140ms, border-color 140ms;
+          white-space: nowrap;
+        }
+        .ty-hist-link:hover {
+          color: var(--accent2);
+          background: rgba(124,110,243,.10);
+          border-color: rgba(124,110,243,.35);
+        }
+
         /* ════════════════════════════════════════════════
            CARET BASE
            ════════════════════════════════════════════════ */
@@ -580,7 +589,7 @@ export default function TypingPage() {
         }
 
         /* ════════════════════════════════════════════════
-           1. LASER — purple-white neon beam, breathe pulse
+           1. LASER
            ════════════════════════════════════════════════ */
         @keyframes laser-breathe {
           0%,100% {
@@ -614,7 +623,7 @@ export default function TypingPage() {
         }
 
         /* ════════════════════════════════════════════════
-           2. ELECTRIC BLADE — icy blue energy, surge flicker
+           2. ELECTRIC BLADE
            ════════════════════════════════════════════════ */
         @keyframes electric-surge {
           0%,100% {
@@ -657,7 +666,7 @@ export default function TypingPage() {
         }
 
         /* ════════════════════════════════════════════════
-           3. GLITCH — RGB split, cyberpunk step-end stutter
+           3. GLITCH
            ════════════════════════════════════════════════ */
         @keyframes glitch-main {
           0%,88%,100% { opacity:1; transform:translateX(0) skewY(0deg); }
@@ -680,8 +689,7 @@ export default function TypingPage() {
           97%  { opacity:0; }
         }
         [data-cursor="glitch"] .ty-caret {
-          width:2px;
-          background:#67e8f9;
+          width:2px; background:#67e8f9;
           box-shadow:0 0 6px 1px rgba(103,232,249,.7);
           animation:glitch-main 2s step-end infinite;
         }
@@ -691,12 +699,10 @@ export default function TypingPage() {
           width:2px; border-radius:2px; pointer-events:none;
         }
         [data-cursor="glitch"] .ty-caret::before {
-          background:#f87171;
-          animation:glitch-r 2s step-end infinite;
+          background:#f87171; animation:glitch-r 2s step-end infinite;
         }
         [data-cursor="glitch"] .ty-caret::after {
-          background:#60a5fa;
-          animation:glitch-b 2s step-end infinite;
+          background:#60a5fa; animation:glitch-b 2s step-end infinite;
         }
         body[data-theme="light"] [data-cursor="glitch"] .ty-caret { background:#0891b2; box-shadow:0 0 5px 1px rgba(8,145,178,.6); }
         body[data-theme="light"] [data-cursor="glitch"] .ty-caret::before { background:#dc2626; }
@@ -708,9 +714,7 @@ export default function TypingPage() {
         }
 
         /* ════════════════════════════════════════════════
-           4. FLAME — white-hot core → amber → deep red
-           scaleX wobble only (transform-origin:bottom)
-           Zero layout shift. Redesigned for clarity.
+           4. FLAME
            ════════════════════════════════════════════════ */
         @keyframes flame-burn {
           0%   { transform:scaleX(1);    box-shadow:0 -3px 10px 2px rgba(251,146,60,.8),  0 0 18px 5px rgba(239,68,68,.42); }
@@ -721,33 +725,23 @@ export default function TypingPage() {
           100% { transform:scaleX(1);    box-shadow:0 -3px 10px 2px rgba(251,146,60,.8),  0 0 18px 5px rgba(239,68,68,.42); }
         }
         [data-cursor="flame"] .ty-caret {
-          width:3px;
-          border-radius:2px 2px 1px 1px;
-          transform-origin:bottom center;
+          width:3px; border-radius:2px 2px 1px 1px; transform-origin:bottom center;
           background:linear-gradient(180deg,
-            rgba(255,255,255,.98) 0%,
-            #fef3c7 8%, #fde68a 16%,
-            #fb923c 34%, #f97316 52%,
-            #ef4444 72%, rgba(127,29,29,.55) 100%);
+            rgba(255,255,255,.98) 0%, #fef3c7 8%, #fde68a 16%,
+            #fb923c 34%, #f97316 52%, #ef4444 72%, rgba(127,29,29,.55) 100%);
           animation:flame-burn 230ms ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="flame"] .ty-caret {
-          background:linear-gradient(180deg,
-            #fff 0%, #fde68a 14%,
-            #f97316 40%, #dc2626 70%,
-            rgba(127,29,29,.5) 100%);
+          background:linear-gradient(180deg,#fff 0%,#fde68a 14%,#f97316 40%,#dc2626 70%,rgba(127,29,29,.5) 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="flame"] .ty-caret {
-            background:linear-gradient(180deg,
-              #fff 0%, #fde68a 14%,
-              #f97316 40%, #dc2626 70%,
-              rgba(127,29,29,.5) 100%);
+            background:linear-gradient(180deg,#fff 0%,#fde68a 14%,#f97316 40%,#dc2626 70%,rgba(127,29,29,.5) 100%);
           }
         }
 
         /* ════════════════════════════════════════════════
-           5. POISON NEEDLE — toxic neon green sinister pulse
+           5. POISON
            ════════════════════════════════════════════════ */
         @keyframes poison-pulse {
           0%,100% {
@@ -767,30 +761,21 @@ export default function TypingPage() {
         [data-cursor="poison"] .ty-caret {
           width:2px;
           background:linear-gradient(180deg,
-            rgba(255,255,255,.92) 0%,
-            #bbf7d0 10%, #4ade80 30%,
-            #22c55e 55%, #16a34a 78%,
-            rgba(21,128,61,.3) 100%);
+            rgba(255,255,255,.92) 0%,#bbf7d0 10%,#4ade80 30%,
+            #22c55e 55%,#16a34a 78%,rgba(21,128,61,.3) 100%);
           animation:poison-pulse 1.4s ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="poison"] .ty-caret {
-          background:linear-gradient(180deg,
-            rgba(255,255,255,.8) 0%,
-            #86efac 12%, #16a34a 38%,
-            #15803d 64%, rgba(20,83,45,.4) 100%);
+          background:linear-gradient(180deg,rgba(255,255,255,.8) 0%,#86efac 12%,#16a34a 38%,#15803d 64%,rgba(20,83,45,.4) 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="poison"] .ty-caret {
-            background:linear-gradient(180deg,
-              rgba(255,255,255,.8) 0%,
-              #86efac 12%, #16a34a 38%,
-              #15803d 64%, rgba(20,83,45,.4) 100%);
+            background:linear-gradient(180deg,rgba(255,255,255,.8) 0%,#86efac 12%,#16a34a 38%,#15803d 64%,rgba(20,83,45,.4) 100%);
           }
         }
 
         /* ════════════════════════════════════════════════
-           6. HEARTBEAT — double-beat pulse, cardiac monitor
-           Long rest between beats feels genuinely alive.
+           6. HEARTBEAT
            ════════════════════════════════════════════════ */
         @keyframes heartbeat {
           0%   { opacity:.35; box-shadow:0 0 2px 1px rgba(248,113,113,.18); }
@@ -803,44 +788,34 @@ export default function TypingPage() {
         [data-cursor="heartbeat"] .ty-caret {
           width:2px;
           background:linear-gradient(180deg,
-            rgba(255,255,255,.62) 0%,
-            #fca5a5 18%, #f87171 42%,
-            #ef4444 65%, rgba(185,28,28,.5) 100%);
+            rgba(255,255,255,.62) 0%,#fca5a5 18%,#f87171 42%,
+            #ef4444 65%,rgba(185,28,28,.5) 100%);
           animation:heartbeat 900ms ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="heartbeat"] .ty-caret {
-          background:linear-gradient(180deg,
-            rgba(255,255,255,.6) 0%,
-            #fca5a5 18%, #ef4444 42%,
-            #dc2626 65%, rgba(153,27,27,.5) 100%);
+          background:linear-gradient(180deg,rgba(255,255,255,.6) 0%,#fca5a5 18%,#ef4444 42%,#dc2626 65%,rgba(153,27,27,.5) 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="heartbeat"] .ty-caret {
-            background:linear-gradient(180deg,
-              rgba(255,255,255,.6) 0%,
-              #fca5a5 18%, #ef4444 42%,
-              #dc2626 65%, rgba(153,27,27,.5) 100%);
+            background:linear-gradient(180deg,rgba(255,255,255,.6) 0%,#fca5a5 18%,#ef4444 42%,#dc2626 65%,rgba(153,27,27,.5) 100%);
           }
         }
 
         /* ════════════════════════════════════════════════
-           7. MINIMAL — clean step-end blink, zero glow
-           Single CSS variable color — lightest of all.
+           7. MINIMAL
            ════════════════════════════════════════════════ */
         @keyframes minimal-blink {
           0%,49%  { opacity:1; }
           50%,100% { opacity:0; }
         }
         [data-cursor="minimal"] .ty-caret {
-          width:2px;
-          background:var(--accent, #7c6ef3);
-          border-radius:1px;
-          box-shadow:none;
+          width:2px; background:var(--accent, #7c6ef3);
+          border-radius:1px; box-shadow:none;
           animation:minimal-blink 1.05s step-end infinite;
         }
 
         /* ════════════════════════════════════════════════
-           CURSOR SELECTOR UI — compact labeled pill row
+           CURSOR SELECTOR UI
            ════════════════════════════════════════════════ */
         .cs-row   { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
         .cs-label {
@@ -864,7 +839,6 @@ export default function TypingPage() {
         .cs-pill:hover:not(.cs-pill--active) { color:var(--text2); background:var(--surface2); }
         .cs-icon { font-size:10px; opacity:.82; }
 
-        /* active — dark theme */
         .cs-pill--laser.cs-pill--active     { background:rgba(139,92,246,.18);  border-color:rgba(167,139,250,.55); color:#ddd6fe; box-shadow:0 0 10px rgba(139,92,246,.28); }
         .cs-pill--electric.cs-pill--active  { background:rgba(56,189,248,.14);  border-color:rgba(125,211,252,.5);  color:#bae6fd; box-shadow:0 0 10px rgba(56,189,248,.25); }
         .cs-pill--glitch.cs-pill--active    { background:rgba(103,232,249,.12); border-color:rgba(103,232,249,.45); color:#a5f3fc; box-shadow:0 0 10px rgba(103,232,249,.2); }
@@ -873,7 +847,6 @@ export default function TypingPage() {
         .cs-pill--heartbeat.cs-pill--active { background:rgba(248,113,113,.13); border-color:rgba(248,113,113,.48); color:#fecaca; box-shadow:0 0 10px rgba(248,113,113,.22); }
         .cs-pill--minimal.cs-pill--active   { background:rgba(124,110,243,.14); border-color:rgba(167,139,250,.45); color:var(--accent2,#c4b5fd); }
 
-        /* active — light theme */
         body[data-theme="light"] .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
         body[data-theme="light"] .cs-pill--glitch.cs-pill--active    { background:rgba(8,145,178,.08);   border-color:rgba(8,145,178,.4);   color:#0e7490; box-shadow:none; }
@@ -901,6 +874,13 @@ export default function TypingPage() {
           style={{ background: "rgba(124,110,243,.15)", color: "var(--accent2)", border: "1px solid rgba(124,110,243,.25)" }}>
           {timerLabel}
         </span>
+
+        {/* ── History navigation link ── */}
+        <Link href="/dashboard/typing/history" className="ty-hist-link">
+          <span style={{ fontSize: 13 }}>📊</span>
+          <span>History</span>
+        </Link>
+
         <div className="ml-auto flex items-center gap-1.5 text-[10px] sm:text-xs font-mono"
           style={{ color: "var(--text3)" }}>
           <kbd className="px-1.5 py-0.5 rounded"
@@ -1002,11 +982,7 @@ export default function TypingPage() {
           </div>
         </div>
 
-        {/* ── Cursor Selector ───────────────────────────────────────────────
-            Shown only after mount (cursorMounted) to avoid SSR hydration
-            mismatch. Selection is instantly saved to localStorage — user
-            preference is automatically restored on every visit.
-            ─────────────────────────────────────────────────────────────── */}
+        {/* Cursor Selector */}
         {cursorMounted && (
           <div className="cs-row">
             <span className="cs-label">Cursor</span>
@@ -1054,11 +1030,7 @@ export default function TypingPage() {
           )}
         </div>
 
-        {/* ── TYPING AREA ───────────────────────────────────────────────────
-            data-cursor on this wrapper is the ONLY mechanism for style
-            switching. CSS cascade + attribute selectors handle everything.
-            Changing cursor style = 1 string state update, nothing else.
-            ─────────────────────────────────────────────────────────────── */}
+        {/* Typing area */}
         <div
           ref={wrapperRef}
           tabIndex={0}
@@ -1080,14 +1052,11 @@ export default function TypingPage() {
               borderRadius: 12,
             }}>
 
-            {/* Top fade */}
             <div className="absolute top-0 left-0 right-0 pointer-events-none z-10"
               style={{ height: "2em", background: "linear-gradient(to bottom, var(--surface), transparent)" }} />
-            {/* Bottom fade */}
             <div className="absolute bottom-0 left-0 right-0 pointer-events-none z-10"
               style={{ height: "2em", background: "linear-gradient(to top, var(--surface), transparent)" }} />
 
-            {/* Focus overlay */}
             {!isFocused && testState !== "finished" && (
               <div className="ty-overlay" onClick={() => wrapperRef.current?.focus()}>
                 <div className="flex flex-col items-center gap-2 text-white text-center px-4">
@@ -1098,7 +1067,6 @@ export default function TypingPage() {
               </div>
             )}
 
-            {/* Text block */}
             <div
               ref={textBlockRef}
               className="ty-text font-mono"
@@ -1133,7 +1101,6 @@ export default function TypingPage() {
                         }
                         style={isCur ? { color: "var(--text)", position: "relative" } : undefined}
                       >
-                        {/* Caret: class + data-cursor cascade handles all visuals */}
                         {isCur && <span className="ty-caret" aria-hidden="true" />}
                         {ch === " " ? "\u00A0" : ch}
                       </span>
@@ -1189,10 +1156,10 @@ export default function TypingPage() {
 
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {[
-                { label: "Effective WPM",  value: `${result.effectiveWpm}`, sub: "speed × accuracy²",      color: "var(--accent2)" },
+                { label: "Effective WPM",  value: `${result.effectiveWpm}`, sub: "speed × accuracy²",       color: "var(--accent2)" },
                 { label: "Accuracy",       value: `${result.accuracy}%`,    sub: `${result.totalKeystrokes} keystrokes`, color: "var(--green)"   },
-                { label: "Raw WPM",        value: `${result.wpm}`,          sub: "before accuracy penalty", color: "#38bdf8"        },
-                { label: "Errors Made",    value: `${result.errors}`,       sub: "incl. corrected",         color: "var(--danger)"  },
+                { label: "Raw WPM",        value: `${result.wpm}`,          sub: "before accuracy penalty",  color: "#38bdf8"        },
+                { label: "Errors Made",    value: `${result.errors}`,       sub: "incl. corrected",          color: "var(--danger)"  },
               ].map(({ label, value, sub, color }) => (
                 <div key={label} className="rounded-xl p-3 sm:p-4 text-center"
                   style={{ background: "var(--surface2)", border: "1px solid var(--border)" }}>
@@ -1215,6 +1182,16 @@ export default function TypingPage() {
                   🎯 New best accuracy on {timerLabel}!
                 </div>
               )}
+            </div>
+
+            {/* History shortcut inside result modal */}
+            <div className="flex items-center justify-center">
+              <Link href="/dashboard/typing/history"
+                className="ty-hist-link text-[11px]"
+                onClick={() => setResult(null)}>
+                <span style={{ fontSize: 12 }}>📊</span>
+                View full history & analysis
+              </Link>
             </div>
 
             <button onClick={initTest}
