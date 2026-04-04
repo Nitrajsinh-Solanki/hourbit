@@ -12,13 +12,15 @@ import {
   ChevronLeft, ChevronRight, UtensilsCrossed,
   X, CheckCircle2, PencilLine, FilePlus2,
   Palmtree, TrendingUp, Lock, AlertTriangle, Settings2, Eye,
+  Trash2,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────
 // RULES
 // ─────────────────────────────────────────────────────────────────
-const EDIT_WINDOW  = 30;
-const ENTRY_WINDOW = 90;
+const EDIT_WINDOW   = 30;
+const ENTRY_WINDOW  = 90;
+const DELETE_WINDOW = 90;
 
 // ─────────────────────────────────────────────────────────────────
 // TYPES
@@ -142,6 +144,109 @@ const MONTHS = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
 ];
+
+// ─────────────────────────────────────────────────────────────────
+// DELETE CONFIRM MODAL
+// ─────────────────────────────────────────────────────────────────
+function DeleteConfirmModal({
+  date,
+  onConfirm,
+  onCancel,
+  deleting,
+}: {
+  date:      string;
+  onConfirm: () => void;
+  onCancel:  () => void;
+  deleting:  boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.70)", backdropFilter: "blur(4px)" }}
+    >
+      <div
+        className="rounded-3xl p-6 w-full"
+        style={{
+          maxWidth:   "380px",
+          background: "var(--surface)",
+          border:     "1px solid rgba(248,113,113,0.35)",
+          boxShadow:  "0 0 60px rgba(248,113,113,0.15)",
+        }}
+      >
+        {/* Icon */}
+        <div className="flex justify-center mb-4">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            style={{ background: "rgba(248,113,113,0.12)" }}
+          >
+            <Trash2 size={24} style={{ color: "#f87171" }} />
+          </div>
+        </div>
+
+        {/* Heading */}
+        <p
+          className="font-syne font-bold text-[17px] text-center mb-1"
+          style={{ color: "var(--text)" }}
+        >
+          Delete This Entry?
+        </p>
+        <p
+          className="font-mono text-[12px] text-center mb-2"
+          style={{ color: "var(--text3)" }}
+        >
+          {prettyDate(date)}
+        </p>
+
+        {/* Warning */}
+        <div
+          className="rounded-xl px-4 py-3 mb-5"
+          style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.22)" }}
+        >
+          <p className="font-mono text-[11px] text-center" style={{ color: "#f87171" }}>
+            This will permanently remove the work log for this day from the database.
+            This action <strong>cannot be undone</strong>.
+          </p>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl font-mono text-[13px] cursor-pointer border-none transition-all"
+            style={{
+              background: "var(--surface2)",
+              border:     "1px solid var(--border2)",
+              color:      "var(--text2)",
+              opacity:    deleting ? 0.5 : 1,
+            }}
+            onMouseEnter={e => { if (!deleting) (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)"; }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl font-mono font-medium text-[13px] text-white border-none transition-all"
+            style={{
+              background: deleting ? "rgba(248,113,113,0.50)" : "#ef4444",
+              boxShadow:  deleting ? "none" : "0 0 18px rgba(248,113,113,0.35)",
+              cursor:     deleting ? "not-allowed" : "pointer",
+            }}
+            onMouseEnter={e => { if (!deleting) (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "none"; }}
+          >
+            {deleting
+              ? <span className="flex items-center justify-center gap-2"><RefreshCw size={13} className="animate-spin" /> Deleting…</span>
+              : "Yes, Delete Entry"
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────
 // CALENDAR
@@ -905,6 +1010,7 @@ function LogForm({
   requiredWorkHours, requiredWorkHoursOverride, userDefaultHours,
   onRequiredChange, onRequiredClear,
   isDirty, everSaved, saving, onSave,
+  canDelete, onDeleteRequest,
 }: {
   selectedDate: string; dateMode: DateMode; hasExisting: boolean;
   entryTime: string; setEntryTime: (v: string) => void;
@@ -914,6 +1020,8 @@ function LogForm({
   requiredWorkHours: number; requiredWorkHoursOverride: number | null; userDefaultHours: number;
   onRequiredChange: (h: number) => void; onRequiredClear: () => void;
   isDirty: boolean; everSaved: boolean; saving: boolean; onSave: () => void;
+  canDelete:       boolean;
+  onDeleteRequest: () => void;
 }) {
   const readOnly  = dateMode === "view-only";
   const isOneTime = dateMode === "one-time-add";
@@ -1242,51 +1350,81 @@ function LogForm({
         />
       </Card>
 
-      {/* Save row */}
-      {!readOnly && (
-        <div className="flex items-center justify-end gap-2 sm:gap-3 flex-wrap">
-          {everSaved && !isDirty && (
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={13} style={{ color: "var(--green)" }} />
-              <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>
-                {hasExisting ? "All changes saved" : "Log saved"}
-              </span>
-            </div>
-          )}
-          {isDirty && (
-            <span className="font-mono text-[10px] sm:text-[11px]" style={{ color: "var(--amber)" }}>● Unsaved changes</span>
-          )}
+      {/* ── Save row + Delete button ─────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 flex-wrap">
+
+        {/* Delete button — left side, only when canDelete is true */}
+        {canDelete && (
           <button
-            onClick={onSave}
-            disabled={saving || !isDirty}
-            className="flex items-center gap-2 px-5 sm:px-8 py-3 sm:py-3.5 rounded-xl font-mono font-medium text-[12px] sm:text-[14px] border-none transition-all"
+            onClick={onDeleteRequest}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-mono text-[12px] sm:text-[13px] border-none transition-all cursor-pointer"
             style={{
-              background: isDirty ? (isOneTime ? "#d97706" : "var(--accent)") : "var(--border2)",
-              boxShadow:  isDirty ? `0 0 24px ${isOneTime ? "rgba(217,119,6,0.35)" : "rgba(124,110,243,0.35)"}` : "none",
-              cursor:     isDirty ? "pointer" : "not-allowed",
-              opacity:    isDirty ? 1 : 0.55,
-              color:      isDirty ? "#fff" : "var(--text3)",
+              background: "rgba(248,113,113,0.10)",
+              border:     "1px solid rgba(248,113,113,0.28)",
+              color:      "#f87171",
             }}
-            onMouseEnter={e => { if (isDirty) (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "none"; }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.20)";
+              (e.currentTarget as HTMLElement).style.borderColor = "rgba(248,113,113,0.50)";
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.10)";
+              (e.currentTarget as HTMLElement).style.borderColor = "rgba(248,113,113,0.28)";
+            }}
           >
-            {saving
-              ? <><RefreshCw size={14} className="animate-spin" /> Saving...</>
-              : hasExisting
-              ? <><PencilLine size={14} /> Update Log</>
-              : isOneTime
-              ? <><Save size={14} /> Save (One-Time)</>
-              : <><Save size={14} /> Save Log</>
-            }
+            <Trash2 size={13} /> Delete Entry
           </button>
-        </div>
-      )}
+        )}
+
+        {/* Save controls — right side */}
+        {!readOnly && (
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap ml-auto">
+            {everSaved && !isDirty && (
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 size={13} style={{ color: "var(--green)" }} />
+                <span className="font-mono text-[11px] sm:text-[12px]" style={{ color: "var(--text3)" }}>
+                  {hasExisting ? "All changes saved" : "Log saved"}
+                </span>
+              </div>
+            )}
+            {isDirty && (
+              <span className="font-mono text-[10px] sm:text-[11px]" style={{ color: "var(--amber)" }}>● Unsaved changes</span>
+            )}
+            <button
+              onClick={onSave}
+              disabled={saving || !isDirty}
+              className="flex items-center gap-2 px-5 sm:px-8 py-3 sm:py-3.5 rounded-xl font-mono font-medium text-[12px] sm:text-[14px] border-none transition-all"
+              style={{
+                background: isDirty ? (isOneTime ? "#d97706" : "var(--accent)") : "var(--border2)",
+                boxShadow:  isDirty ? `0 0 24px ${isOneTime ? "rgba(217,119,6,0.35)" : "rgba(124,110,243,0.35)"}` : "none",
+                cursor:     isDirty ? "pointer" : "not-allowed",
+                opacity:    isDirty ? 1 : 0.55,
+                color:      isDirty ? "#fff" : "var(--text3)",
+              }}
+              onMouseEnter={e => { if (isDirty) (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "none"; }}
+            >
+              {saving
+                ? <><RefreshCw size={14} className="animate-spin" /> Saving...</>
+                : hasExisting
+                ? <><PencilLine size={14} /> Update Log</>
+                : isOneTime
+                ? <><Save size={14} /> Save (One-Time)</>
+                : <><Save size={14} /> Save Log</>
+              }
+            </button>
+          </div>
+        )}
+
+        {/* Delete-only row when read-only and can delete */}
+        {readOnly && !canDelete && null}
+      </div>
     </>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MOBILE DATE HEADER (shown only on small screens, replaces sidebar info)
+// MOBILE DATE HEADER
 // ─────────────────────────────────────────────────────────────────
 function MobileDateHeader({
   selectedDate, fetching, isHoliday, dateMode, hasExisting,
@@ -1382,6 +1520,10 @@ export default function DateWisePage() {
   const [isHoliday,    setIsHoliday]    = useState(false);
   const [holidayNotes, setHolidayNotes] = useState("");
 
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting,        setDeleting]        = useState(false);
+
   // Mobile calendar drawer state
   const [calOpen, setCalOpen] = useState(false);
 
@@ -1400,6 +1542,15 @@ export default function DateWisePage() {
       return "editable-new";
     }
   }, [selectedDate, hasExisting, isHoliday]);
+
+  // Show delete button when: there is an existing entry, it is not a holiday,
+  // and the date is within the last DELETE_WINDOW days (not future).
+  const canDelete = useMemo(() => {
+    if (!hasExisting) return false;
+    if (isHoliday)    return false;          // holidays use the holiday management page
+    const a = daysAgo(selectedDate);
+    return a >= 0 && a <= DELETE_WINDOW;
+  }, [hasExisting, isHoliday, selectedDate]);
 
   const isDirty = useMemo(() => {
     if (dateMode === "view-only" || dateMode === "view-empty") return false;
@@ -1523,6 +1674,34 @@ export default function DateWisePage() {
     }
   };
 
+  // ── Delete handler ───────────────────────────────────────────
+  const handleDeleteConfirm = async () => {
+    setDeleting(true);
+    try {
+      const res  = await fetch(`/api/work/date?date=${selectedDate}`, { method: "DELETE" });
+      const data = await res.json();
+
+      if (data.success) {
+        toast.success("Entry deleted successfully");
+        setShowDeleteModal(false);
+        // Reset all form state to reflect the now-empty date
+        setEntryTime(""); setExitTime(""); setBreaks([]); setNotes("");
+        setSavedSnapshot(EMPTY_SNAPSHOT); setEverSaved(false); setHasExisting(false);
+        setRequiredWorkHoursOverride(null); setRequiredWorkHours(userDefaultHours);
+        // Refresh calendar dots so the green dot disappears
+        calRef.current?.refreshDots();
+      } else {
+        toast.error(data.message || "Delete failed");
+        setShowDeleteModal(false);
+      }
+    } catch {
+      toast.error("Network error — try again");
+      setShowDeleteModal(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const statusBadge = useMemo(() => {
     if (fetching)    return null;
     if (isHoliday)   return { icon: Palmtree,     color: "#f59e0b",        bg: "rgba(245,158,11,0.12)",    border: "rgba(245,158,11,0.25)",    label: "Holiday"             };
@@ -1537,6 +1716,16 @@ export default function DateWisePage() {
 
   return (
     <div className="max-w-6xl mx-auto pb-6 px-3 sm:px-0">
+
+      {/* Delete confirm modal */}
+      {showDeleteModal && (
+        <DeleteConfirmModal
+          date={selectedDate}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => !deleting && setShowDeleteModal(false)}
+          deleting={deleting}
+        />
+      )}
 
       {/* PAGE HEADER */}
       <div className="mb-4 sm:mb-5">
@@ -1650,6 +1839,7 @@ export default function DateWisePage() {
               { label: `Add new entry`,              detail: `Within ${ENTRY_WINDOW} days`, icon: FilePlus2,    color: "var(--green)"  },
               { label: `30–${ENTRY_WINDOW} days ago`,detail: "One-time only",            icon: AlertTriangle,color: "#d97706"       },
               { label: `Edit existing`,              detail: `Within ${EDIT_WINDOW} days`,  icon: PencilLine,   color: "var(--accent)" },
+              { label: `Delete entry`,               detail: `Within ${DELETE_WINDOW} days`, icon: Trash2,      color: "#f87171"       },
             ].map(({ label, detail, icon: RuleIcon, color }) => (
               <div key={label} className="flex items-center gap-2">
                 <RuleIcon size={11} style={{ color }} />
@@ -1773,6 +1963,8 @@ export default function DateWisePage() {
               everSaved={everSaved}
               saving={saving}
               onSave={handleSave}
+              canDelete={canDelete}
+              onDeleteRequest={() => setShowDeleteModal(true)}
             />
           )}
         </div>
