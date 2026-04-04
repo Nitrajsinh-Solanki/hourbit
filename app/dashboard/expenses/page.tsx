@@ -1,4 +1,5 @@
 "use client";
+// app/dashboard/expenses/page.tsx
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -114,58 +115,39 @@ const CAT_COLORS = [
 ];
 
 // ─── Global CSS ───────────────────────────────────────────────────────────────
-// KEY FIX: CSS variables are now defined on `.exp-root` for dark (default),
-// and overridden inside `.exp-root` when the ancestor has `.light` class
-// (matches whatever class your app's ThemeToggle puts on <html> or <body>).
-// We cover the most common class names: "light", "light-theme", "theme-light".
-// Adjust the selectors below to match your app's actual theme class.
+//
+// KEY FIX: We no longer define our own hardcoded dark/light colour blocks.
+// Instead, .exp-root aliases its local shorthand vars (--sf, --tx, etc.)
+// to the layout's shared CSS variables (--surface, --text, etc.) that are
+// injected onto :root by the dashboard layout's useTheme() hook.
+// When the user toggles dark ↔ light, the layout updates :root, and every
+// alias here automatically reflects the new values — no extra work needed.
 
 const GLOBAL_CSS = `
-  /* ── Dark theme (default) ── */
+  /* ── Map component shorthand vars → layout shared vars ────────────────
+     The layout (app/dashboard/layout.tsx) injects these on :root:
+       --bg, --surface, --surface2, --border, --border2,
+       --text, --text2, --text3, --text4,
+       --accent, --accent2, --green, --amber, --danger
+     We alias them here so the rest of the component CSS is untouched.    */
   .exp-root {
-    --bg: #09090b;
-    --sf: #111113;
-    --sf2: #18181b;
-    --sf3: #1f1f23;
-    --b1: #27272a;
-    --b2: #3f3f46;
-    --tx: #fafafa;
-    --tx2: #a1a1aa;
-    --tx3: #71717a;
-    --tx4: #52525b;
-    --ac: #818cf8;
-    --ac-d: #6366f1;
-    --green: #34d399;
-    --red: #f87171;
-    --amber: #fbbf24;
-    --blue: #60a5fa;
-    --radius: 12px;
+    --sf:      var(--surface);
+    --sf2:     var(--surface2);
+    --sf3:     var(--surface2);      /* closest equivalent */
+    --b1:      var(--border);
+    --b2:      var(--border2);
+    --tx:      var(--text);
+    --tx2:     var(--text2);
+    --tx3:     var(--text3);
+    --tx4:     var(--text4);
+    --ac:      var(--accent);
+    --ac-d:    var(--accent2);
+    --red:     var(--danger);
+    --blue:    #60a5fa;
+    --radius:    12px;
     --radius-sm: 8px;
-    --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
-    --shadow-lg: 0 10px 40px rgba(0,0,0,0.5);
-  }
-
-  /* ── Light theme override ──
-     Covers the most common patterns apps use for light mode.
-     ADD your app's actual theme class here if it's different. */
-  html.light .exp-root,
-  html[data-theme="light"] .exp-root,
-  body.light .exp-root,
-  body[data-theme="light"] .exp-root,
-  .light-theme .exp-root,
-  .theme-light .exp-root {
-    --bg: #f4f4f5;
-    --sf: #ffffff;
-    --sf2: #f8f8f9;
-    --sf3: #f0f0f2;
-    --b1: #e4e4e7;
-    --b2: #d4d4d8;
-    --tx: #09090b;
-    --tx2: #52525b;
-    --tx3: #71717a;
-    --tx4: #a1a1aa;
-    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
-    --shadow-lg: 0 10px 40px rgba(0,0,0,0.12);
+    --shadow:    0 1px 3px rgba(0,0,0,0.14), 0 1px 2px rgba(0,0,0,0.10);
+    --shadow-lg: 0 10px 40px rgba(0,0,0,0.22);
   }
 
   .exp-root * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2054,7 +2036,6 @@ export default function ExpensesPage() {
   return (
     <>
       <Styles />
-      {/* NOTE: No theme class needed here — theme is inherited from html/body via CSS */}
       <div className="exp-root">
         <AddMoneyModal
           open={addMoneyOpen}

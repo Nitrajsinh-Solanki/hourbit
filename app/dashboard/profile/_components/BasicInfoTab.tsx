@@ -332,29 +332,7 @@ export default function BasicInfoTab({
           </div>
         </div>
 
-        {/* Tips card */}
-        <div
-          className="rounded-2xl px-5 py-4"
-          style={{
-            background: "rgba(124,110,243,0.06)",
-            border: "1px solid rgba(124,110,243,0.18)",
-          }}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-widest mb-2" style={{ color: "var(--accent)" }}>
-            💡 Tips
-          </p>
-          <ul className="space-y-1.5">
-            {[
-              "Your name is shown in the dashboard sidebar.",
-              "Company name helps identify your workspace.",
-              "Email cannot be changed for security reasons.",
-            ].map((tip, i) => (
-              <li key={i} className="text-xs leading-5" style={{ color: "var(--text3)" }}>
-                · {tip}
-              </li>
-            ))}
-          </ul>
-        </div>
+       
 
       </div>
     </div>
