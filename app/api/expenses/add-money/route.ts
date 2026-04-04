@@ -1,4 +1,4 @@
-//app/api/expenses/add-money/route.ts
+// app/api/expenses/add-money/route.ts
 import { NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
 import Wallet from "@/app/models/Wallet";
@@ -40,9 +40,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const transactionDate = new Date(date);
-    const now = new Date();
-    if (transactionDate > now) {
+    // Parse date string (YYYY-MM-DD) as local midnight to avoid timezone shift
+    const [year, month, day] = (date as string).split("-").map(Number);
+    const transactionDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // allow entire today
+    if (transactionDate > today) {
       return NextResponse.json(
         { error: "Cannot add money for future dates" },
         { status: 400 }
@@ -51,6 +55,7 @@ export async function POST(request: Request) {
 
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    ninetyDaysAgo.setHours(0, 0, 0, 0);
     if (transactionDate < ninetyDaysAgo) {
       return NextResponse.json(
         { error: "Cannot add money for dates older than 90 days" },
@@ -62,11 +67,7 @@ export async function POST(request: Request) {
 
     let wallet = await Wallet.findOne({ userId });
     if (!wallet) {
-      wallet = await Wallet.create({
-        userId,
-        cashBalance: 0,
-        onlineBalance: 0,
-      });
+      wallet = await Wallet.create({ userId, cashBalance: 0, onlineBalance: 0 });
     }
 
     if (paymentMethod === "cash") {

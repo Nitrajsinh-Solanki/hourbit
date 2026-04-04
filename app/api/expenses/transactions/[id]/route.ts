@@ -4,7 +4,6 @@ import { connectDB } from "@/app/lib/mongodb";
 import Transaction from "@/app/models/Transaction";
 import Wallet from "@/app/models/Wallet";
 import { requireAuth } from "@/app/lib/authGuard";
-import { headers } from "next/headers";
 
 // ─── Rate limit store (in-memory; swap for Redis in production) ───────────────
 const rateLimitStore = new Map<string, { editCount: number; deleteCount: number; day: string }>();
@@ -13,7 +12,7 @@ const DAILY_EDIT_LIMIT = 20;
 const DAILY_DELETE_LIMIT = 20;
 
 function getTodayKey() {
-  return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  return new Date().toISOString().split("T")[0];
 }
 
 function checkRateLimit(
@@ -30,7 +29,6 @@ function checkRateLimit(
 
   const entry = rateLimitStore.get(key)!;
 
-  // Reset if day changed (shouldn't happen with key-per-day, but just in case)
   if (entry.day !== today) {
     entry.editCount = 0;
     entry.deleteCount = 0;
@@ -53,7 +51,7 @@ function checkRateLimit(
 // ─── GET: fetch single transaction ────────────────────────────────────────────
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await requireAuth();
@@ -61,10 +59,11 @@ export async function GET(
       return NextResponse.json({ error: authResult.message }, { status: authResult.status });
     }
 
+    const { id } = await params;
     const userId = authResult.payload.userId;
     await connectDB();
 
-    const transaction = await Transaction.findOne({ _id: params.id, userId }).lean();
+    const transaction = await Transaction.findOne({ _id: id, userId }).lean();
     if (!transaction) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
@@ -78,7 +77,7 @@ export async function GET(
 // ─── PATCH: edit a transaction ────────────────────────────────────────────────
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await requireAuth();
@@ -86,9 +85,9 @@ export async function PATCH(
       return NextResponse.json({ error: authResult.message }, { status: authResult.status });
     }
 
+    const { id } = await params;
     const userId = authResult.payload.userId;
 
-    // Rate limit check
     const rl = checkRateLimit(userId, "edit");
     if (!rl.allowed) {
       return NextResponse.json(
@@ -107,7 +106,7 @@ export async function PATCH(
 
     await connectDB();
 
-    const transaction = await Transaction.findOne({ _id: params.id, userId });
+    const transaction = await Transaction.findOne({ _id: id, userId });
     if (!transaction) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
@@ -126,7 +125,6 @@ export async function PATCH(
       else wallet.onlineBalance += transaction.amount;
     }
 
-    // Validate new amount
     const newAmount = amount !== undefined ? parseFloat(amount) : transaction.amount;
     const newMethod = paymentMethod || transaction.paymentMethod;
     const newDate = date ? new Date(date) : transaction.date;
@@ -135,13 +133,15 @@ export async function PATCH(
       return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
     }
 
-    // Validate date
+    // Use end-of-day for "today" to avoid timezone issues
     const now = new Date();
+    now.setHours(23, 59, 59, 999);
     if (newDate > now) {
       return NextResponse.json({ error: "Cannot set future date" }, { status: 400 });
     }
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    ninetyDaysAgo.setHours(0, 0, 0, 0);
     if (newDate < ninetyDaysAgo) {
       return NextResponse.json({ error: "Date cannot be older than 90 days" }, { status: 400 });
     }
@@ -151,7 +151,6 @@ export async function PATCH(
       if (newMethod === "cash") wallet.cashBalance += newAmount;
       else wallet.onlineBalance += newAmount;
     } else {
-      // Check sufficient balance
       const available = newMethod === "cash" ? wallet.cashBalance : wallet.onlineBalance;
       if (available < newAmount) {
         return NextResponse.json(
@@ -163,7 +162,6 @@ export async function PATCH(
       else wallet.onlineBalance -= newAmount;
     }
 
-    // Update transaction
     transaction.amount = newAmount;
     transaction.paymentMethod = newMethod;
     if (category !== undefined) transaction.category = category;
@@ -189,10 +187,18 @@ export async function PATCH(
   }
 }
 
+// ─── PUT: alias for PATCH (edit a transaction) ────────────────────────────────
+export async function PUT(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  return PATCH(request, context);
+}
+
 // ─── DELETE: delete a transaction ─────────────────────────────────────────────
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await requireAuth();
@@ -200,9 +206,9 @@ export async function DELETE(
       return NextResponse.json({ error: authResult.message }, { status: authResult.status });
     }
 
+    const { id } = await params;
     const userId = authResult.payload.userId;
 
-    // Rate limit check
     const rl = checkRateLimit(userId, "delete");
     if (!rl.allowed) {
       return NextResponse.json(
@@ -218,12 +224,11 @@ export async function DELETE(
 
     await connectDB();
 
-    const transaction = await Transaction.findOne({ _id: params.id, userId });
+    const transaction = await Transaction.findOne({ _id: id, userId });
     if (!transaction) {
       return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
     }
 
-    // Reverse wallet balance
     const wallet = await Wallet.findOne({ userId });
     if (wallet) {
       if (transaction.type === "add_money") {
@@ -233,7 +238,6 @@ export async function DELETE(
         if (transaction.paymentMethod === "cash") wallet.cashBalance += transaction.amount;
         else wallet.onlineBalance += transaction.amount;
       }
-      // Clamp to 0 (safety)
       wallet.cashBalance = Math.max(0, wallet.cashBalance);
       wallet.onlineBalance = Math.max(0, wallet.onlineBalance);
       await wallet.save();

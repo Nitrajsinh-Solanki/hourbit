@@ -17,7 +17,7 @@ function checkBatchRateLimit(
   count: number
 ): { allowed: boolean; remaining: number; limit: number } {
   const today = getTodayKey();
-  const key = `${userId}:${today}:delete`;
+  const key = `${userId}:${today}:batch-delete`;
 
   if (!rateLimitStore.has(key)) {
     rateLimitStore.set(key, { deleteCount: 0, day: today });
@@ -32,14 +32,24 @@ function checkBatchRateLimit(
   const current = entry.deleteCount;
 
   if (current + count > DAILY_DELETE_LIMIT) {
-    return { allowed: false, remaining: Math.max(0, DAILY_DELETE_LIMIT - current), limit: DAILY_DELETE_LIMIT };
+    return {
+      allowed: false,
+      remaining: Math.max(0, DAILY_DELETE_LIMIT - current),
+      limit: DAILY_DELETE_LIMIT,
+    };
   }
 
   entry.deleteCount += count;
-  return { allowed: true, remaining: DAILY_DELETE_LIMIT - (current + count), limit: DAILY_DELETE_LIMIT };
+  return {
+    allowed: true,
+    remaining: DAILY_DELETE_LIMIT - (current + count),
+    limit: DAILY_DELETE_LIMIT,
+  };
 }
 
-export async function DELETE(request: Request) {
+// The frontend POSTs with a body containing ids, so we export POST here
+// (batch delete with a body is typically POST in REST APIs)
+export async function POST(request: Request) {
   try {
     const authResult = await requireAuth();
     if (!authResult.ok) {
@@ -55,10 +65,12 @@ export async function DELETE(request: Request) {
     }
 
     if (ids.length > 20) {
-      return NextResponse.json({ error: "Cannot delete more than 20 transactions at once" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Cannot delete more than 20 transactions at once" },
+        { status: 400 }
+      );
     }
 
-    // Rate limit check
     const rl = checkBatchRateLimit(userId, ids.length);
     if (!rl.allowed) {
       return NextResponse.json(
@@ -74,14 +86,12 @@ export async function DELETE(request: Request) {
 
     await connectDB();
 
-    // Fetch all transactions to verify ownership
     const transactions = await Transaction.find({ _id: { $in: ids }, userId });
 
     if (transactions.length === 0) {
       return NextResponse.json({ error: "No matching transactions found" }, { status: 404 });
     }
 
-    // Reverse wallet effects
     const wallet = await Wallet.findOne({ userId });
     if (wallet) {
       for (const txn of transactions) {
