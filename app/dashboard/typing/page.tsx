@@ -82,6 +82,7 @@ function pickWord(mode: TypingMode): string {
   }
 }
 
+// ── Generate initial tokens (finite, used at test start) ──────────────────
 function generateTokens(mode: TypingMode, count = 200): WordToken[] {
   const tokens: WordToken[] = [];
   let idx = 0;
@@ -90,6 +91,20 @@ function generateTokens(mode: TypingMode, count = 200): WordToken[] {
     const full = i < count - 1 ? w + " " : w;
     tokens.push({ chars: full.split(""), startIdx: idx });
     idx += full.length;
+  }
+  return tokens;
+}
+
+// ── Append more tokens starting from a given char offset ────────────────────
+// All appended words get a trailing space so the user can keep typing freely.
+function appendTokens(mode: TypingMode, count = 150, startOffset: number): WordToken[] {
+  const tokens: WordToken[] = [];
+  let idx = startOffset;
+  for (let i = 0; i < count; i++) {
+    const w    = pickWord(mode) + " "; // always trailing space for appended words
+    const chars = w.split("");
+    tokens.push({ chars, startIdx: idx });
+    idx += chars.length;
   }
   return tokens;
 }
@@ -140,6 +155,10 @@ function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
 
 const DEFAULT_TIMERS = [15, 30, 60, 120];
 
+// How many chars ahead of the cursor we keep buffered.
+// When the buffer drops below this, we append more words.
+const LOOKAHEAD_THRESHOLD = 300;
+
 export default function TypingPage() {
 
   const [selectedTimer, setSelectedTimer] = useState(30);
@@ -161,13 +180,9 @@ export default function TypingPage() {
   const [result, setResult]         = useState<TestResult | null>(null);
   const [isFocused, setIsFocused]   = useState(false);
 
-  // ── scroll state stored ONLY in a ref to avoid stale closures ──
-  // lineOffsetRef holds the current translateY value.
-  // We set it synchronously and then call setScrollTick to trigger a re-render.
   const lineOffsetRef = useRef(0);
-  const [scrollTick, setScrollTick] = useState(0); // just a render trigger
+  const [scrollTick, setScrollTick] = useState(0);
 
-  // Mutable refs — never cause re-renders on their own
   const typedRef         = useRef<string[]>([]);
   const wordsRef         = useRef<WordToken[]>([]);
   const testStateRef     = useRef<TestState>("idle");
@@ -176,13 +191,12 @@ export default function TypingPage() {
   const selectedTimerRef = useRef(30);
   const typingModeRef    = useRef<TypingMode>("smallLetters");
   const wrapperRef       = useRef<HTMLDivElement>(null);
-  const textBlockRef     = useRef<HTMLDivElement>(null);  // the flex-wrap word container
-  const clipRef          = useRef<HTMLDivElement>(null);  // the overflow:hidden viewport
+  const textBlockRef     = useRef<HTMLDivElement>(null);
+  const clipRef          = useRef<HTMLDivElement>(null);
   const saveIdRef        = useRef("");
   const keystrokesRef    = useRef(0);
   const rawErrorsRef     = useRef(0);
   const wordElsRef       = useRef<(HTMLSpanElement | null)[]>([]);
-  // Track which row we last scrolled to, to avoid re-scrolling on every keystroke
   const lastRowRef       = useRef(-1);
 
   useEffect(() => { selectedTimerRef.current = selectedTimer; }, [selectedTimer]);
@@ -220,28 +234,37 @@ export default function TypingPage() {
   useEffect(() => { fetchStats(30); fetchCustomTimers(); }, [fetchStats, fetchCustomTimers]);
   useEffect(() => { fetchStats(selectedTimer); }, [selectedTimer, fetchStats]);
 
-  // ── Scroll logic — THE KEY FIX ──────────────────────────────────────────
+  // ── Dynamic word extension ────────────────────────────────────────────────
   //
-  // PROBLEM: previously updateLineScroll closed over `lineOffset` state.
-  //   On every keystroke React hadn't re-rendered yet, so lineOffset was stale
-  //   (still 0 or previous value). The formula:
-  //     elTopInContainer = elRect.top - containerRect.top - lineOffset   ← WRONG
-  //   used the old lineOffset, computing a wrong delta, causing over-scroll.
-  //
-  // FIX: store the offset in lineOffsetRef (a ref — always current).
-  //   Only call setScrollTick(n+1) to trigger the re-render AFTER we have
-  //   already written the correct value to the ref.
-  //   Formula: newOffset = -(activeWordTop - targetTop)  where both coords
-  //   are measured in the UN-TRANSFORMED frame (we subtract current
-  //   lineOffsetRef.current from the measured top to undo the transform).
-  //
-  // We also gate scrolling so it only moves when the CURSOR CHANGES ROW,
-  // not on every single keystroke. This prevents jittery motion.
+  // Called on every keystroke while the test is running.
+  // If the cursor is within LOOKAHEAD_THRESHOLD chars of the last generated
+  // character, we silently append 150 more words so the user never runs out.
+  // The new tokens continue the global char index, so all existing state
+  // (typedChars, charStates, scroll) remains valid with no resets.
+
+  const maybeExtendWords = useCallback((cursorIdx: number) => {
+    const current = wordsRef.current;
+    if (!current.length) return;
+
+    const lastToken   = current[current.length - 1];
+    const totalChars  = lastToken.startIdx + lastToken.chars.length;
+    const charsAhead  = totalChars - cursorIdx;
+
+    if (charsAhead < LOOKAHEAD_THRESHOLD) {
+      const newTokens  = appendTokens(typingModeRef.current, 150, totalChars);
+      const extended   = [...current, ...newTokens];
+      wordsRef.current = extended;
+      // Extend the wordElsRef array to accommodate new word elements
+      wordElsRef.current = [...wordElsRef.current, ...new Array(newTokens.length).fill(null)];
+      setWords(extended);
+    }
+  }, []);
+
+  // ── Scroll logic ──────────────────────────────────────────────────────────
 
   const updateScroll = useCallback((cursorCharIdx: number) => {
     if (!clipRef.current || !textBlockRef.current) return;
 
-    // Find which word the cursor is in
     const wTokens = wordsRef.current;
     let activeWi  = wTokens.length - 1;
     for (let i = 0; i < wTokens.length; i++) {
@@ -254,24 +277,16 @@ export default function TypingPage() {
     const wordEl = wordElsRef.current[activeWi];
     if (!wordEl) return;
 
-    // Measure the word's top relative to the clip container,
-    // UNDOING the current transform so we're in layout-space coordinates.
-    const clipRect  = clipRef.current.getBoundingClientRect();
-    const wordRect  = wordEl.getBoundingClientRect();
+    const clipRect        = clipRef.current.getBoundingClientRect();
+    const wordRect        = wordEl.getBoundingClientRect();
     const wordTopInLayout = wordRect.top - clipRect.top - lineOffsetRef.current;
 
-    // Determine which visual row this word is on (0-indexed from top of text block)
-    const lineH = wordEl.offsetHeight || 40;
+    const lineH      = wordEl.offsetHeight || 40;
     const currentRow = Math.round(wordTopInLayout / lineH);
 
-    // Only scroll when we move to a new row (gate prevents per-keystroke jitter)
     if (currentRow === lastRowRef.current) return;
     lastRowRef.current = currentRow;
 
-    // We want row 0 to stay visible until the cursor reaches row 1,
-    // then scroll so the active row is always the FIRST visible row.
-    // i.e. targetTop = 0 (clip top) — cursor row should be at the top.
-    // For the very first row (row 0) we don't scroll at all.
     if (currentRow <= 0) {
       lineOffsetRef.current = 0;
     } else {
@@ -290,7 +305,6 @@ export default function TypingPage() {
     if (timerRef.current) clearInterval(timerRef.current);
 
     const typed    = [...typedRef.current];
-    const allChars = wordsRef.current.flatMap(w => w.chars);
     const dur      = selectedTimerRef.current;
     const mode     = typingModeRef.current;
 
@@ -401,9 +415,13 @@ export default function TypingPage() {
       typedRef.current = [...typedRef.current, e.key];
       const next = [...typedRef.current];
       setTypedChars(next);
+
+      // ── KEY FIX: extend the word list if the cursor is getting close to the end ──
+      maybeExtendWords(next.length);
+
       updateScroll(next.length);
     },
-    [endTest, initTest, updateScroll],
+    [endTest, initTest, updateScroll, maybeExtendWords],
   );
 
   // ── Char states ───────────────────────────────────────────────────────────
@@ -494,7 +512,6 @@ export default function TypingPage() {
 
       {/* ── Injected styles ── */}
       <style>{`
-        /* Character colours */
         .tc-p  { color: var(--tc-p,  #7a7a8c); }
         .tc-ok { color: var(--tc-ok, var(--green, #22d3a0)); }
         .tc-er {
@@ -506,29 +523,23 @@ export default function TypingPage() {
         body[data-theme="light"] { --tc-p: #55556a; }
         @media (prefers-color-scheme: light) { :root { --tc-p: #55556a; } }
 
-        /* Cursor blink */
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-        /* Word token — never breaks mid-word */
         .wt {
           display: inline-flex;
           white-space: nowrap;
           flex-shrink: 0;
-          /* Slight letter-spacing inside each word for readability */
         }
 
-        /* Typing text size — fluid */
         .ty-text {
           font-size: clamp(16px, 1.6vw + 8px, 24px);
           line-height: 2.4;
           letter-spacing: 0.02em;
         }
 
-        /* Focus ring */
         .ty-focused { box-shadow: 0 0 0 2.5px rgba(124,110,243,.45); }
         .ty-panel   { border-radius: 16px; transition: box-shadow .2s; }
 
-        /* Unfocused overlay */
         .ty-overlay {
           position:absolute; inset:0; border-radius:12px; z-index:20;
           display:flex; align-items:center; justify-content:center;
@@ -675,22 +686,6 @@ export default function TypingPage() {
         </div>
 
         {/* ── THE TYPING AREA ─────────────────────────────────────────────── */}
-        {/*
-          Architecture:
-            • wrapperRef  — focusable keyboard-capture div (outline:none)
-            • clipRef     — overflow:hidden viewport; height = 4 lines
-            • textBlockRef — the full text rendered with flex-wrap; shifted
-                             via transform:translateY(lineOffsetRef.current)
-            • word-tokens (.wt) — each word is inline-flex, never breaks
-
-          Scroll algorithm (see updateScroll above):
-            1. Find which word-element contains the cursor character.
-            2. Undo the current transform to get the word's layout-space top.
-            3. Determine which row (0-indexed) the word is on.
-            4. If row hasn't changed since last keystroke, do nothing (no jitter).
-            5. If row > 0, shift the entire block up by -(row * lineHeight).
-            6. Row 0 = offset 0 (never over-scroll upward).
-        */}
         <div
           ref={wrapperRef}
           tabIndex={0}
@@ -707,11 +702,6 @@ export default function TypingPage() {
             ref={clipRef}
             className="overflow-hidden relative"
             style={{
-              // Height = 4 × line-height of .ty-text
-              // ty-text line-height = 2.4; font-size ≈ clamp(16px, ~, 24px)
-              // We use em units so it scales with the font:
-              // 4 lines × 2.4em line-height = 9.6em
-              // Add 0.8em top+bottom padding so first/last line aren't clipped
               height: "calc(4 * 2.4 * clamp(16px, 1.6vw + 8px, 24px))",
               padding: "0.5em 0.5em",
               borderRadius: 12,

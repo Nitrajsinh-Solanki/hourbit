@@ -75,7 +75,6 @@ const fmt = (n: number) =>
 const fmtDec = (n: number) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n);
 
-// Get today as YYYY-MM-DD in LOCAL time (avoids UTC offset issues)
 const todayStr = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -115,9 +114,15 @@ const CAT_COLORS = [
 ];
 
 // ─── Global CSS ───────────────────────────────────────────────────────────────
+// KEY FIX: CSS variables are now defined on `.exp-root` for dark (default),
+// and overridden inside `.exp-root` when the ancestor has `.light` class
+// (matches whatever class your app's ThemeToggle puts on <html> or <body>).
+// We cover the most common class names: "light", "light-theme", "theme-light".
+// Adjust the selectors below to match your app's actual theme class.
 
 const GLOBAL_CSS = `
-  :root {
+  /* ── Dark theme (default) ── */
+  .exp-root {
     --bg: #09090b;
     --sf: #111113;
     --sf2: #18181b;
@@ -139,7 +144,16 @@ const GLOBAL_CSS = `
     --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
     --shadow-lg: 0 10px 40px rgba(0,0,0,0.5);
   }
-  .exp-light {
+
+  /* ── Light theme override ──
+     Covers the most common patterns apps use for light mode.
+     ADD your app's actual theme class here if it's different. */
+  html.light .exp-root,
+  html[data-theme="light"] .exp-root,
+  body.light .exp-root,
+  body[data-theme="light"] .exp-root,
+  .light-theme .exp-root,
+  .theme-light .exp-root {
     --bg: #f4f4f5;
     --sf: #ffffff;
     --sf2: #f8f8f9;
@@ -153,6 +167,7 @@ const GLOBAL_CSS = `
     --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
     --shadow-lg: 0 10px 40px rgba(0,0,0,0.12);
   }
+
   .exp-root * { box-sizing: border-box; margin: 0; padding: 0; }
   .exp-root {
     font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -228,7 +243,7 @@ const GLOBAL_CSS = `
     transition: border-color 0.15s, box-shadow 0.15s;
     font-family: inherit;
   }
-  .inp:focus { border-color: var(--ac); box-shadow: 0 0 0 3px var(--ac)20; }
+  .inp:focus { border-color: var(--ac); box-shadow: 0 0 0 3px rgba(129,140,248,0.12); }
   .inp::placeholder { color: var(--tx4); }
   select.inp { appearance: none; cursor: pointer; }
 
@@ -271,15 +286,15 @@ const GLOBAL_CSS = `
   .btn-primary:hover:not(:disabled) { background: var(--ac-d); }
   .btn-ghost { background: transparent; color: var(--tx2); border: 1.5px solid var(--b1); }
   .btn-ghost:hover:not(:disabled) { border-color: var(--b2); color: var(--tx); }
-  .btn-danger { background: var(--red)15; color: var(--red); border: 1.5px solid var(--red)30; }
-  .btn-danger:hover:not(:disabled) { background: var(--red)25; }
-  .btn-green { background: var(--green)15; color: var(--green); border: 1.5px solid var(--green)30; }
-  .btn-green:hover:not(:disabled) { background: var(--green)22; }
+  .btn-danger { background: rgba(248,113,113,0.08); color: var(--red); border: 1.5px solid rgba(248,113,113,0.2); }
+  .btn-danger:hover:not(:disabled) { background: rgba(248,113,113,0.15); }
+  .btn-green { background: rgba(52,211,153,0.08); color: var(--green); border: 1.5px solid rgba(52,211,153,0.2); }
+  .btn-green:hover:not(:disabled) { background: rgba(52,211,153,0.14); }
   .btn-sm { padding: 6px 12px; font-size: 12px; }
   .btn-icon { padding: 7px; width: 30px; height: 30px; justify-content: center; border: 1.5px solid var(--b1); background: transparent; color: var(--tx3); border-radius: var(--radius-sm); }
   .btn-icon:hover { color: var(--tx); border-color: var(--b2); }
-  .btn-icon-danger { border-color: var(--red)30; color: var(--red); }
-  .btn-icon-danger:hover { border-color: var(--red)60; background: var(--red)10; }
+  .btn-icon-danger { border-color: rgba(248,113,113,0.2); color: var(--red); }
+  .btn-icon-danger:hover { border-color: rgba(248,113,113,0.4); background: rgba(248,113,113,0.08); }
 
   /* Modal */
   .modal-backdrop {
@@ -320,8 +335,8 @@ const GLOBAL_CSS = `
 
   /* Error */
   .err-box {
-    background: var(--red)12;
-    border: 1px solid var(--red)30;
+    background: rgba(248,113,113,0.08);
+    border: 1px solid rgba(248,113,113,0.2);
     border-radius: var(--radius-sm);
     padding: 10px 13px;
     font-size: 13px;
@@ -350,7 +365,7 @@ const GLOBAL_CSS = `
     background: var(--sf);
     transition: background 0.1s;
   }
-  .txn-row.selected td { background: var(--ac)08; }
+  .txn-row.selected td { background: rgba(129,140,248,0.05); }
   .txn-row:last-child td { border-bottom: none; }
 
   /* Tags / badges */
@@ -363,8 +378,8 @@ const GLOBAL_CSS = `
     font-size: 11px;
     font-weight: 500;
   }
-  .badge-expense { background: var(--red)15; color: var(--red); }
-  .badge-income { background: var(--green)15; color: var(--green); }
+  .badge-expense { background: rgba(248,113,113,0.1); color: var(--red); }
+  .badge-income { background: rgba(52,211,153,0.1); color: var(--green); }
   .badge-method { background: var(--sf3); color: var(--tx3); border: 1px solid var(--b1); }
 
   /* Wallet cards */
@@ -405,8 +420,8 @@ const GLOBAL_CSS = `
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 10px 16px;
     border-radius: var(--radius);
-    background: var(--ac)10;
-    border: 1.5px solid var(--ac)30;
+    background: rgba(129,140,248,0.06);
+    border: 1.5px solid rgba(129,140,248,0.2);
     animation: fadeUp 0.2s ease both;
   }
 
@@ -415,16 +430,16 @@ const GLOBAL_CSS = `
     display: flex; align-items: center; gap: 8px;
     padding: 10px 14px;
     border-radius: var(--radius-sm);
-    background: var(--amber)12;
-    border: 1px solid var(--amber)30;
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.2);
     color: var(--amber);
     font-size: 12px;
   }
 
   /* Danger box */
   .danger-box {
-    background: var(--red)10;
-    border: 1px solid var(--red)25;
+    background: rgba(248,113,113,0.06);
+    border: 1px solid rgba(248,113,113,0.16);
     border-radius: var(--radius-sm);
     padding: 14px;
     display: flex; gap: 10px; align-items: flex-start;
@@ -445,7 +460,7 @@ const GLOBAL_CSS = `
     padding: 13px 14px;
     transition: background 0.1s;
   }
-  .txn-card.selected { background: var(--ac)08; border-color: var(--ac)30; }
+  .txn-card.selected { background: rgba(129,140,248,0.05); border-color: rgba(129,140,248,0.2); }
 
   /* Analysis */
   .analysis-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -524,7 +539,7 @@ const GLOBAL_CSS = `
     transition: border-color 0.2s;
   }
   .wallet-card:hover { border-color: var(--b2); }
-  .wallet-card-total { background: linear-gradient(135deg, var(--ac)18 0%, var(--ac)05 100%); border-color: var(--ac)35; }
+  .wallet-card-total { background: linear-gradient(135deg, rgba(129,140,248,0.1) 0%, rgba(129,140,248,0.03) 100%); border-color: rgba(129,140,248,0.22); }
 
   /* Loading empty states */
   .empty-state {
@@ -991,7 +1006,6 @@ function EditModal({
       setMethod(txn.paymentMethod);
       setCategory(txn.category || "");
       setNote(txn.note || "");
-      // Format date properly for the date input (YYYY-MM-DD in local time)
       const d = new Date(txn.date);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -1166,9 +1180,7 @@ function DeleteModal({
               effect.
             </p>
             {txn && (
-              <p
-                style={{ fontSize: 12, color: "var(--tx3)", marginTop: 6 }}
-              >
+              <p style={{ fontSize: 12, color: "var(--tx3)", marginTop: 6 }}>
                 {txn.type === "expense"
                   ? `−₹${fmt(txn.amount)}`
                   : `+₹${fmt(txn.amount)}`}{" "}
@@ -1318,13 +1330,7 @@ function WalletCards({ wallet, loading }: { wallet: WalletData | null; loading: 
     <div className="wallet-grid" style={{ marginBottom: 22 }}>
       {cards.map(({ label, value, sub, icon: Icon, color, accent }) => (
         <div key={label} className={`wallet-card${accent ? " wallet-card-total" : ""}`}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 12, color: "var(--tx3)" }}>{label}</span>
             <span
               style={{
@@ -1369,30 +1375,20 @@ function OverviewTab({
   const fetchRecent = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/expenses/transactions?limit=8&month=${filterMonth}`
-      );
+      const res = await fetch(`/api/expenses/transactions?limit=8&month=${filterMonth}`);
       const data = await res.json();
       if (data.success) setRecentTxns(data.transactions);
     } catch {}
     finally { setLoading(false); }
   }, [filterMonth]);
 
-  useEffect(() => {
-    fetchRecent();
-  }, [fetchRecent]);
+  useEffect(() => { fetchRecent(); }, [fetchRecent]);
 
-  // Monthly totals
-  const monthExpenses = recentTxns
-    .filter((t) => t.type === "expense")
-    .reduce((s, t) => s + t.amount, 0);
-  const monthIncome = recentTxns
-    .filter((t) => t.type === "add_money")
-    .reduce((s, t) => s + t.amount, 0);
+  const monthExpenses = recentTxns.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const monthIncome = recentTxns.filter((t) => t.type === "add_money").reduce((s, t) => s + t.amount, 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Month summary pills */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <input
           className="filter-select"
@@ -1400,61 +1396,23 @@ function OverviewTab({
           value={filterMonth}
           onChange={(e) => setFilterMonth(e.target.value)}
         />
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            padding: "6px 12px",
-            borderRadius: 8,
-            background: "var(--red)12",
-            border: "1px solid var(--red)25",
-            color: "var(--red)",
-            fontSize: 13,
-            fontWeight: 500,
-            alignItems: "center",
-           
-          }}
-        >
+        <div style={{ display: "flex", gap: 6, padding: "6px 12px", borderRadius: 8, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.16)", color: "var(--red)", fontSize: 13, fontWeight: 500, alignItems: "center" }}>
           <TrendingDown size={12} />
           ₹{fmt(monthExpenses)} spent
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 12px",
-            borderRadius: 8,
-            background: "var(--green)12",
-            border: "1px solid var(--green)25",
-            color: "var(--green)",
-            fontSize: 13,
-            fontWeight: 500,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.16)", color: "var(--green)", fontSize: 13, fontWeight: 500 }}>
           <TrendingUp size={12} />
           ₹{fmt(monthIncome)} added
         </div>
       </div>
 
-      {/* Recent Transactions */}
       <div className="surface" style={{ padding: "18px 20px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <p className="section-title" style={{ marginBottom: 0 }}>
             <Activity size={14} color="var(--ac)" />
             Recent Transactions
           </p>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={onGoToTransactions}
-          >
+          <button className="btn btn-ghost btn-sm" onClick={onGoToTransactions}>
             View all →
           </button>
         </div>
@@ -1469,9 +1427,7 @@ function OverviewTab({
           <div className="empty-state" style={{ padding: "40px 20px" }}>
             <Tag size={28} />
             <p>No transactions for this month yet.</p>
-            <p style={{ fontSize: 12, color: "var(--tx4)" }}>
-              Add money to your wallet or log an expense.
-            </p>
+            <p style={{ fontSize: 12, color: "var(--tx4)" }}>Add money to your wallet or log an expense.</p>
           </div>
         ) : (
           <div>
@@ -1480,33 +1436,11 @@ function OverviewTab({
               return (
                 <div key={txn._id} className="txn-list-item">
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: isExp ? "var(--red)15" : "var(--green)15",
-                        color: isExp ? "var(--red)" : "var(--green)",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {isExp ? (
-                        <ArrowDownRight size={15} />
-                      ) : (
-                        <ArrowUpRight size={15} />
-                      )}
+                    <span style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: isExp ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", color: isExp ? "var(--red)" : "var(--green)", flexShrink: 0 }}>
+                      {isExp ? <ArrowDownRight size={15} /> : <ArrowUpRight size={15} />}
                     </span>
                     <div>
-                      <p
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 500,
-                          color: "var(--tx)",
-                        }}
-                      >
+                      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--tx)" }}>
                         {txn.category || "Money Added"}
                       </p>
                       <p style={{ fontSize: 11, color: "var(--tx4)", marginTop: 2 }}>
@@ -1517,14 +1451,7 @@ function OverviewTab({
                       </p>
                     </div>
                   </div>
-                  <p
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      color: isExp ? "var(--red)" : "var(--green)",
-                      letterSpacing: "-0.3px",
-                    }}
-                  >
+                  <p style={{ fontSize: 14, fontWeight: 700, color: isExp ? "var(--red)" : "var(--green)", letterSpacing: "-0.3px" }}>
                     {isExp ? "−" : "+"}₹{fmt(txn.amount)}
                   </p>
                 </div>
@@ -1561,10 +1488,7 @@ function TransactionsTab({
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [deleteTxn, setDeleteTxn] = useState<Transaction | null>(null);
   const [batchDeleteIds, setBatchDeleteIds] = useState<string[]>([]);
-  const [rlStatus, setRlStatus] = useState<{
-    editsRemaining?: number;
-    deletesRemaining?: number;
-  }>({});
+  const [rlStatus, setRlStatus] = useState<{ editsRemaining?: number; deletesRemaining?: number }>({});
 
   const fetchTxns = useCallback(async () => {
     setLoading(true);
@@ -1587,91 +1511,50 @@ function TransactionsTab({
     finally { setLoading(false); }
   }, [page, filterType, filterMethod, filterCategory, filterMonth, search]);
 
-  useEffect(() => {
-    fetchTxns();
-  }, [fetchTxns]);
-
-  useEffect(() => {
-    setSelected(new Set());
-  }, [filterType, filterMethod, filterCategory, filterMonth, search, page]);
+  useEffect(() => { fetchTxns(); }, [fetchTxns]);
+  useEffect(() => { setSelected(new Set()); }, [filterType, filterMethod, filterCategory, filterMonth, search, page]);
 
   const toggleSelect = (id: string) => {
-    setSelected((s) => {
-      const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
 
   const toggleAll = () => {
-    setSelected((s) =>
-      s.size === transactions.length
-        ? new Set()
-        : new Set(transactions.map((t) => t._id))
-    );
+    setSelected((s) => s.size === transactions.length ? new Set() : new Set(transactions.map((t) => t._id)));
   };
 
   const handleEditSuccess = (updated: Transaction, newWallet: WalletData) => {
-    setTransactions((ts) =>
-      ts.map((t) => (t._id === updated._id ? updated : t))
-    );
+    setTransactions((ts) => ts.map((t) => (t._id === updated._id ? updated : t)));
     onWalletUpdate(newWallet);
-    setRlStatus((s) => ({
-      ...s,
-      editsRemaining: Math.max(0, (s.editsRemaining ?? 20) - 1),
-    }));
+    setRlStatus((s) => ({ ...s, editsRemaining: Math.max(0, (s.editsRemaining ?? 20) - 1) }));
   };
 
   const handleDeleteSuccess = (id: string, newWallet: WalletData) => {
     setTransactions((ts) => ts.filter((t) => t._id !== id));
-    setSelected((s) => {
-      const n = new Set(s);
-      n.delete(id);
-      return n;
-    });
+    setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
     onWalletUpdate(newWallet);
-    setRlStatus((s) => ({
-      ...s,
-      deletesRemaining: Math.max(0, (s.deletesRemaining ?? 20) - 1),
-    }));
+    setRlStatus((s) => ({ ...s, deletesRemaining: Math.max(0, (s.deletesRemaining ?? 20) - 1) }));
   };
 
-  const handleBatchDeleteSuccess = (
-    deletedIds: string[],
-    newWallet: WalletData
-  ) => {
+  const handleBatchDeleteSuccess = (deletedIds: string[], newWallet: WalletData) => {
     setTransactions((ts) => ts.filter((t) => !deletedIds.includes(t._id)));
     setSelected(new Set());
     onWalletUpdate(newWallet);
-    setRlStatus((s) => ({
-      ...s,
-      deletesRemaining: Math.max(0, (s.deletesRemaining ?? 20) - deletedIds.length),
-    }));
+    setRlStatus((s) => ({ ...s, deletesRemaining: Math.max(0, (s.deletesRemaining ?? 20) - deletedIds.length) }));
   };
 
-  const isAllSelected =
-    transactions.length > 0 && selected.size === transactions.length;
+  const isAllSelected = transactions.length > 0 && selected.size === transactions.length;
 
   const renderDesktopRow = (txn: Transaction) => {
     const isExp = txn.type === "expense";
     const isSel = selected.has(txn._id);
     return (
-      <tr
-        key={txn._id}
-        className={`txn-row${isSel ? " selected" : ""}`}
-      >
+      <tr key={txn._id} className={`txn-row${isSel ? " selected" : ""}`}>
         <td style={{ width: 42 }}>
           <div className="cb" onClick={() => toggleSelect(txn._id)}>
-            {isSel ? (
-              <CheckSquare size={14} color="var(--ac)" />
-            ) : (
-              <Square size={14} color="var(--tx4)" />
-            )}
+            {isSel ? <CheckSquare size={14} color="var(--ac)" /> : <Square size={14} color="var(--tx4)" />}
           </div>
         </td>
-        <td style={{ color: "var(--tx3)", fontSize: 12, whiteSpace: "nowrap" }}>
-          {formatDisplayDate(txn.date)}
-        </td>
+        <td style={{ color: "var(--tx3)", fontSize: 12, whiteSpace: "nowrap" }}>{formatDisplayDate(txn.date)}</td>
         <td>
           <span className={`badge ${isExp ? "badge-expense" : "badge-income"}`}>
             {isExp ? <ArrowDownRight size={10} /> : <ArrowUpRight size={10} />}
@@ -1683,60 +1566,22 @@ function TransactionsTab({
         </td>
         <td>
           <span className="badge badge-method">
-            {txn.paymentMethod === "cash" ? (
-              <Banknote size={10} />
-            ) : (
-              <CreditCard size={10} />
-            )}
+            {txn.paymentMethod === "cash" ? <Banknote size={10} /> : <CreditCard size={10} />}
             {txn.paymentMethod === "cash" ? "Cash" : "Online"}
           </span>
         </td>
-        <td
-          style={{
-            color: "var(--tx4)",
-            fontSize: 12,
-            maxWidth: 140,
-          }}
-        >
-          <span
-            style={{
-              display: "block",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {txn.note || (
-              <span style={{ color: "var(--tx4)" }}>—</span>
-            )}
+        <td style={{ color: "var(--tx4)", fontSize: 12, maxWidth: 140 }}>
+          <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {txn.note || <span style={{ color: "var(--tx4)" }}>—</span>}
           </span>
         </td>
-        <td
-          style={{
-            fontWeight: 600,
-            whiteSpace: "nowrap",
-            color: isExp ? "var(--red)" : "var(--green)",
-            fontSize: 13,
-          }}
-        >
+        <td style={{ fontWeight: 600, whiteSpace: "nowrap", color: isExp ? "var(--red)" : "var(--green)", fontSize: 13 }}>
           {isExp ? "−" : "+"}₹{fmt(txn.amount)}
         </td>
         <td>
           <div style={{ display: "flex", gap: 5 }}>
-            <button
-              className="btn btn-icon"
-              title="Edit"
-              onClick={() => setEditTxn(txn)}
-            >
-              <Pencil size={11} />
-            </button>
-            <button
-              className="btn btn-icon btn-icon-danger"
-              title="Delete"
-              onClick={() => setDeleteTxn(txn)}
-            >
-              <Trash2 size={11} />
-            </button>
+            <button className="btn btn-icon" title="Edit" onClick={() => setEditTxn(txn)}><Pencil size={11} /></button>
+            <button className="btn btn-icon btn-icon-danger" title="Delete" onClick={() => setDeleteTxn(txn)}><Trash2 size={11} /></button>
           </div>
         </td>
       </tr>
@@ -1747,94 +1592,29 @@ function TransactionsTab({
     const isExp = txn.type === "expense";
     const isSel = selected.has(txn._id);
     return (
-      <div
-        key={txn._id}
-        className={`txn-card${isSel ? " selected" : ""}`}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 10,
-          }}
-        >
-          <div
-            className="cb"
-            onClick={() => toggleSelect(txn._id)}
-            style={{ marginTop: 3 }}
-          >
-            {isSel ? (
-              <CheckSquare size={14} color="var(--ac)" />
-            ) : (
-              <Square size={14} color="var(--tx4)" />
-            )}
+      <div key={txn._id} className={`txn-card${isSel ? " selected" : ""}`}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div className="cb" onClick={() => toggleSelect(txn._id)} style={{ marginTop: 3 }}>
+            {isSel ? <CheckSquare size={14} color="var(--ac)" /> : <Square size={14} color="var(--tx4)" />}
           </div>
           <div style={{ flex: 1 }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--tx)",
-                  }}
-                >
-                  {txn.category || "Money Added"}
-                </span>
-                <span
-                  className={`badge ${isExp ? "badge-expense" : "badge-income"}`}
-                >
-                  {isExp ? "Expense" : "Added"}
-                </span>
-                <span className="badge badge-method">
-                  {txn.paymentMethod}
-                </span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--tx)" }}>{txn.category || "Money Added"}</span>
+                <span className={`badge ${isExp ? "badge-expense" : "badge-income"}`}>{isExp ? "Expense" : "Added"}</span>
+                <span className="badge badge-method">{txn.paymentMethod}</span>
               </div>
-              <span
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: isExp ? "var(--red)" : "var(--green)",
-                  flexShrink: 0,
-                }}
-              >
+              <span style={{ fontSize: 14, fontWeight: 700, color: isExp ? "var(--red)" : "var(--green)", flexShrink: 0 }}>
                 {isExp ? "−" : "+"}₹{fmt(txn.amount)}
               </span>
             </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginTop: 5,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 5 }}>
               <span style={{ fontSize: 11, color: "var(--tx4)" }}>
-                {formatDisplayDate(txn.date)}
-                {txn.note ? ` · ${txn.note}` : ""}
+                {formatDisplayDate(txn.date)}{txn.note ? ` · ${txn.note}` : ""}
               </span>
               <div style={{ display: "flex", gap: 5 }}>
-                <button
-                  className="btn btn-icon"
-                  style={{ width: 26, height: 26 }}
-                  onClick={() => setEditTxn(txn)}
-                >
-                  <Pencil size={10} />
-                </button>
-                <button
-                  className="btn btn-icon btn-icon-danger"
-                  style={{ width: 26, height: 26 }}
-                  onClick={() => setDeleteTxn(txn)}
-                >
-                  <Trash2 size={10} />
-                </button>
+                <button className="btn btn-icon" style={{ width: 26, height: 26 }} onClick={() => setEditTxn(txn)}><Pencil size={10} /></button>
+                <button className="btn btn-icon btn-icon-danger" style={{ width: 26, height: 26 }} onClick={() => setDeleteTxn(txn)}><Trash2 size={10} /></button>
               </div>
             </div>
           </div>
@@ -1845,130 +1625,46 @@ function TransactionsTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <EditModal
-        txn={editTxn}
-        onClose={() => setEditTxn(null)}
-        onSuccess={handleEditSuccess}
-        categories={categories}
-        wallet={wallet}
-      />
-      <DeleteModal
-        txn={deleteTxn}
-        onClose={() => setDeleteTxn(null)}
-        onSuccess={handleDeleteSuccess}
-      />
-      <BatchDeleteModal
-        ids={batchDeleteIds}
-        onClose={() => setBatchDeleteIds([])}
-        onSuccess={handleBatchDeleteSuccess}
-      />
-
-      <RateLimitBanner
-        editsRemaining={rlStatus.editsRemaining}
-        deletesRemaining={rlStatus.deletesRemaining}
-      />
+      <EditModal txn={editTxn} onClose={() => setEditTxn(null)} onSuccess={handleEditSuccess} categories={categories} wallet={wallet} />
+      <DeleteModal txn={deleteTxn} onClose={() => setDeleteTxn(null)} onSuccess={handleDeleteSuccess} />
+      <BatchDeleteModal ids={batchDeleteIds} onClose={() => setBatchDeleteIds([])} onSuccess={handleBatchDeleteSuccess} />
+      <RateLimitBanner editsRemaining={rlStatus.editsRemaining} deletesRemaining={rlStatus.deletesRemaining} />
 
       {/* Filters */}
       <div className="filter-row">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "var(--sf)",
-            border: "1.5px solid var(--b1)",
-            borderRadius: "var(--radius-sm)",
-            padding: "8px 12px",
-            flex: 1,
-            minWidth: 180,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--sf)", border: "1.5px solid var(--b1)", borderRadius: "var(--radius-sm)", padding: "8px 12px", flex: 1, minWidth: 180 }}>
           <Search size={13} color="var(--tx4)" />
           <input
             type="text"
             placeholder="Search by note or category…"
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              fontSize: 13,
-              color: "var(--tx)",
-              width: "100%",
-              fontFamily: "inherit",
-            }}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            style={{ background: "transparent", border: "none", outline: "none", fontSize: 13, color: "var(--tx)", width: "100%", fontFamily: "inherit" }}
           />
           {search && (
-            <button
-              onClick={() => setSearch("")}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--tx4)",
-                display: "flex",
-                padding: 0,
-              }}
-            >
+            <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tx4)", display: "flex", padding: 0 }}>
               <X size={12} />
             </button>
           )}
         </div>
 
-        <input
-          className="filter-select"
-          type="month"
-          value={filterMonth}
-          onChange={(e) => {
-            setFilterMonth(e.target.value);
-            setPage(1);
-          }}
-        />
+        <input className="filter-select" type="month" value={filterMonth} onChange={(e) => { setFilterMonth(e.target.value); setPage(1); }} />
 
-        <select
-          className="filter-select"
-          value={filterType}
-          onChange={(e) => {
-            setFilterType(e.target.value);
-            setPage(1);
-          }}
-        >
+        <select className="filter-select" value={filterType} onChange={(e) => { setFilterType(e.target.value); setPage(1); }}>
           <option value="">All types</option>
           <option value="expense">Expense</option>
           <option value="add_money">Money Added</option>
         </select>
 
-        <select
-          className="filter-select"
-          value={filterMethod}
-          onChange={(e) => {
-            setFilterMethod(e.target.value);
-            setPage(1);
-          }}
-        >
+        <select className="filter-select" value={filterMethod} onChange={(e) => { setFilterMethod(e.target.value); setPage(1); }}>
           <option value="">All methods</option>
           <option value="cash">Cash</option>
           <option value="online">Online</option>
         </select>
 
-        <select
-          className="filter-select"
-          value={filterCategory}
-          onChange={(e) => {
-            setFilterCategory(e.target.value);
-            setPage(1);
-          }}
-        >
+        <select className="filter-select" value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}>
           <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
+          {categories.map((c) => (<option key={c} value={c}>{c}</option>))}
         </select>
       </div>
 
@@ -1976,20 +1672,12 @@ function TransactionsTab({
       {selected.size > 0 && (
         <div className="batch-bar">
           <CheckSquare size={13} color="var(--ac)" />
-          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--tx)" }}>
-            {selected.size} selected
-          </span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--tx)" }}>{selected.size} selected</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            <button
-              className="btn btn-danger btn-sm"
-              onClick={() => setBatchDeleteIds(Array.from(selected))}
-            >
+            <button className="btn btn-danger btn-sm" onClick={() => setBatchDeleteIds(Array.from(selected))}>
               <Trash2 size={12} /> Delete {selected.size}
             </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setSelected(new Set())}
-            >
+            <button className="btn btn-ghost btn-sm" onClick={() => setSelected(new Set())}>
               <X size={12} /> Clear
             </button>
           </div>
@@ -1999,14 +1687,7 @@ function TransactionsTab({
       {/* Desktop table */}
       <div className="txn-table-wrap surface" style={{ overflow: "hidden" }}>
         {loading ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 52,
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 52 }}>
             <Loader2 size={22} color="var(--ac)" className="spin" />
           </div>
         ) : transactions.length === 0 ? (
@@ -2022,18 +1703,10 @@ function TransactionsTab({
                 <tr>
                   <th style={{ width: 42 }}>
                     <div className="cb" onClick={toggleAll}>
-                      {isAllSelected ? (
-                        <CheckSquare size={14} color="var(--ac)" />
-                      ) : (
-                        <Square size={14} color="var(--tx4)" />
-                      )}
+                      {isAllSelected ? <CheckSquare size={14} color="var(--ac)" /> : <Square size={14} color="var(--tx4)" />}
                     </div>
                   </th>
-                  {["Date", "Type", "Category", "Method", "Note", "Amount", ""].map(
-                    (h) => (
-                      <th key={h}>{h}</th>
-                    )
-                  )}
+                  {["Date", "Type", "Category", "Method", "Note", "Amount", ""].map((h) => (<th key={h}>{h}</th>))}
                 </tr>
               </thead>
               <tbody>{transactions.map(renderDesktopRow)}</tbody>
@@ -2045,38 +1718,15 @@ function TransactionsTab({
       {/* Mobile cards */}
       <div className="txn-mobile">
         {loading ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 40,
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
             <Loader2 size={22} color="var(--ac)" className="spin" />
           </div>
         ) : transactions.length === 0 ? (
-          <div className="empty-state">
-            <Tag size={24} />
-            <p>No transactions found</p>
-          </div>
+          <div className="empty-state"><Tag size={24} /><p>No transactions found</p></div>
         ) : (
           <>
-            <div
-              className="cb"
-              onClick={toggleAll}
-              style={{
-                fontSize: 12,
-                color: "var(--tx3)",
-                gap: 6,
-                padding: "4px 0",
-              }}
-            >
-              {isAllSelected ? (
-                <CheckSquare size={13} color="var(--ac)" />
-              ) : (
-                <Square size={13} color="var(--tx4)" />
-              )}
+            <div className="cb" onClick={toggleAll} style={{ fontSize: 12, color: "var(--tx3)", gap: 6, padding: "4px 0" }}>
+              {isAllSelected ? <CheckSquare size={13} color="var(--ac)" /> : <Square size={13} color="var(--tx4)" />}
               Select all
             </div>
             {transactions.map(renderMobileCard)}
@@ -2087,23 +1737,9 @@ function TransactionsTab({
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="pagination">
-          <button
-            className="page-btn"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
-            <ChevronLeft size={14} />
-          </button>
-          <span className="page-info">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            className="page-btn"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-          >
-            <ChevronRight size={14} />
-          </button>
+          <button className="page-btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft size={14} /></button>
+          <span className="page-info">Page {page} of {totalPages}</span>
+          <button className="page-btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight size={14} /></button>
         </div>
       )}
     </div>
@@ -2121,23 +1757,14 @@ function AnalysisTab() {
     setLoading(true);
     fetch(`/api/expenses/analysis?month=${month}`)
       .then((r) => r.json())
-      .then((d) => {
-        if (d.success) setData(d);
-      })
+      .then((d) => { if (d.success) setData(d); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [month]);
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 60,
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 60 }}>
         <Loader2 size={26} color="var(--ac)" className="spin" />
       </div>
     );
@@ -2145,42 +1772,16 @@ function AnalysisTab() {
 
   if (!data) return null;
 
-  const { summary, categoryBreakdown, monthlyTrend, insights, paymentMethodBreakdown } =
-    data;
-
+  const { summary, categoryBreakdown, monthlyTrend, insights, paymentMethodBreakdown } = data;
   const maxTrend = Math.max(...monthlyTrend.map((m) => m.amount), 1);
-  const maxCat = categoryBreakdown[0]?.amount || 1;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {/* Month selector + quick stats */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <input
-          className="filter-select"
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-        />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <input className="filter-select" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
         {summary.expenseCount > 0 && (
-          <span
-            style={{
-              fontSize: 12,
-              color: "var(--tx4)",
-              background: "var(--sf)",
-              border: "1px solid var(--b1)",
-              padding: "5px 10px",
-              borderRadius: 7,
-            }}
-          >
-            {summary.expenseCount} expense
-            {summary.expenseCount !== 1 ? "s" : ""} this month
+          <span style={{ fontSize: 12, color: "var(--tx4)", background: "var(--sf)", border: "1px solid var(--b1)", padding: "5px 10px", borderRadius: 7 }}>
+            {summary.expenseCount} expense{summary.expenseCount !== 1 ? "s" : ""} this month
           </span>
         )}
       </div>
@@ -2188,82 +1789,29 @@ function AnalysisTab() {
       {/* Summary cards */}
       <div className="summary-4col">
         {[
-          {
-            label: "Total Spent",
-            value: fmt(summary.totalSpent),
-            color: "var(--red)",
-            icon: TrendingDown,
-          },
-          {
-            label: "Total Added",
-            value: fmt(summary.totalAdded),
-            color: "var(--green)",
-            icon: TrendingUp,
-          },
-          {
-            label: "Cash Spent",
-            value: fmt(summary.cashSpent),
-            color: "var(--amber)",
-            icon: Banknote,
-          },
-          {
-            label: "Online Spent",
-            value: fmt(summary.onlineSpent),
-            color: "var(--blue)",
-            icon: CreditCard,
-          },
+          { label: "Total Spent", value: fmt(summary.totalSpent), color: "var(--red)", icon: TrendingDown },
+          { label: "Total Added", value: fmt(summary.totalAdded), color: "var(--green)", icon: TrendingUp },
+          { label: "Cash Spent", value: fmt(summary.cashSpent), color: "var(--amber)", icon: Banknote },
+          { label: "Online Spent", value: fmt(summary.onlineSpent), color: "var(--blue)", icon: CreditCard },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="surface" style={{ padding: "14px 16px" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 10,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <p style={{ fontSize: 11, color: "var(--tx4)" }}>{label}</p>
-              <span
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 7,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: `${color}18`,
-                  color,
-                }}
-              >
+              <span style={{ width: 26, height: 26, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", background: `${color}18`, color }}>
                 <Icon size={12} />
               </span>
             </div>
-            <p
-              style={{
-                fontSize: 20,
-                fontWeight: 700,
-                color,
-                letterSpacing: "-0.5px",
-              }}
-            >
-              ₹{value}
-            </p>
+            <p style={{ fontSize: 20, fontWeight: 700, color, letterSpacing: "-0.5px" }}>₹{value}</p>
           </div>
         ))}
       </div>
 
-      {/* Charts row */}
+      {/* Charts */}
       <div className="analysis-2col">
-        {/* Category breakdown */}
         <div className="surface" style={{ padding: 20 }}>
-          <p className="section-title">
-            <Layers size={14} color="var(--ac)" />
-            Spending by Category
-          </p>
+          <p className="section-title"><Layers size={14} color="var(--ac)" />Spending by Category</p>
           {categoryBreakdown.length === 0 ? (
-            <div className="empty-state" style={{ padding: "30px 0" }}>
-              <p>No expenses this month</p>
-            </div>
+            <div className="empty-state" style={{ padding: "30px 0" }}><p>No expenses this month</p></div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {categoryBreakdown.slice(0, 7).map(({ category, amount }, i) => {
@@ -2271,50 +1819,18 @@ function AnalysisTab() {
                 const color = CAT_COLORS[i % CAT_COLORS.length];
                 return (
                   <div key={category}>
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        fontSize: 12,
-                        marginBottom: 5,
-                        alignItems: "center",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: "50%",
-                            background: color,
-                            flexShrink: 0,
-                          }}
-                        />
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5, alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
                         <span style={{ color: "var(--tx2)" }}>{category}</span>
                       </div>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <span style={{ color: "var(--tx4)", fontSize: 11 }}>{pct}%</span>
-                        <span
-                          style={{ color: "var(--tx)", fontWeight: 600, fontSize: 12 }}
-                        >
-                          ₹{fmt(amount)}
-                        </span>
+                        <span style={{ color: "var(--tx)", fontWeight: 600, fontSize: 12 }}>₹{fmt(amount)}</span>
                       </div>
                     </div>
                     <div className="progress-bar">
-                      <div
-                        className="progress-fill"
-                        style={{
-                          width: `${pct}%`,
-                          background: color,
-                        }}
-                      />
+                      <div className="progress-fill" style={{ width: `${pct}%`, background: color }} />
                     </div>
                   </div>
                 );
@@ -2323,16 +1839,10 @@ function AnalysisTab() {
           )}
         </div>
 
-        {/* 6-month trend bar chart */}
         <div className="surface" style={{ padding: 20 }}>
-          <p className="section-title">
-            <BarChart3 size={14} color="var(--ac)" />
-            6-Month Spending Trend
-          </p>
+          <p className="section-title"><BarChart3 size={14} color="var(--ac)" />6-Month Spending Trend</p>
           {monthlyTrend.every((m) => m.amount === 0) ? (
-            <div className="empty-state" style={{ padding: "30px 0" }}>
-              <p>No data available</p>
-            </div>
+            <div className="empty-state" style={{ padding: "30px 0" }}><p>No data available</p></div>
           ) : (
             <div className="bar-chart">
               {monthlyTrend.map(({ month: m, amount }, i) => {
@@ -2347,22 +1857,13 @@ function AnalysisTab() {
                         title={`${m}: ₹${fmt(amount)}`}
                         style={{
                           height: `${Math.max(h, amount > 0 ? 5 : 0)}%`,
-                          background: isCurr
-                            ? `linear-gradient(180deg, var(--ac), var(--ac-d))`
-                            : "var(--sf3)",
+                          background: isCurr ? "linear-gradient(180deg, var(--ac), var(--ac-d))" : "var(--sf3)",
                           border: isCurr ? "none" : "1px solid var(--b1)",
                         }}
                       />
                     </div>
-                    <span
-                      className="bar-label"
-                      style={{ color: isCurr ? "var(--ac)" : "var(--tx4)" }}
-                    >
-                      {shortMonth}
-                    </span>
-                    {amount > 0 && (
-                      <span className="bar-amt">₹{fmt(amount)}</span>
-                    )}
+                    <span className="bar-label" style={{ color: isCurr ? "var(--ac)" : "var(--tx4)" }}>{shortMonth}</span>
+                    {amount > 0 && <span className="bar-amt">₹{fmt(amount)}</span>}
                   </div>
                 );
               })}
@@ -2374,70 +1875,25 @@ function AnalysisTab() {
       {/* Cash vs Online */}
       {summary.totalSpent > 0 && (
         <div className="surface" style={{ padding: 20 }}>
-          <p className="section-title">
-            <DollarSign size={14} color="var(--ac)" />
-            Cash vs Online Breakdown
-          </p>
+          <p className="section-title"><DollarSign size={14} color="var(--ac)" />Cash vs Online Breakdown</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {paymentMethodBreakdown.map(({ method, amount }) => {
               const pct = Math.round((amount / summary.totalSpent) * 100);
               const color = method === "Cash" ? "var(--amber)" : "var(--blue)";
               return (
                 <div key={method}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      marginBottom: 6,
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        color: "var(--tx2)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {method === "Cash" ? (
-                        <Banknote size={13} color={color} />
-                      ) : (
-                        <CreditCard size={13} color={color} />
-                      )}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6, alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--tx2)", fontWeight: 500 }}>
+                      {method === "Cash" ? <Banknote size={13} color={color} /> : <CreditCard size={13} color={color} />}
                       {method}
                     </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 10,
-                        alignItems: "center",
-                      }}
-                    >
-                      <span style={{ fontSize: 12, color: "var(--tx4)" }}>
-                        {pct}%
-                      </span>
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          color,
-                          fontSize: 14,
-                        }}
-                      >
-                        ₹{fmt(amount)}
-                      </span>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: "var(--tx4)" }}>{pct}%</span>
+                      <span style={{ fontWeight: 700, color, fontSize: 14 }}>₹{fmt(amount)}</span>
                     </div>
                   </div>
                   <div className="progress-bar" style={{ height: 8 }}>
-                    <div
-                      className="progress-fill"
-                      style={{
-                        width: `${pct}%`,
-                        background: color,
-                      }}
-                    />
+                    <div className="progress-fill" style={{ width: `${pct}%`, background: color }} />
                   </div>
                 </div>
               );
@@ -2449,10 +1905,7 @@ function AnalysisTab() {
       {/* Insights */}
       {insights.length > 0 && (
         <div className="surface" style={{ padding: 20 }}>
-          <p className="section-title">
-            <Lightbulb size={14} color="var(--amber)" />
-            Smart Insights
-          </p>
+          <p className="section-title"><Lightbulb size={14} color="var(--amber)" />Smart Insights</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {insights.map((insight, i) => (
               <div key={i} className="insight-item">
@@ -2464,33 +1917,14 @@ function AnalysisTab() {
         </div>
       )}
 
-      {/* Avg daily spend */}
+      {/* Avg daily */}
       {summary.totalSpent > 0 && (
-        <div
-          className="surface"
-          style={{
-            padding: "14px 20px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 10,
-          }}
-        >
+        <div className="surface" style={{ padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Activity size={14} color="var(--ac)" />
-            <span style={{ fontSize: 13, color: "var(--tx2)" }}>
-              Average daily spend this month
-            </span>
+            <span style={{ fontSize: 13, color: "var(--tx2)" }}>Average daily spend this month</span>
           </div>
-          <span
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              color: "var(--tx)",
-              letterSpacing: "-0.3px",
-            }}
-          >
+          <span style={{ fontSize: 18, fontWeight: 700, color: "var(--tx)", letterSpacing: "-0.3px" }}>
             ₹{fmtDec(summary.averageDailySpend)}
           </span>
         </div>
@@ -2514,8 +1948,7 @@ function ManageTab({
   const [success, setSuccess] = useState("");
 
   const addCategory = async () => {
-    setError("");
-    setSuccess("");
+    setError(""); setSuccess("");
     if (!newCat.trim()) return setError("Please enter a category name.");
     setLoading(true);
     try {
@@ -2539,88 +1972,37 @@ function ManageTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div className="surface" style={{ padding: 20 }}>
-        <p className="section-title">
-          <Tag size={14} color="var(--ac)" />
-          Add Custom Category
-        </p>
+        <p className="section-title"><Tag size={14} color="var(--ac)" />Add Custom Category</p>
         <div style={{ display: "flex", gap: 10 }}>
           <input
             className="inp"
             type="text"
             placeholder="e.g. Gym, Subscriptions, Investment…"
             value={newCat}
-            onChange={(e) => {
-              setNewCat(e.target.value);
-              setError("");
-              setSuccess("");
-            }}
+            onChange={(e) => { setNewCat(e.target.value); setError(""); setSuccess(""); }}
             maxLength={50}
             onKeyDown={(e) => e.key === "Enter" && addCategory()}
             style={{ flex: 1 }}
           />
-          <button
-            className="btn btn-primary"
-            onClick={addCategory}
-            disabled={loading}
-            style={{ flexShrink: 0 }}
-          >
+          <button className="btn btn-primary" onClick={addCategory} disabled={loading} style={{ flexShrink: 0 }}>
             {loading && <Loader2 size={13} className="spin" />}
             Add
           </button>
         </div>
-        {error && (
-          <div className="err-box" style={{ marginTop: 10 }}>
-            {error}
-          </div>
-        )}
+        {error && <div className="err-box" style={{ marginTop: 10 }}>{error}</div>}
         {success && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "9px 12px",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--green)12",
-              border: "1px solid var(--green)30",
-              color: "var(--green)",
-              fontSize: 13,
-            }}
-          >
+          <div style={{ marginTop: 10, padding: "9px 12px", borderRadius: "var(--radius-sm)", background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)", color: "var(--green)", fontSize: 13 }}>
             ✓ {success}
           </div>
         )}
       </div>
 
       <div className="surface" style={{ padding: 20 }}>
-        <p className="section-title">
-          <Layers size={14} color="var(--ac)" />
-          All Categories ({categories.length})
-        </p>
+        <p className="section-title"><Layers size={14} color="var(--ac)" />All Categories ({categories.length})</p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {categories.map((cat, i) => (
-            <span
-              key={cat}
-              style={{
-                padding: "6px 12px",
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 500,
-                background: "var(--sf2)",
-                border: "1px solid var(--b1)",
-                color: "var(--tx2)",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: CAT_COLORS[i % CAT_COLORS.length],
-                  flexShrink: 0,
-                }}
-              />
+            <span key={cat} style={{ padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 500, background: "var(--sf2)", border: "1px solid var(--b1)", color: "var(--tx2)", display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: CAT_COLORS[i % CAT_COLORS.length], flexShrink: 0 }} />
               {cat}
             </span>
           ))}
@@ -2636,9 +2018,7 @@ export default function ExpensesPage() {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "transactions" | "analysis" | "manage"
-  >("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "transactions" | "analysis" | "manage">("overview");
   const [addMoneyOpen, setAddMoneyOpen] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
 
@@ -2674,55 +2054,41 @@ export default function ExpensesPage() {
   return (
     <>
       <Styles />
+      {/* NOTE: No theme class needed here — theme is inherited from html/body via CSS */}
       <div className="exp-root">
         <AddMoneyModal
           open={addMoneyOpen}
           onClose={() => setAddMoneyOpen(false)}
-          onSuccess={(w) => {
-            setWallet(w);
-            setAddMoneyOpen(false);
-          }}
+          onSuccess={(w) => { setWallet(w); setAddMoneyOpen(false); }}
         />
         <AddExpenseModal
           open={addExpenseOpen}
           onClose={() => setAddExpenseOpen(false)}
-          onSuccess={(w) => {
-            setWallet(w);
-            setAddExpenseOpen(false);
-          }}
+          onSuccess={(w) => { setWallet(w); setAddExpenseOpen(false); }}
           categories={categories}
           wallet={wallet}
         />
 
         <div className="exp-page">
-          {/* Header */}
           <div className="page-header">
             <div>
               <h1 className="page-title">Expense Tracker</h1>
               <p className="page-sub">Manage your wallet and track spending</p>
             </div>
             <div className="page-header-actions">
-              <button
-                className="btn btn-green"
-                onClick={() => setAddMoneyOpen(true)}
-              >
+              <button className="btn btn-green" onClick={() => setAddMoneyOpen(true)}>
                 <PlusCircle size={14} />
                 Add Money
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => setAddExpenseOpen(true)}
-              >
+              <button className="btn btn-primary" onClick={() => setAddExpenseOpen(true)}>
                 <MinusCircle size={14} />
                 Add Expense
               </button>
             </div>
           </div>
 
-          {/* Wallet cards */}
           <WalletCards wallet={wallet} loading={walletLoading} />
 
-          {/* Tab nav */}
           <div style={{ marginBottom: 20, overflowX: "auto" }}>
             <div className="tab-nav">
               {TABS.map(({ key, label, icon: Icon }) => (
@@ -2738,28 +2104,11 @@ export default function ExpensesPage() {
             </div>
           </div>
 
-          {/* Tab content */}
           <div className="fade-in" key={activeTab}>
-            {activeTab === "overview" && (
-              <OverviewTab
-                wallet={wallet}
-                onGoToTransactions={() => setActiveTab("transactions")}
-              />
-            )}
-            {activeTab === "transactions" && (
-              <TransactionsTab
-                categories={categories}
-                wallet={wallet}
-                onWalletUpdate={setWallet}
-              />
-            )}
+            {activeTab === "overview" && <OverviewTab wallet={wallet} onGoToTransactions={() => setActiveTab("transactions")} />}
+            {activeTab === "transactions" && <TransactionsTab categories={categories} wallet={wallet} onWalletUpdate={setWallet} />}
             {activeTab === "analysis" && <AnalysisTab />}
-            {activeTab === "manage" && (
-              <ManageTab
-                categories={categories}
-                onCategoriesUpdate={fetchCategories}
-              />
-            )}
+            {activeTab === "manage" && <ManageTab categories={categories} onCategoriesUpdate={fetchCategories} />}
           </div>
         </div>
       </div>
