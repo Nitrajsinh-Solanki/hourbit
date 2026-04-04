@@ -1,4 +1,4 @@
-// app/expenses/categories/route.ts
+// app/api/expenses/categories/route.ts
 import { NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
 import ExpenseCategory from "@/app/models/ExpenseCategory";
