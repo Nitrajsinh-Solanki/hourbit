@@ -1,5 +1,6 @@
 "use client";
 // app/dashboard/typing/page.tsx — Performance-optimised (MonkeyType-style DOM updates)
+// + Ninja Mode: slash-and-fall animation for correctly completed words
 
 import React, {
   useState, useEffect, useRef, useCallback,
@@ -11,7 +12,7 @@ import toast from "react-hot-toast";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type CursorStyle =
-  | "minimal" | "laser" | "electric" | "poison" | "heartbeat";
+  | "minimal" | "laser" | "electric" | "poison" | "heartbeat" | "ninja";
 
 type TypingMode =
   | "smallLetters" | "mixedLetters" | "punctuation"
@@ -33,6 +34,19 @@ interface TestResult {
 }
 interface WordToken { chars: string[]; startIdx: number; }
 
+// ─── Ninja Mode types ─────────────────────────────────────────────────────────
+
+interface NinjaFragment {
+  id: number;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  lineHeight: number;
+}
+
 // ─── Cursor style config ─────────────────────────────────────────────────────
 
 const CURSOR_STYLES: {
@@ -43,6 +57,7 @@ const CURSOR_STYLES: {
   { key: "electric",  label: "Electric",  icon: "⚔",  title: "Electric Blade — sharp energy blade" },
   { key: "poison",    label: "Poison",    icon: "☠",  title: "Poison Needle — toxic neon spike"    },
   { key: "heartbeat", label: "Heartbeat", icon: "♥",  title: "Heartbeat — pulsing alive caret"     },
+  { key: "ninja",     label: "Ninja",     icon: "🥷", title: "Ninja Mode — slice words as you type" },
 ];
 
 const CURSOR_LS_KEY    = "ty_cursor_style_v2";
@@ -177,15 +192,58 @@ function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
   );
 }
 
-// ─── TextDisplay — memoised, DOM-mutated text renderer ───────────────────────
+// ─── NinjaFxLayer — isolated animated overlay for sliced words ────────────────
 //
-// This component owns the character <span> refs and the single caret element.
-// It re-renders ONLY when `words` (structure) or `lineOffset` (scroll) changes —
-// never on individual keystrokes.
-// The parent calls updateTyped() imperatively; we mutate classList directly.
+// Renders absolutely-positioned word clones that animate slash+fall.
+// Completely isolated from typing logic — pure visual layer.
+// Lives inside the clip container so overflow:hidden clips falling fragments.
+
+function NinjaFxLayer({ fragments }: { fragments: NinjaFragment[] }) {
+  if (fragments.length === 0) return null;
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: 25,
+        overflow: "hidden",
+      }}
+    >
+      {fragments.map(f => (
+        <div
+          key={f.id}
+          className="ninja-frag"
+          style={{
+            position: "absolute",
+            left: f.x,
+            top: f.y,
+            width: f.width,
+            height: f.height,
+            fontSize: f.fontSize,
+            lineHeight: f.lineHeight,
+            fontFamily: "monospace",
+            whiteSpace: "nowrap",
+            letterSpacing: "0.02em",
+            userSelect: "none",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {/* The word text that falls */}
+          <span className="ninja-frag-text">{f.text}</span>
+          {/* The slash line that flashes across */}
+          <span className="ninja-slash-line" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── TextDisplay — memoised, DOM-mutated text renderer ───────────────────────
 
 interface TextDisplayHandle {
-  /** Called by parent on every keystroke — zero React state changes. */
   updateTyped(typed: string[], prevLen: number): void;
 }
 
@@ -200,19 +258,11 @@ interface TextDisplayProps {
 const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
   ({ words, lineOffset, typedRef, wordElsRef, textBlockRef }, handle) => {
 
-    // Flat array: charSpanRefs[globalCharIndex] = the <span> DOM element
     const charSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
-    // Cached flat char array — rebuilt only when `words` changes
     const allCharsRef  = useRef<string[]>([]);
-    // Single caret element that moves through the DOM (never recreated)
     const caretElRef   = useRef<HTMLSpanElement | null>(null);
 
-    // ── After every render: re-sync DOM with logical state ──────────────────
-    // Runs synchronously before paint → no flicker.
-    // Triggered by: words extension OR lineOffset change (both are infrequent).
-    // NOT triggered by keystrokes (no state changes on keystrokes).
     useLayoutEffect(() => {
-      // Lazy-create the persistent caret element
       if (!caretElRef.current) {
         const c = document.createElement("span");
         c.className = "ty-caret";
@@ -220,7 +270,6 @@ const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
         caretElRef.current = c;
       }
 
-      // Rebuild flat char cache (O(n) but only on words change)
       const allChars: string[] = [];
       for (const t of words) for (const ch of t.chars) allChars.push(ch);
       allCharsRef.current = allChars;
@@ -230,7 +279,6 @@ const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
       const len    = typed.length;
       const caret  = caretElRef.current;
 
-      // Reset every span to its correct class
       for (let i = 0; i < refs.length; i++) {
         const el = refs[i];
         if (!el) continue;
@@ -242,16 +290,14 @@ const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
         }
       }
 
-      // Place caret at cursor position
       const cursorEl = refs[len];
       if (cursorEl) {
         cursorEl.style.position = "relative";
         cursorEl.style.color    = "var(--text)";
         cursorEl.insertBefore(caret, cursorEl.firstChild);
       }
-    }); // no deps → runs after every render of this component
+    });
 
-    // ── Imperative update (hot path) ────────────────────────────────────────
     useImperativeHandle(handle, () => ({
       updateTyped(typed: string[], prevLen: number) {
         const allChars = allCharsRef.current;
@@ -261,7 +307,6 @@ const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
         const newLen = typed.length;
         const refs   = charSpanRefs.current;
 
-        // 1. Move caret to new position FIRST (avoids stale position:relative)
         const newCursorEl = refs[newLen];
         if (newCursorEl && caret.parentElement !== newCursorEl) {
           newCursorEl.style.position = "relative";
@@ -269,12 +314,11 @@ const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
           newCursorEl.insertBefore(caret, newCursorEl.firstChild);
         }
 
-        // 2. Update all other affected spans in the changed range
         const from = Math.min(prevLen, newLen);
         const to   = Math.max(prevLen, newLen);
 
         for (let i = from; i <= to && i < allChars.length; i++) {
-          if (i === newLen) continue; // already handled above
+          if (i === newLen) continue;
           const el = refs[i];
           if (!el) continue;
 
@@ -287,7 +331,7 @@ const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
           }
         }
       },
-    }), []); // stable — accesses everything through refs
+    }), []);
 
     return (
       <div
@@ -334,6 +378,8 @@ TextDisplay.displayName = "TextDisplay";
 
 const DEFAULT_TIMERS      = [15, 30, 60, 120];
 const LOOKAHEAD_THRESHOLD = 300;
+// Ninja animation duration: slash (180ms) + fall (480ms) + buffer = 700ms
+const NINJA_ANIM_DURATION = 700;
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -371,12 +417,14 @@ export default function TypingPage() {
   const [timeLeft, setTimeLeft]   = useState(30);
   const [result, setResult]       = useState<TestResult | null>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [lineOffset, setLineOffset] = useState(0); // replaces scrollTick
+  const [lineOffset, setLineOffset] = useState(0);
+
+  // ── Ninja Mode state ──────────────────────────────────────────────────────
+  // Small array, only updated when a word is sliced — not on every keystroke.
+  const [ninjaFragments, setNinjaFragments] = useState<NinjaFragment[]>([]);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
-  // typedRef: source of truth for typed chars (never stored in state)
   const typedRef         = useRef<string[]>([]);
-  // allCharsRef: flat char cache for O(1) error detection per keystroke
   const allCharsRef      = useRef<string[]>([]);
   const wordsRef         = useRef<WordToken[]>([]);
   const testStateRef     = useRef<TestState>("idle");
@@ -395,8 +443,18 @@ export default function TypingPage() {
   const lastRowRef       = useRef(-1);
   const lineOffsetRef    = useRef(0);
 
+  // Ninja Mode refs — stable, no re-renders on update
+  const cursorStyleRef  = useRef<CursorStyle>(DEFAULT_CURSOR);
+  const ninjaIdRef      = useRef(0);
+  // Track which word indices have already been animated (reset on initTest)
+  const ninjaAnimatedRef = useRef(new Set<number>());
+  // Timeout handles for cleanup — prevents memory leaks
+  const ninjaTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
   useEffect(() => { selectedTimerRef.current = selectedTimer; }, [selectedTimer]);
   useEffect(() => { typingModeRef.current    = typingMode;    }, [typingMode]);
+  // Keep cursorStyleRef in sync — used in hot path without stale closure risk
+  useEffect(() => { cursorStyleRef.current   = cursorStyle;   }, [cursorStyle]);
 
   // ── Stats fetch ───────────────────────────────────────────────────────────
 
@@ -441,10 +499,9 @@ export default function TypingPage() {
       const newTokens = appendTokens(typingModeRef.current, 150, totalChars);
       const extended  = [...current, ...newTokens];
       wordsRef.current = extended;
-      // Extend flat char cache in place — O(newTokens) not O(all)
       for (const t of newTokens) for (const ch of t.chars) allCharsRef.current.push(ch);
       wordElsRef.current = [...wordElsRef.current, ...new Array(newTokens.length).fill(null)];
-      setWords(extended); // triggers TextDisplay re-render; useLayoutEffect re-syncs states
+      setWords(extended);
     }
   }, []);
 
@@ -471,8 +528,69 @@ export default function TypingPage() {
     lastRowRef.current    = currentRow;
     const newOffset       = currentRow <= 0 ? 0 : -(currentRow * lineH);
     lineOffsetRef.current = newOffset;
-    // setLineOffset triggers TextDisplay re-render (infrequent — once per line)
     setLineOffset(newOffset);
+  }, []);
+
+  // ── Ninja Mode: spawn slash+fall animation for a completed word ───────────
+  //
+  // Called only when:
+  //   1. cursorStyle === "ninja"
+  //   2. A word was just fully and correctly typed
+  //   3. That word index has not been animated yet this session
+  //
+  // Uses only refs and the stable setNinjaFragments setter — zero stale closures.
+
+  const spawnNinjaFx = useCallback((wi: number) => {
+    // Guard: only in ninja mode
+    if (cursorStyleRef.current !== "ninja") return;
+    // Guard: no duplicate animations for the same word
+    if (ninjaAnimatedRef.current.has(wi)) return;
+    ninjaAnimatedRef.current.add(wi);
+
+    const wordEl = wordElsRef.current[wi];
+    const clipEl = clipRef.current;
+    if (!wordEl || !clipEl) return;
+
+    // Measure word position relative to the clip container
+    // getBoundingClientRect already accounts for CSS transforms (lineOffset)
+    const wordRect = wordEl.getBoundingClientRect();
+    const clipRect = clipEl.getBoundingClientRect();
+
+    const x = wordRect.left - clipRect.left;
+    const y = wordRect.top  - clipRect.top;
+
+    // Get word text (chars without trailing space)
+    const token  = wordsRef.current[wi];
+    const text   = token.chars.join("").trimEnd();
+
+    // Measure font metrics from the live element
+    const style      = getComputedStyle(wordEl);
+    const fontSize   = parseFloat(style.fontSize)   || 20;
+    const lineHeight = parseFloat(style.lineHeight) || fontSize * 2.4;
+
+    const id = ++ninjaIdRef.current;
+
+    // Add fragment — one small state update (very infrequent)
+    setNinjaFragments(prev => [
+      ...prev,
+      {
+        id,
+        text,
+        x,
+        y,
+        width:      wordRect.width,
+        height:     wordRect.height,
+        fontSize,
+        lineHeight,
+      },
+    ]);
+
+    // Auto-remove after animation completes — no memory leaks
+    const handle = setTimeout(() => {
+      setNinjaFragments(prev => prev.filter(f => f.id !== id));
+    }, NINJA_ANIM_DURATION);
+
+    ninjaTimeoutsRef.current.push(handle);
   }, []);
 
   // ── End test ──────────────────────────────────────────────────────────────
@@ -527,6 +645,14 @@ export default function TypingPage() {
     lineOffsetRef.current = 0;
     lastRowRef.current    = -1;
 
+    // ── Ninja Mode cleanup on restart ───────────────────────────────────────
+    // Clear all pending animation timeouts to prevent stale state updates
+    for (const h of ninjaTimeoutsRef.current) clearTimeout(h);
+    ninjaTimeoutsRef.current = [];
+    ninjaAnimatedRef.current = new Set<number>();
+    setNinjaFragments([]);
+    // ────────────────────────────────────────────────────────────────────────
+
     const tokens     = generateTokens(typingModeRef.current, 200);
     wordsRef.current = tokens;
     typedRef.current = [];
@@ -534,12 +660,11 @@ export default function TypingPage() {
     keystrokesRef.current = 0;
     rawErrorsRef.current  = 0;
 
-    // Rebuild flat char cache (O(n), only on init/restart)
     const allChars: string[] = [];
     for (const t of tokens) for (const ch of t.chars) allChars.push(ch);
     allCharsRef.current = allChars;
 
-    setWords(tokens);      // triggers TextDisplay re-render + useLayoutEffect reset
+    setWords(tokens);
     setLineOffset(0);
     setTimeLeft(selectedTimerRef.current);
     setResult(null);
@@ -552,7 +677,19 @@ export default function TypingPage() {
 
   useEffect(() => { initTest(); }, [selectedTimer, typingMode]); // eslint-disable-line
 
+  // Cleanup all ninja timeouts on unmount — prevents memory leaks
+  useEffect(() => {
+    return () => {
+      for (const h of ninjaTimeoutsRef.current) clearTimeout(h);
+    };
+  }, []);
+
   // ── Keyboard handler — hot path, ZERO state updates per keystroke ─────────
+  //
+  // Ninja Mode word-completion check:
+  //   - Only runs on SPACE key (word boundary)
+  //   - O(n) scan over words to find completed word — n is small in practice
+  //   - Calls spawnNinjaFx which uses only refs — no React overhead
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -568,7 +705,7 @@ export default function TypingPage() {
       if (e.key === "Backspace") {
         if (!typedRef.current.length) return;
         const prevLen = typedRef.current.length;
-        typedRef.current.pop(); // O(1) mutation
+        typedRef.current.pop();
         textDisplayRef.current?.updateTyped(typedRef.current, prevLen);
         updateScroll(typedRef.current.length);
         return;
@@ -579,11 +716,11 @@ export default function TypingPage() {
       if (testStateRef.current === "idle") {
         startTimeRef.current = Date.now();
         testStateRef.current = "running";
-        setTestState("running"); // one state update on test start
+        setTestState("running");
         let remaining = selectedTimerRef.current;
         timerRef.current = setInterval(() => {
           remaining -= 1;
-          setTimeLeft(remaining); // one state update per second
+          setTimeLeft(remaining);
           if (remaining <= 0) { clearInterval(timerRef.current!); endTest(); }
         }, 1000);
       }
@@ -591,11 +728,34 @@ export default function TypingPage() {
       // ── Record keystroke ─────────────────────────────────────────────────
       const pos = typedRef.current.length;
       keystrokesRef.current += 1;
-      // O(1) lookup via cached allCharsRef (no flatMap per keystroke!)
       if (allCharsRef.current[pos] !== e.key) rawErrorsRef.current += 1;
 
       const prevLen = typedRef.current.length;
-      typedRef.current.push(e.key); // O(1) amortised mutation
+      typedRef.current.push(e.key);
+
+      // ── Ninja Mode: detect word completion on space ──────────────────────
+      // Only check on space key — this is when words complete.
+      // Scan is inexpensive: most runs find the match in ≤5 iterations.
+      if (e.key === " " && cursorStyleRef.current === "ninja") {
+        const newLen = typedRef.current.length;
+        const tokens = wordsRef.current;
+        for (let wi = 0; wi < tokens.length; wi++) {
+          const t = tokens[wi];
+          const wordEnd = t.startIdx + t.chars.length;
+          if (wordEnd !== newLen) continue;
+          // Word wi is now fully typed. Check if every char matches.
+          let correct = true;
+          for (let ci = 0; ci < t.chars.length; ci++) {
+            if (typedRef.current[t.startIdx + ci] !== t.chars[ci]) {
+              correct = false;
+              break;
+            }
+          }
+          if (correct) spawnNinjaFx(wi);
+          break;
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
 
       // DOM update — zero React state changes
       textDisplayRef.current?.updateTyped(typedRef.current, prevLen);
@@ -603,7 +763,7 @@ export default function TypingPage() {
       maybeExtendWords(typedRef.current.length);
       updateScroll(typedRef.current.length);
     },
-    [endTest, initTest, updateScroll, maybeExtendWords],
+    [endTest, initTest, updateScroll, maybeExtendWords, spawnNinjaFx],
   );
 
   // ── Custom timer handlers ─────────────────────────────────────────────────
@@ -933,6 +1093,204 @@ export default function TypingPage() {
         }
 
         /* ════════════════════════════════════════════════
+           6. NINJA MODE CARET — sharp crimson blade
+           ════════════════════════════════════════════════ */
+        @keyframes ninja-caret-pulse {
+          0%,100% {
+            opacity: 1;
+            box-shadow: 0 0 3px 0px rgba(239,68,68,.9),
+                        0 0 8px 1px rgba(220,38,38,.4);
+          }
+          45% {
+            opacity: .7;
+            box-shadow: 0 0 2px 0px rgba(239,68,68,.5);
+          }
+          80% {
+            opacity: 1;
+            box-shadow: 0 0 5px 0px rgba(239,68,68,1),
+                        0 0 12px 1px rgba(220,38,38,.55);
+          }
+        }
+        [data-cursor="ninja"] .ty-caret {
+          background: linear-gradient(180deg,
+            rgba(255,255,255,.85) 0%,
+            #fca5a5 10%,
+            #f87171 28%,
+            #dc2626 52%,
+            #991b1b 78%,
+            rgba(127,29,29,.2) 100%);
+          animation: ninja-caret-pulse 600ms ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="ninja"] .ty-caret {
+          background: linear-gradient(180deg,
+            rgba(255,255,255,.9) 0%,
+            #fca5a5 12%,
+            #ef4444 35%,
+            #b91c1c 62%,
+            rgba(127,29,29,.35) 100%);
+        }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="ninja"] .ty-caret {
+            background: linear-gradient(180deg,
+              rgba(255,255,255,.9) 0%,
+              #fca5a5 12%,
+              #ef4444 35%,
+              #b91c1c 62%,
+              rgba(127,29,29,.35) 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           NINJA MODE FRAGMENT ANIMATIONS
+           GPU-only: transform + opacity exclusively.
+           ════════════════════════════════════════════════ */
+
+        /* The whole fragment container: falls + rotates + fades */
+        @keyframes ninja-word-fall {
+          0%   {
+            transform: translateY(0px) rotate(0deg) scaleY(1);
+            opacity: 1;
+          }
+          12%  {
+            /* tiny upward micro-bounce — impact snap */
+            transform: translateY(-3px) rotate(-0.5deg) scaleY(1.04);
+            opacity: 1;
+          }
+          28% {
+            transform: translateY(8px) rotate(-1.5deg) scaleY(0.96);
+            opacity: 0.92;
+          }
+          100% {
+            transform: translateY(72px) rotate(-6deg) scaleY(0.82);
+            opacity: 0;
+          }
+        }
+
+        /* The slash line: sweeps across the word width, then fades */
+        @keyframes ninja-slash-sweep {
+          0%   {
+            transform: scaleX(0) rotate(-7deg);
+            opacity: 0;
+          }
+          18%  {
+            transform: scaleX(0.08) rotate(-7deg);
+            opacity: 1;
+          }
+          55%  {
+            transform: scaleX(1) rotate(-7deg);
+            opacity: 0.85;
+          }
+          100% {
+            transform: scaleX(1) rotate(-7deg);
+            opacity: 0;
+          }
+        }
+
+        /* Optional: faint impact flash behind the word */
+        @keyframes ninja-impact-flash {
+          0%   { opacity: 0.55; transform: scaleX(1); }
+          60%  { opacity: 0.2;  transform: scaleX(1.04); }
+          100% { opacity: 0;    transform: scaleX(1); }
+        }
+
+        .ninja-frag {
+          will-change: transform, opacity;
+          /* fall animation drives the whole fragment */
+          animation: ninja-word-fall 490ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+          /* GPU layer promotion — keeps animation off main thread */
+          transform: translateZ(0);
+        }
+
+        /* Word text clone — colored like a correctly typed word */
+        .ninja-frag-text {
+          display: inline-block;
+          color: var(--tc-ok, #22d3a0);
+          position: relative;
+          z-index: 2;
+          /* subtle text glow for the premium look */
+          text-shadow:
+            0 0 8px rgba(34,211,160,.55),
+            0 0 16px rgba(34,211,160,.22);
+        }
+        body[data-theme="light"] .ninja-frag-text {
+          color: var(--tc-ok, #059669);
+          text-shadow:
+            0 0 6px rgba(5,150,105,.45),
+            0 0 12px rgba(5,150,105,.18);
+        }
+        @media (prefers-color-scheme:light) {
+          .ninja-frag-text {
+            color: var(--tc-ok, #059669);
+            text-shadow:
+              0 0 6px rgba(5,150,105,.45),
+              0 0 12px rgba(5,150,105,.18);
+          }
+        }
+
+        /* The slashing line — diagonal red/crimson streak */
+        .ninja-slash-line {
+          position: absolute;
+          /* center vertically across the word */
+          top: 50%;
+          left: -4px;
+          right: -4px;
+          height: 2px;
+          margin-top: -1px;
+          border-radius: 1px;
+          transform-origin: left center;
+          pointer-events: none;
+          z-index: 3;
+          /* dark mode: vivid crimson with glow */
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(252,165,165,.9) 8%,
+            #f87171 30%,
+            #ef4444 55%,
+            #dc2626 72%,
+            rgba(185,28,28,.6) 88%,
+            transparent 100%
+          );
+          box-shadow:
+            0 0 4px 1px rgba(239,68,68,.65),
+            0 0 10px 2px rgba(220,38,38,.3);
+          animation: ninja-slash-sweep 190ms ease-out forwards;
+          /* slash starts immediately, word falls with a tiny delay */
+          animation-delay: 0ms;
+          will-change: transform, opacity;
+        }
+        body[data-theme="light"] .ninja-slash-line {
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(185,28,28,.8) 10%,
+            #b91c1c 35%,
+            #991b1b 60%,
+            rgba(127,29,29,.7) 85%,
+            transparent 100%
+          );
+          box-shadow:
+            0 0 3px 1px rgba(185,28,28,.55),
+            0 0 7px 1px rgba(153,27,27,.25);
+        }
+        @media (prefers-color-scheme:light) {
+          .ninja-slash-line {
+            background: linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(185,28,28,.8) 10%,
+              #b91c1c 35%,
+              #991b1b 60%,
+              rgba(127,29,29,.7) 85%,
+              transparent 100%
+            );
+            box-shadow:
+              0 0 3px 1px rgba(185,28,28,.55),
+              0 0 7px 1px rgba(153,27,27,.25);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
            CURSOR SELECTOR UI
            ════════════════════════════════════════════════ */
         .cs-row   { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
@@ -961,18 +1319,23 @@ export default function TypingPage() {
         .cs-pill--electric.cs-pill--active  { background:rgba(56,189,248,.14);  border-color:rgba(125,211,252,.5);  color:#bae6fd; box-shadow:0 0 8px rgba(56,189,248,.2); }
         .cs-pill--poison.cs-pill--active    { background:rgba(74,222,128,.13);  border-color:rgba(74,222,128,.48);  color:#bbf7d0; box-shadow:0 0 8px rgba(74,222,128,.18); }
         .cs-pill--heartbeat.cs-pill--active { background:rgba(248,113,113,.13); border-color:rgba(248,113,113,.48); color:#fecaca; box-shadow:0 0 8px rgba(248,113,113,.18); }
+        /* Ninja pill — crimson */
+        .cs-pill--ninja.cs-pill--active     { background:rgba(220,38,38,.13);   border-color:rgba(239,68,68,.50);   color:#fca5a5; box-shadow:0 0 8px rgba(220,38,38,.22); }
 
         body[data-theme="light"] .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
         body[data-theme="light"] .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
         body[data-theme="light"] .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
+
         @media (prefers-color-scheme:light) {
           .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
           .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
           .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
           .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
           .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
+          .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
         }
 
         /* ── Click-to-focus overlay ── */
@@ -1138,10 +1501,9 @@ export default function TypingPage() {
               click the text and start typing
             </span>
           )}
-          {/* Live wpm/chars removed — results shown only after test ends */}
         </div>
 
-        {/* ── Typing area — no border, no focus ring ── */}
+        {/* ── Typing area ── */}
         <div
           ref={wrapperRef}
           tabIndex={0}
@@ -1188,6 +1550,14 @@ export default function TypingPage() {
               wordElsRef={wordElsRef}
               textBlockRef={textBlockRef}
             />
+
+            {/* ── Ninja Mode: slash+fall animation layer ───────────────────
+                Positioned inside clipRef so overflow:hidden clips
+                falling fragments that go below the viewport height.
+                Only mounts when there are active fragments — zero cost
+                when idle or in other cursor modes.
+            ──────────────────────────────────────────────────────────── */}
+            <NinjaFxLayer fragments={ninjaFragments} />
           </div>
         </div>
 
