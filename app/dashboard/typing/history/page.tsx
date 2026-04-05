@@ -147,6 +147,47 @@ function fmtShortDate(dateStr: string): string {
   return `${months[parseInt(m, 10) - 1]} ${parseInt(d, 10)}`;
 }
 
+// ─── Pagination helper ────────────────────────────────────────────────────────
+// Always shows: first page, last page, current ±1, and ellipsis gaps.
+// Max visible slots = 7 (1 … prev cur next … last)
+function buildPageNumbers(current: number, total: number): (number | "…")[] {
+  if (total <= 1) return [];
+
+  // For small page counts, show everything — no ellipsis needed
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+
+  const pages: (number | "…")[] = [];
+
+  // Always include page 1
+  pages.push(1);
+
+  // Gap after 1 if current is far enough from start
+  if (current > 3) {
+    pages.push("…");
+  }
+
+  // Window around current: [current-1, current, current+1]
+  // Clamped so we never overlap page 1 or last page
+  const winStart = Math.max(2, current - 1);
+  const winEnd   = Math.min(total - 1, current + 1);
+
+  for (let p = winStart; p <= winEnd; p++) {
+    pages.push(p);
+  }
+
+  // Gap before last if current is far enough from end
+  if (current < total - 2) {
+    pages.push("…");
+  }
+
+  // Always include last page
+  pages.push(total);
+
+  return pages;
+}
+
 // ─── Custom recharts tooltip ──────────────────────────────────────────────────
 
 function ChartTooltip({ active, payload, label }: {
@@ -311,20 +352,20 @@ function TimerBadge({ duration }: { duration: number }) {
 export default function TypingHistoryPage() {
 
   // ── Tab & filter state ────────────────────────────────────────────────────
-  const [activeTab, setActiveTab]       = useState<TabType>("history");
+  const [activeTab, setActiveTab]         = useState<TabType>("history");
   const [selectedTimer, setSelectedTimer] = useState(0); // 0 = all timers
-  const [selectedMode, setSelectedMode]  = useState("all");
-  const [customTimers, setCustomTimers]  = useState<CustomTimer[]>([]);
+  const [selectedMode, setSelectedMode]   = useState("all");
+  const [customTimers, setCustomTimers]   = useState<CustomTimer[]>([]);
 
   // ── History state ─────────────────────────────────────────────────────────
-  const [historyData, setHistoryData]      = useState<HistoryResult[]>([]);
-  const [historyTotal, setHistoryTotal]    = useState(0);
-  const [historyPages, setHistoryPages]    = useState(1);
-  const [currentPage, setCurrentPage]      = useState(1);
+  const [historyData, setHistoryData]       = useState<HistoryResult[]>([]);
+  const [historyTotal, setHistoryTotal]     = useState(0);
+  const [historyPages, setHistoryPages]     = useState(1);
+  const [currentPage, setCurrentPage]       = useState(1);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // ── Analysis state ────────────────────────────────────────────────────────
-  const [analysis, setAnalysis]           = useState<AnalysisResponse | null>(null);
+  const [analysis, setAnalysis]               = useState<AnalysisResponse | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
   // ── Fetch helpers ─────────────────────────────────────────────────────────
@@ -395,7 +436,7 @@ export default function TypingHistoryPage() {
   const modeBarData = useMemo(() => {
     if (!analysis?.byMode) return [];
     return analysis.byMode.map(m => ({
-      name:    MODE_LABEL[m._id] ?? m._id,
+      name:           MODE_LABEL[m._id] ?? m._id,
       "Avg WPM":      Math.round(m.avgWpm),
       "Best WPM":     m.bestWpm,
       "Avg Accuracy": Math.round(m.avgAccuracy),
@@ -406,7 +447,7 @@ export default function TypingHistoryPage() {
   const timerBarData = useMemo(() => {
     if (!analysis?.byTimer) return [];
     return analysis.byTimer.map(t => ({
-      name:     fmtDur(t._id as unknown as number),
+      name:           fmtDur(t._id as unknown as number),
       "Avg WPM":      Math.round(t.avgWpm),
       "Best WPM":     t.bestWpm,
       "Avg Accuracy": Math.round(t.avgAccuracy),
@@ -414,18 +455,13 @@ export default function TypingHistoryPage() {
     }));
   }, [analysis]);
 
-  // Page numbers for pagination (show at most 5)
-  const pageNumbers = useMemo(() => {
-    if (historyPages <= 7) return Array.from({ length: historyPages }, (_, i) => i + 1);
-    const pages: (number | "…")[] = [1];
-    if (currentPage > 3) pages.push("…");
-    for (let i = Math.max(2, currentPage - 1); i <= Math.min(historyPages - 1, currentPage + 1); i++) {
-      pages.push(i);
-    }
-    if (currentPage < historyPages - 2) pages.push("…");
-    pages.push(historyPages);
-    return pages;
-  }, [historyPages, currentPage]);
+  // ── Pagination numbers — smart truncation ─────────────────────────────────
+  // Pattern: 1 … [cur-1] [cur] [cur+1] … N
+  // Never more than ~7 slots regardless of total pages.
+  const pageNumbers = useMemo(
+    () => buildPageNumbers(currentPage, historyPages),
+    [currentPage, historyPages],
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -488,32 +524,98 @@ export default function TypingHistoryPage() {
           color: var(--accent2);
           border-color: rgba(124,110,243,.35);
         }
-        /* Pagination button */
-        .pg-btn {
-          min-width: 32px; height: 32px;
+
+        /* ── Pagination ── */
+        .pg-bar {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          flex-wrap: wrap;
+          padding: 4px 0;
+        }
+        /* Nav arrows (‹ ›) */
+        .pg-arrow {
+          min-width: 34px;
+          height: 34px;
+          padding: 0 10px;
+          border-radius: 9px;
+          font-size: 16px;
+          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          border: 1px solid var(--border2);
+          background: var(--surface2);
+          color: var(--text2);
+          transition: background 120ms, color 120ms, border-color 120ms, opacity 120ms;
+          user-select: none;
+          line-height: 1;
+        }
+        .pg-arrow:hover:not(:disabled) {
+          background: var(--surface);
+          color: var(--text);
+          border-color: rgba(124,110,243,.4);
+        }
+        .pg-arrow:disabled {
+          opacity: .3;
+          cursor: not-allowed;
+        }
+        /* Number buttons */
+        .pg-num {
+          min-width: 34px;
+          height: 34px;
           padding: 0 8px;
-          border-radius: 8px;
+          border-radius: 9px;
           font-size: 12px;
-          font-weight: 600;
+          font-weight: 700;
           font-family: monospace;
-          display: inline-flex; align-items: center; justify-content: center;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
           cursor: pointer;
           border: 1px solid var(--border2);
           background: var(--surface2);
           color: var(--text2);
           transition: background 120ms, color 120ms, border-color 120ms;
+          user-select: none;
         }
-        .pg-btn:hover:not(.pg-btn--active):not(:disabled) {
-          background: var(--surface); color: var(--text);
+        .pg-num:hover:not(.pg-num--active) {
+          background: var(--surface);
+          color: var(--text);
+          border-color: rgba(124,110,243,.3);
         }
-        .pg-btn--active {
-          background: rgba(124,110,243,.18);
-          border-color: rgba(124,110,243,.4);
+        .pg-num--active {
+          background: rgba(124,110,243,.20);
+          border-color: rgba(124,110,243,.55);
           color: var(--accent2);
+          box-shadow: 0 0 0 1px rgba(124,110,243,.18);
         }
-        .pg-btn:disabled {
-          opacity: .35; cursor: not-allowed;
+        /* Ellipsis */
+        .pg-ellipsis {
+          min-width: 28px;
+          height: 34px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text3);
+          letter-spacing: .05em;
+          user-select: none;
+          cursor: default;
         }
+        /* Page counter label e.g. "Page 3 of 47" */
+        .pg-counter {
+          font-size: 11px;
+          font-weight: 600;
+          font-family: monospace;
+          color: var(--text3);
+          padding: 0 6px;
+          white-space: nowrap;
+        }
+
         /* Recharts overrides — make grid lines subtle */
         .recharts-cartesian-grid-horizontal line,
         .recharts-cartesian-grid-vertical line {
@@ -545,9 +647,9 @@ export default function TypingHistoryPage() {
           <button key={t} onClick={() => setSelectedTimer(t)}
             className="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-semibold transition-all"
             style={{
-              background:   selectedTimer === t ? "var(--accent)"               : "var(--surface)",
-              color:        selectedTimer === t ? "#fff"                         : "var(--text2)",
-              border:       selectedTimer === t ? "1px solid var(--accent)"      : "1px solid var(--border2)",
+              background:   selectedTimer === t ? "var(--accent)"          : "var(--surface)",
+              color:        selectedTimer === t ? "#fff"                    : "var(--text2)",
+              border:       selectedTimer === t ? "1px solid var(--accent)" : "1px solid var(--border2)",
             }}>
             {t === 0 ? "All" : fmtDur(t)}
           </button>
@@ -668,28 +770,82 @@ export default function TypingHistoryPage() {
             </table>
           </div>
 
-          {/* Pagination */}
+          {/* ── Pagination ── */}
           {historyPages > 1 && !historyLoading && (
-            <div className="flex items-center justify-center gap-1.5 flex-wrap">
-              <button className="pg-btn" disabled={currentPage === 1}
-                onClick={() => setCurrentPage(p => p - 1)}>
-                ‹
-              </button>
-              {pageNumbers.map((p, i) =>
-                p === "…"
-                  ? <span key={`ellipsis-${i}`} style={{ color: "var(--text3)", padding: "0 4px" }}>…</span>
-                  : (
-                    <button key={p}
-                      className={`pg-btn${currentPage === p ? " pg-btn--active" : ""}`}
-                      onClick={() => setCurrentPage(p as number)}>
+            <div className="flex flex-col items-center gap-2">
+
+              {/* Page counter */}
+              <span className="pg-counter">
+                Page {currentPage} of {historyPages}
+              </span>
+
+              {/* Button bar */}
+              <div className="pg-bar">
+
+                {/* First page jump */}
+                <button
+                  className="pg-arrow"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(1)}
+                  title="First page"
+                  aria-label="First page"
+                >
+                  «
+                </button>
+
+                {/* Previous */}
+                <button
+                  className="pg-arrow"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  title="Previous page"
+                  aria-label="Previous page"
+                >
+                  ‹
+                </button>
+
+                {/* Number slots */}
+                {pageNumbers.map((p, i) =>
+                  p === "…" ? (
+                    <span key={`ellipsis-${i}`} className="pg-ellipsis" aria-hidden="true">
+                      ···
+                    </span>
+                  ) : (
+                    <button
+                      key={p}
+                      className={`pg-num${currentPage === p ? " pg-num--active" : ""}`}
+                      onClick={() => setCurrentPage(p as number)}
+                      aria-label={`Page ${p}`}
+                      aria-current={currentPage === p ? "page" : undefined}
+                    >
                       {p}
                     </button>
                   )
-              )}
-              <button className="pg-btn" disabled={currentPage === historyPages}
-                onClick={() => setCurrentPage(p => p + 1)}>
-                ›
-              </button>
+                )}
+
+                {/* Next */}
+                <button
+                  className="pg-arrow"
+                  disabled={currentPage === historyPages}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  title="Next page"
+                  aria-label="Next page"
+                >
+                  ›
+                </button>
+
+                {/* Last page jump */}
+                <button
+                  className="pg-arrow"
+                  disabled={currentPage === historyPages}
+                  onClick={() => setCurrentPage(historyPages)}
+                  title="Last page"
+                  aria-label="Last page"
+                >
+                  »
+                </button>
+
+              </div>
             </div>
           )}
         </div>
@@ -838,7 +994,7 @@ export default function TypingHistoryPage() {
                         <YAxis tick={{ fontSize: 11 }} />
                         <Tooltip content={<ChartTooltip />} />
                         <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                        <Bar dataKey="Avg WPM" fill={C.wpm}  radius={[4,4,0,0]} maxBarSize={36} />
+                        <Bar dataKey="Avg WPM"  fill={C.wpm}  radius={[4,4,0,0]} maxBarSize={36} />
                         <Bar dataKey="Best WPM" fill={C.best} radius={[4,4,0,0]} maxBarSize={36} />
                       </BarChart>
                     </ResponsiveContainer>
