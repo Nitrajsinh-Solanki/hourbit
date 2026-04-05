@@ -24,3 +24,117 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ── Keyframes ──────────────────────────────────────── */
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0);     }
+  50%       { transform: translateY(-14px); }
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0);    }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  from { transform: translateX(-100%) skewX(-12deg); }
+  to   { transform: translateX(220%)  skewX(-12deg); }
+}
+
+@keyframes gradientShift {
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px);  }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Utility classes ────────────────────────────────── */
+
+.animate-fade-up    { animation: fadeUp    0.72s ease both; }
+.animate-fade-in    { animation: fadeIn    0.6s  ease both; }
+.animate-float      { animation: float     6s    ease-in-out infinite; }
+.animate-float-slow { animation: floatSlow 8s    ease-in-out infinite; }
+.animate-pulse-glow { animation: pulseGlow 2s    ease-in-out infinite; }
+.animate-shimmer    { animation: shimmer   2.4s  ease-in-out infinite; }
+.animate-gradient   { animation: gradientShift 6s ease-in-out infinite; }
+
+.delay-0  { animation-delay: 0s;    opacity: 0; }
+.delay-1  { animation-delay: 0.12s; opacity: 0; }
+.delay-2  { animation-delay: 0.24s; opacity: 0; }
+.delay-3  { animation-delay: 0.38s; opacity: 0; }
+.delay-4  { animation-delay: 0.52s; opacity: 0; }
+.delay-5  { animation-delay: 0.68s; opacity: 0; }
+.delay-6  { animation-delay: 0.84s; opacity: 0; }
+
+/* ── Gradient text helpers ──────────────────────────── */
+
+.gradient-text {
+  background: linear-gradient(135deg, #a78bfa 0%, #7c6ef3 45%, #22d3a0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-warm {
+  background: linear-gradient(135deg, #fbbf24 0%, #f97316 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-teal {
+  background: linear-gradient(135deg, #22d3a0 0%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Shimmer overlay (for cards) ────────────────────── */
+
+.shimmer-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(124, 110, 243, 0.07) 50%,
+    transparent 60%
+  );
+  animation: shimmer 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── No scrollbar utility ───────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
