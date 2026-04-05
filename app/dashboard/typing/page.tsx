@@ -1,8 +1,10 @@
 "use client";
-// app/dashboard/typing/page.tsx
+// app/dashboard/typing/page.tsx — Performance-optimised (MonkeyType-style DOM updates)
+// + Ninja Mode: slash-and-fall animation for correctly completed words
 
 import React, {
-  useState, useEffect, useRef, useCallback, useMemo,
+  useState, useEffect, useRef, useCallback,
+  useLayoutEffect, useImperativeHandle, forwardRef,
 } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
@@ -10,11 +12,7 @@ import toast from "react-hot-toast";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type CursorStyle =
-  | "minimal"
-  | "laser"
-  | "electric"
-  | "poison"
-  | "heartbeat";
+  | "minimal" | "laser" | "electric" | "poison" | "heartbeat" | "ninja";
 
 type TypingMode =
   | "smallLetters" | "mixedLetters" | "punctuation"
@@ -34,9 +32,19 @@ interface TestResult {
   errors: number; totalKeystrokes: number;
   charactersTyped: number; duration: number;
 }
-interface WordToken {
-  chars: string[];
-  startIdx: number;
+interface WordToken { chars: string[]; startIdx: number; }
+
+// ─── Ninja Mode types ─────────────────────────────────────────────────────────
+
+interface NinjaFragment {
+  id: number;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  lineHeight: number;
 }
 
 // ─── Cursor style config ─────────────────────────────────────────────────────
@@ -49,20 +57,19 @@ const CURSOR_STYLES: {
   { key: "electric",  label: "Electric",  icon: "⚔",  title: "Electric Blade — sharp energy blade" },
   { key: "poison",    label: "Poison",    icon: "☠",  title: "Poison Needle — toxic neon spike"    },
   { key: "heartbeat", label: "Heartbeat", icon: "♥",  title: "Heartbeat — pulsing alive caret"     },
+  { key: "ninja",     label: "Ninja",     icon: "🥷", title: "Ninja Mode — slice words as you type" },
 ];
 
-const CURSOR_LS_KEY = "ty_cursor_style_v2";
+const CURSOR_LS_KEY    = "ty_cursor_style_v2";
 const DEFAULT_CURSOR: CursorStyle = "minimal";
 
 function safeReadCursor(): CursorStyle {
   try {
     const v = localStorage.getItem(CURSOR_LS_KEY) as CursorStyle | null;
-    const valid: CursorStyle[] = ["minimal","laser","electric","poison","heartbeat"];
-    if (v && valid.includes(v)) return v;
+    if (v && CURSOR_STYLES.some(c => c.key === v)) return v;
   } catch { /* unavailable */ }
   return DEFAULT_CURSOR;
 }
-
 function safeWriteCursor(v: CursorStyle) {
   try { localStorage.setItem(CURSOR_LS_KEY, v); } catch { /* unavailable */ }
 }
@@ -110,9 +117,13 @@ function pickWord(mode: TypingMode): string {
       return Math.random() > 0.72 ? w + PUNCT[Math.floor(Math.random() * PUNCT.length)] : w;
     }
     case "numbers":
-      return Math.random() > 0.5 ? NUMS[Math.floor(Math.random() * NUMS.length)] : base.toLowerCase();
+      return Math.random() > 0.5
+        ? NUMS[Math.floor(Math.random() * NUMS.length)]
+        : base.toLowerCase();
     case "numbersIncluded":
-      return Math.random() > 0.72 ? NUMS[Math.floor(Math.random() * NUMS.length)] : base.toLowerCase();
+      return Math.random() > 0.72
+        ? NUMS[Math.floor(Math.random() * NUMS.length)]
+        : base.toLowerCase();
     default:
       return base.toLowerCase();
   }
@@ -134,10 +145,9 @@ function appendTokens(mode: TypingMode, count = 150, startOffset: number): WordT
   const tokens: WordToken[] = [];
   let idx = startOffset;
   for (let i = 0; i < count; i++) {
-    const w     = pickWord(mode) + " ";
-    const chars = w.split("");
-    tokens.push({ chars, startIdx: idx });
-    idx += chars.length;
+    const w = pickWord(mode) + " ";
+    tokens.push({ chars: w.split(""), startIdx: idx });
+    idx += w.length;
   }
   return tokens;
 }
@@ -155,7 +165,6 @@ const EMPTY_STATS: TimerStats = {
   highestAccuracy: 0, wpmAtHighestAccuracy: 0,
   totalTests: 0, averageWpm: 0,
 };
-
 const statsCache = new Map<number, StatsResponse>();
 
 // ─── StatsCard ───────────────────────────────────────────────────────────────
@@ -183,14 +192,200 @@ function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
   );
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+// ─── NinjaFxLayer — isolated animated overlay for sliced words ────────────────
+//
+// Renders absolutely-positioned word clones that animate slash+fall.
+// Completely isolated from typing logic — pure visual layer.
+// Lives inside the clip container so overflow:hidden clips falling fragments.
 
-const DEFAULT_TIMERS = [15, 30, 60, 120];
+function NinjaFxLayer({ fragments }: { fragments: NinjaFragment[] }) {
+  if (fragments.length === 0) return null;
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: 25,
+        overflow: "hidden",
+      }}
+    >
+      {fragments.map(f => (
+        <div
+          key={f.id}
+          className="ninja-frag"
+          style={{
+            position: "absolute",
+            left: f.x,
+            top: f.y,
+            width: f.width,
+            height: f.height,
+            fontSize: f.fontSize,
+            lineHeight: f.lineHeight,
+            fontFamily: "monospace",
+            whiteSpace: "nowrap",
+            letterSpacing: "0.02em",
+            userSelect: "none",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {/* The word text that falls */}
+          <span className="ninja-frag-text">{f.text}</span>
+          {/* The slash line that flashes across */}
+          <span className="ninja-slash-line" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── TextDisplay — memoised, DOM-mutated text renderer ───────────────────────
+
+interface TextDisplayHandle {
+  updateTyped(typed: string[], prevLen: number): void;
+}
+
+interface TextDisplayProps {
+  words:        WordToken[];
+  lineOffset:   number;
+  typedRef:     React.MutableRefObject<string[]>;
+  wordElsRef:   React.MutableRefObject<(HTMLSpanElement | null)[]>;
+  textBlockRef: React.MutableRefObject<HTMLDivElement | null>;
+}
+
+const TextDisplay = forwardRef<TextDisplayHandle, TextDisplayProps>(
+  ({ words, lineOffset, typedRef, wordElsRef, textBlockRef }, handle) => {
+
+    const charSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
+    const allCharsRef  = useRef<string[]>([]);
+    const caretElRef   = useRef<HTMLSpanElement | null>(null);
+
+    useLayoutEffect(() => {
+      if (!caretElRef.current) {
+        const c = document.createElement("span");
+        c.className = "ty-caret";
+        c.setAttribute("aria-hidden", "true");
+        caretElRef.current = c;
+      }
+
+      const allChars: string[] = [];
+      for (const t of words) for (const ch of t.chars) allChars.push(ch);
+      allCharsRef.current = allChars;
+
+      const typed  = typedRef.current;
+      const refs   = charSpanRefs.current;
+      const len    = typed.length;
+      const caret  = caretElRef.current;
+
+      for (let i = 0; i < refs.length; i++) {
+        const el = refs[i];
+        if (!el) continue;
+        el.style.cssText = "";
+        if (i < len) {
+          el.className = typed[i] === allChars[i] ? "tc-ok" : "tc-er";
+        } else {
+          el.className = "tc-p";
+        }
+      }
+
+      const cursorEl = refs[len];
+      if (cursorEl) {
+        cursorEl.style.position = "relative";
+        cursorEl.style.color    = "var(--text)";
+        cursorEl.insertBefore(caret, cursorEl.firstChild);
+      }
+    });
+
+    useImperativeHandle(handle, () => ({
+      updateTyped(typed: string[], prevLen: number) {
+        const allChars = allCharsRef.current;
+        const caret    = caretElRef.current;
+        if (!caret) return;
+
+        const newLen = typed.length;
+        const refs   = charSpanRefs.current;
+
+        const newCursorEl = refs[newLen];
+        if (newCursorEl && caret.parentElement !== newCursorEl) {
+          newCursorEl.style.position = "relative";
+          newCursorEl.style.color    = "var(--text)";
+          newCursorEl.insertBefore(caret, newCursorEl.firstChild);
+        }
+
+        const from = Math.min(prevLen, newLen);
+        const to   = Math.max(prevLen, newLen);
+
+        for (let i = from; i <= to && i < allChars.length; i++) {
+          if (i === newLen) continue;
+          const el = refs[i];
+          if (!el) continue;
+
+          if (i < newLen) {
+            el.className     = typed[i] === allChars[i] ? "tc-ok" : "tc-er";
+            el.style.cssText = "";
+          } else {
+            el.className     = "tc-p";
+            el.style.cssText = "";
+          }
+        }
+      },
+    }), []);
+
+    return (
+      <div
+        ref={textBlockRef as React.RefObject<HTMLDivElement>}
+        className="ty-text font-mono"
+        style={{
+          display:       "flex",
+          flexWrap:      "wrap",
+          alignContent:  "flex-start",
+          transform:     `translateY(${lineOffset}px)`,
+          transition:    "transform 0.12s ease",
+          paddingBottom: "4em",
+          userSelect:    "none",
+          willChange:    "transform",
+        }}
+      >
+        {words.map((token, wi) => (
+          <span
+            key={wi}
+            ref={el => { wordElsRef.current[wi] = el; }}
+            className="wt"
+          >
+            {token.chars.map((ch, ci) => {
+              const gi = token.startIdx + ci;
+              return (
+                <span
+                  key={ci}
+                  ref={el => { charSpanRefs.current[gi] = el; }}
+                  className="tc-p"
+                >
+                  {ch === " " ? "\u00A0" : ch}
+                </span>
+              );
+            })}
+          </span>
+        ))}
+      </div>
+    );
+  }
+);
+TextDisplay.displayName = "TextDisplay";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DEFAULT_TIMERS      = [15, 30, 60, 120];
 const LOOKAHEAD_THRESHOLD = 300;
+// Ninja animation duration: slash (180ms) + fall (480ms) + buffer = 700ms
+const NINJA_ANIM_DURATION = 700;
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function TypingPage() {
 
-  // ── Cursor style — SSR-safe: read localStorage only after mount ───────────
+  // ── Cursor style — SSR-safe ───────────────────────────────────────────────
   const [cursorStyle, _setCursorStyle] = useState<CursorStyle>(DEFAULT_CURSOR);
   const [cursorMounted, setCursorMounted] = useState(false);
 
@@ -217,34 +412,49 @@ export default function TypingPage() {
   const [statsData, setStatsData]       = useState<StatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  const [testState, setTestState]   = useState<TestState>("idle");
-  const [words, setWords]           = useState<WordToken[]>([]);
-  const [typedChars, setTypedChars] = useState<string[]>([]);
-  const [timeLeft, setTimeLeft]     = useState(30);
-  const [result, setResult]         = useState<TestResult | null>(null);
-  const [isFocused, setIsFocused]   = useState(false);
+  const [testState, setTestState] = useState<TestState>("idle");
+  const [words, setWords]         = useState<WordToken[]>([]);
+  const [timeLeft, setTimeLeft]   = useState(30);
+  const [result, setResult]       = useState<TestResult | null>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const [lineOffset, setLineOffset] = useState(0);
 
-  const lineOffsetRef = useRef(0);
-  const [scrollTick, setScrollTick] = useState(0);
+  // ── Ninja Mode state ──────────────────────────────────────────────────────
+  // Small array, only updated when a word is sliced — not on every keystroke.
+  const [ninjaFragments, setNinjaFragments] = useState<NinjaFragment[]>([]);
 
+  // ── Refs ──────────────────────────────────────────────────────────────────
   const typedRef         = useRef<string[]>([]);
+  const allCharsRef      = useRef<string[]>([]);
   const wordsRef         = useRef<WordToken[]>([]);
   const testStateRef     = useRef<TestState>("idle");
-  const timerRef         = useRef<NodeJS.Timeout | null>(null);
+  const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef     = useRef<number>(0);
   const selectedTimerRef = useRef(30);
   const typingModeRef    = useRef<TypingMode>("smallLetters");
   const wrapperRef       = useRef<HTMLDivElement>(null);
   const textBlockRef     = useRef<HTMLDivElement>(null);
   const clipRef          = useRef<HTMLDivElement>(null);
+  const textDisplayRef   = useRef<TextDisplayHandle>(null);
+  const wordElsRef       = useRef<(HTMLSpanElement | null)[]>([]);
   const saveIdRef        = useRef("");
   const keystrokesRef    = useRef(0);
   const rawErrorsRef     = useRef(0);
-  const wordElsRef       = useRef<(HTMLSpanElement | null)[]>([]);
   const lastRowRef       = useRef(-1);
+  const lineOffsetRef    = useRef(0);
+
+  // Ninja Mode refs — stable, no re-renders on update
+  const cursorStyleRef  = useRef<CursorStyle>(DEFAULT_CURSOR);
+  const ninjaIdRef      = useRef(0);
+  // Track which word indices have already been animated (reset on initTest)
+  const ninjaAnimatedRef = useRef(new Set<number>());
+  // Timeout handles for cleanup — prevents memory leaks
+  const ninjaTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => { selectedTimerRef.current = selectedTimer; }, [selectedTimer]);
   useEffect(() => { typingModeRef.current    = typingMode;    }, [typingMode]);
+  // Keep cursorStyleRef in sync — used in hot path without stale closure risk
+  useEffect(() => { cursorStyleRef.current   = cursorStyle;   }, [cursorStyle]);
 
   // ── Stats fetch ───────────────────────────────────────────────────────────
 
@@ -283,18 +493,19 @@ export default function TypingPage() {
   const maybeExtendWords = useCallback((cursorIdx: number) => {
     const current = wordsRef.current;
     if (!current.length) return;
-    const lastToken  = current[current.length - 1];
-    const totalChars = lastToken.startIdx + lastToken.chars.length;
+    const last       = current[current.length - 1];
+    const totalChars = last.startIdx + last.chars.length;
     if (totalChars - cursorIdx < LOOKAHEAD_THRESHOLD) {
-      const newTokens  = appendTokens(typingModeRef.current, 150, totalChars);
-      const extended   = [...current, ...newTokens];
+      const newTokens = appendTokens(typingModeRef.current, 150, totalChars);
+      const extended  = [...current, ...newTokens];
       wordsRef.current = extended;
+      for (const t of newTokens) for (const ch of t.chars) allCharsRef.current.push(ch);
       wordElsRef.current = [...wordElsRef.current, ...new Array(newTokens.length).fill(null)];
       setWords(extended);
     }
   }, []);
 
-  // ── Scroll logic ──────────────────────────────────────────────────────────
+  // ── Scroll (direct DOM — no state update per keystroke) ──────────────────
 
   const updateScroll = useCallback((cursorCharIdx: number) => {
     if (!clipRef.current || !textBlockRef.current) return;
@@ -314,12 +525,75 @@ export default function TypingPage() {
     const lineH           = wordEl.offsetHeight || 40;
     const currentRow      = Math.round(wordTopInLayout / lineH);
     if (currentRow === lastRowRef.current) return;
-    lastRowRef.current = currentRow;
-    lineOffsetRef.current = currentRow <= 0 ? 0 : -(currentRow * lineH);
-    setScrollTick(t => t + 1);
+    lastRowRef.current    = currentRow;
+    const newOffset       = currentRow <= 0 ? 0 : -(currentRow * lineH);
+    lineOffsetRef.current = newOffset;
+    setLineOffset(newOffset);
   }, []);
 
-  // ── End test ─────────────────────────────────────────────────────────────
+  // ── Ninja Mode: spawn slash+fall animation for a completed word ───────────
+  //
+  // Called only when:
+  //   1. cursorStyle === "ninja"
+  //   2. A word was just fully and correctly typed
+  //   3. That word index has not been animated yet this session
+  //
+  // Uses only refs and the stable setNinjaFragments setter — zero stale closures.
+
+  const spawnNinjaFx = useCallback((wi: number) => {
+    // Guard: only in ninja mode
+    if (cursorStyleRef.current !== "ninja") return;
+    // Guard: no duplicate animations for the same word
+    if (ninjaAnimatedRef.current.has(wi)) return;
+    ninjaAnimatedRef.current.add(wi);
+
+    const wordEl = wordElsRef.current[wi];
+    const clipEl = clipRef.current;
+    if (!wordEl || !clipEl) return;
+
+    // Measure word position relative to the clip container
+    // getBoundingClientRect already accounts for CSS transforms (lineOffset)
+    const wordRect = wordEl.getBoundingClientRect();
+    const clipRect = clipEl.getBoundingClientRect();
+
+    const x = wordRect.left - clipRect.left;
+    const y = wordRect.top  - clipRect.top;
+
+    // Get word text (chars without trailing space)
+    const token  = wordsRef.current[wi];
+    const text   = token.chars.join("").trimEnd();
+
+    // Measure font metrics from the live element
+    const style      = getComputedStyle(wordEl);
+    const fontSize   = parseFloat(style.fontSize)   || 20;
+    const lineHeight = parseFloat(style.lineHeight) || fontSize * 2.4;
+
+    const id = ++ninjaIdRef.current;
+
+    // Add fragment — one small state update (very infrequent)
+    setNinjaFragments(prev => [
+      ...prev,
+      {
+        id,
+        text,
+        x,
+        y,
+        width:      wordRect.width,
+        height:     wordRect.height,
+        fontSize,
+        lineHeight,
+      },
+    ]);
+
+    // Auto-remove after animation completes — no memory leaks
+    const handle = setTimeout(() => {
+      setNinjaFragments(prev => prev.filter(f => f.id !== id));
+    }, NINJA_ANIM_DURATION);
+
+    ninjaTimeoutsRef.current.push(handle);
+  }, []);
+
+  // ── End test ──────────────────────────────────────────────────────────────
 
   const endTest = useCallback(async () => {
     const runId = `${Date.now()}-${Math.random()}`;
@@ -327,9 +601,9 @@ export default function TypingPage() {
     saveIdRef.current = runId;
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const typed      = [...typedRef.current];
     const dur        = selectedTimerRef.current;
     const mode       = typingModeRef.current;
+    const typed      = typedRef.current;
     const chars      = typed.length;
     const elapsedSec = startTimeRef.current > 0
       ? (Date.now() - startTimeRef.current) / 1000 : dur;
@@ -371,18 +645,29 @@ export default function TypingPage() {
     lineOffsetRef.current = 0;
     lastRowRef.current    = -1;
 
-    const tokens       = generateTokens(typingModeRef.current, 200);
-    wordsRef.current   = tokens;
-    typedRef.current   = [];
+    // ── Ninja Mode cleanup on restart ───────────────────────────────────────
+    // Clear all pending animation timeouts to prevent stale state updates
+    for (const h of ninjaTimeoutsRef.current) clearTimeout(h);
+    ninjaTimeoutsRef.current = [];
+    ninjaAnimatedRef.current = new Set<number>();
+    setNinjaFragments([]);
+    // ────────────────────────────────────────────────────────────────────────
+
+    const tokens     = generateTokens(typingModeRef.current, 200);
+    wordsRef.current = tokens;
+    typedRef.current = [];
     wordElsRef.current = [];
     keystrokesRef.current = 0;
     rawErrorsRef.current  = 0;
 
+    const allChars: string[] = [];
+    for (const t of tokens) for (const ch of t.chars) allChars.push(ch);
+    allCharsRef.current = allChars;
+
     setWords(tokens);
-    setTypedChars([]);
+    setLineOffset(0);
     setTimeLeft(selectedTimerRef.current);
     setResult(null);
-    setScrollTick(0);
     testStateRef.current = "idle";
     setTestState("idle");
     startTimeRef.current = 0;
@@ -392,7 +677,19 @@ export default function TypingPage() {
 
   useEffect(() => { initTest(); }, [selectedTimer, typingMode]); // eslint-disable-line
 
-  // ── Keyboard handler ─────────────────────────────────────────────────────
+  // Cleanup all ninja timeouts on unmount — prevents memory leaks
+  useEffect(() => {
+    return () => {
+      for (const h of ninjaTimeoutsRef.current) clearTimeout(h);
+    };
+  }, []);
+
+  // ── Keyboard handler — hot path, ZERO state updates per keystroke ─────────
+  //
+  // Ninja Mode word-completion check:
+  //   - Only runs on SPACE key (word boundary)
+  //   - O(n) scan over words to find completed word — n is small in practice
+  //   - Calls spawnNinjaFx which uses only refs — no React overhead
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -406,14 +703,16 @@ export default function TypingPage() {
       if (e.key === "Escape") { initTest(); return; }
 
       if (e.key === "Backspace") {
-        typedRef.current = typedRef.current.slice(0, -1);
-        const next = [...typedRef.current];
-        setTypedChars(next);
-        updateScroll(next.length);
+        if (!typedRef.current.length) return;
+        const prevLen = typedRef.current.length;
+        typedRef.current.pop();
+        textDisplayRef.current?.updateTyped(typedRef.current, prevLen);
+        updateScroll(typedRef.current.length);
         return;
       }
       if (e.key.length !== 1) return;
 
+      // ── Start timer on first keystroke ───────────────────────────────────
       if (testStateRef.current === "idle") {
         startTimeRef.current = Date.now();
         testStateRef.current = "running";
@@ -426,32 +725,46 @@ export default function TypingPage() {
         }, 1000);
       }
 
-      const allChars = wordsRef.current.flatMap(w => w.chars);
-      const pos      = typedRef.current.length;
+      // ── Record keystroke ─────────────────────────────────────────────────
+      const pos = typedRef.current.length;
       keystrokesRef.current += 1;
-      if (allChars[pos] !== e.key) rawErrorsRef.current += 1;
+      if (allCharsRef.current[pos] !== e.key) rawErrorsRef.current += 1;
 
-      typedRef.current = [...typedRef.current, e.key];
-      const next = [...typedRef.current];
-      setTypedChars(next);
-      maybeExtendWords(next.length);
-      updateScroll(next.length);
+      const prevLen = typedRef.current.length;
+      typedRef.current.push(e.key);
+
+      // ── Ninja Mode: detect word completion on space ──────────────────────
+      // Only check on space key — this is when words complete.
+      // Scan is inexpensive: most runs find the match in ≤5 iterations.
+      if (e.key === " " && cursorStyleRef.current === "ninja") {
+        const newLen = typedRef.current.length;
+        const tokens = wordsRef.current;
+        for (let wi = 0; wi < tokens.length; wi++) {
+          const t = tokens[wi];
+          const wordEnd = t.startIdx + t.chars.length;
+          if (wordEnd !== newLen) continue;
+          // Word wi is now fully typed. Check if every char matches.
+          let correct = true;
+          for (let ci = 0; ci < t.chars.length; ci++) {
+            if (typedRef.current[t.startIdx + ci] !== t.chars[ci]) {
+              correct = false;
+              break;
+            }
+          }
+          if (correct) spawnNinjaFx(wi);
+          break;
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
+
+      // DOM update — zero React state changes
+      textDisplayRef.current?.updateTyped(typedRef.current, prevLen);
+
+      maybeExtendWords(typedRef.current.length);
+      updateScroll(typedRef.current.length);
     },
-    [endTest, initTest, updateScroll, maybeExtendWords],
+    [endTest, initTest, updateScroll, maybeExtendWords, spawnNinjaFx],
   );
-
-  // ── Char states ───────────────────────────────────────────────────────────
-
-  const allChars = useMemo(() => words.flatMap(w => w.chars), [words]);
-
-  type CS = "correct" | "incorrect" | "cursor" | "pending";
-  const charStates = useMemo<CS[]>(() => {
-    return allChars.map((_, i) => {
-      if (i < typedChars.length) return typedChars[i] === allChars[i] ? "correct" : "incorrect";
-      if (i === typedChars.length) return "cursor";
-      return "pending";
-    });
-  }, [allChars, typedChars]);
 
   // ── Custom timer handlers ─────────────────────────────────────────────────
 
@@ -497,8 +810,8 @@ export default function TypingPage() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const timerLabel  = fmtDur(selectedTimer);
-  const s           = statsData?.stats ?? EMPTY_STATS;
+  const timerLabel = fmtDur(selectedTimer);
+  const s          = statsData?.stats ?? EMPTY_STATS;
   const globalTotal = statsData?.globalTotalTests ?? 0;
 
   const MODES: { key: TypingMode; label: string; title: string }[] = [
@@ -509,18 +822,7 @@ export default function TypingPage() {
     { key: "numbersIncluded", label: "ab1", title: "Words + numbers"  },
   ];
 
-  const liveWpm = useMemo(() => {
-    if (testState !== "running" || !startTimeRef.current) return null;
-    const elapsed = (Date.now() - startTimeRef.current) / 1000 / 60;
-    if (elapsed < 0.05) return null;
-    const raw = Math.round((typedChars.length / 5) / elapsed);
-    const ks  = keystrokesRef.current;
-    const re  = rawErrorsRef.current;
-    const acc = ks > 0 ? (ks - re) / ks : 1;
-    return Math.round(raw * acc * acc);
-  }, [testState, typedChars.length]);
-
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen flex flex-col gap-4 sm:gap-6 pb-10"
@@ -540,14 +842,11 @@ export default function TypingPage() {
         @media (prefers-color-scheme: light) { :root { --tc-p: #55556a; } }
 
         /* ── Typing layout ── */
-        .wt { display:inline-flex; white-space:nowrap; flex-shrink:0; }
-        .ty-text { font-size:clamp(16px,1.6vw + 8px,24px); line-height:2.4; letter-spacing:.02em; }
-        .ty-focused { box-shadow:0 0 0 2.5px rgba(124,110,243,.45); }
-        .ty-panel   { border-radius:16px; transition:box-shadow .2s; }
-        .ty-overlay {
-          position:absolute; inset:0; border-radius:12px; z-index:20;
-          display:flex; align-items:center; justify-content:center;
-          background:rgba(0,0,0,.50); backdrop-filter:blur(3px); cursor:pointer;
+        .wt { display: inline-flex; white-space: nowrap; flex-shrink: 0; }
+        .ty-text {
+          font-size: clamp(16px, 1.6vw + 8px, 24px);
+          line-height: 2.4;
+          letter-spacing: .02em;
         }
 
         /* ════════════════════════════════════════════════
@@ -586,19 +885,11 @@ export default function TypingPage() {
         }
 
         .ty-hist-link {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 5px 13px 5px 9px;
-          border-radius: 10px;
-          font-size: 11.5px;
-          font-weight: 700;
-          letter-spacing: .04em;
-          text-decoration: none;
-          position: relative;
-          overflow: hidden;
-          isolation: isolate;
-          white-space: nowrap;
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 5px 13px 5px 9px; border-radius: 10px;
+          font-size: 11.5px; font-weight: 700; letter-spacing: .04em;
+          text-decoration: none; position: relative; overflow: hidden;
+          isolation: isolate; white-space: nowrap;
           color: var(--accent2, #c4b5fd);
           background: rgba(124,110,243,.08);
           border: 1px solid rgba(124,110,243,.3);
@@ -606,74 +897,51 @@ export default function TypingPage() {
           animation: hist-glow-pulse 3.5s ease-in-out infinite 1.2s;
         }
         .ty-hist-link::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(
-            105deg,
-            transparent 35%,
-            rgba(167,139,250,.18) 50%,
-            transparent 65%
-          );
+          content: ''; position: absolute; inset: 0;
+          background: linear-gradient(105deg,transparent 35%,rgba(167,139,250,.18) 50%,transparent 65%);
           transform: translateX(-100%) skewX(-15deg);
           animation: hist-shimmer 3.5s ease-in-out infinite 1.2s;
-          pointer-events: none;
-          z-index: 1;
+          pointer-events: none; z-index: 1;
         }
         .ty-hist-link:hover {
-          color: #fff;
-          background: rgba(124,110,243,.22);
+          color: #fff; background: rgba(124,110,243,.22);
           border-color: rgba(167,139,250,.65);
           box-shadow: 0 0 14px 3px rgba(124,110,243,.35), 0 0 28px 6px rgba(99,102,241,.15);
           animation: none;
         }
         .ty-hist-link:hover::before { animation: none; }
         .ty-hist-link:hover .ty-hist-icon { animation: hist-icon-bounce 600ms ease-in-out; }
-
         .ty-hist-icon {
-          font-size: 13px;
-          display: inline-block;
+          font-size: 13px; display: inline-block;
           animation: hist-icon-bounce 3.5s ease-in-out infinite 1.2s;
           position: relative; z-index: 2;
         }
-        .ty-hist-text {
-          position: relative; z-index: 2;
-          animation: hist-text-flicker 7s ease-in-out infinite 2s;
-        }
+        .ty-hist-text { position: relative; z-index: 2; animation: hist-text-flicker 7s ease-in-out infinite 2s; }
         .ty-hist-dot {
-          width: 5px; height: 5px;
-          border-radius: 50%;
-          background: var(--accent2, #c4b5fd);
-          display: inline-block;
-          margin-right: 1px;
-          position: relative; z-index: 2;
-          animation: hist-dot-pulse 1.8s ease-in-out infinite;
+          width: 5px; height: 5px; border-radius: 50%;
+          background: var(--accent2, #c4b5fd); display: inline-block; margin-right: 1px;
+          position: relative; z-index: 2; animation: hist-dot-pulse 1.8s ease-in-out infinite;
           box-shadow: 0 0 4px 1px rgba(167,139,250,.55);
         }
-
-        body[data-theme="light"] .ty-hist-link {
-          color: #5b21b6;
-          background: rgba(109,40,217,.06);
-          border-color: rgba(109,40,217,.28);
-        }
-        body[data-theme="light"] .ty-hist-dot { background: #7c3aed; box-shadow: 0 0 3px 1px rgba(124,58,237,.4); }
+        body[data-theme="light"] .ty-hist-link { color:#5b21b6; background:rgba(109,40,217,.06); border-color:rgba(109,40,217,.28); }
+        body[data-theme="light"] .ty-hist-dot  { background:#7c3aed; box-shadow:0 0 3px 1px rgba(124,58,237,.4); }
         @media (prefers-color-scheme:light) {
-          .ty-hist-link { color: #5b21b6; background: rgba(109,40,217,.06); border-color: rgba(109,40,217,.28); }
-          .ty-hist-dot  { background: #7c3aed; box-shadow: 0 0 3px 1px rgba(124,58,237,.4); }
+          .ty-hist-link { color:#5b21b6; background:rgba(109,40,217,.06); border-color:rgba(109,40,217,.28); }
+          .ty-hist-dot  { background:#7c3aed; box-shadow:0 0 3px 1px rgba(124,58,237,.4); }
         }
 
         /* ════════════════════════════════════════════════
-           CARET BASE
+           CARET BASE — 2px wide for ALL styles
            ════════════════════════════════════════════════ */
         .ty-caret {
           position: absolute;
           left: -1px;
-          top: 10%;
-          bottom: 6%;
+          top: 8%;
+          bottom: 8%;
           width: 2px;
-          border-radius: 2px;
+          border-radius: 1px;
           pointer-events: none;
-          will-change: opacity, transform, box-shadow;
+          will-change: opacity, box-shadow;
           contain: strict;
           overflow: visible;
         }
@@ -682,13 +950,13 @@ export default function TypingPage() {
            1. MINIMAL
            ════════════════════════════════════════════════ */
         @keyframes minimal-blink {
-          0%,49%  { opacity:1; }
-          50%,100% { opacity:0; }
+          0%,49%  { opacity: 1; }
+          50%,100% { opacity: 0; }
         }
         [data-cursor="minimal"] .ty-caret {
-          width:2px; background:var(--accent, #7c6ef3);
-          border-radius:1px; box-shadow:none;
-          animation:minimal-blink 1.05s step-end infinite;
+          background: var(--accent, #7c6ef3);
+          box-shadow: none;
+          animation: minimal-blink 1.05s step-end infinite;
         }
 
         /* ════════════════════════════════════════════════
@@ -696,34 +964,32 @@ export default function TypingPage() {
            ════════════════════════════════════════════════ */
         @keyframes laser-breathe {
           0%,100% {
-            opacity:1;
-            box-shadow:0 0 5px 2px rgba(167,139,250,.8),
-                       0 0 14px 3px rgba(139,92,246,.5),
-                       0 0 28px 5px rgba(109,40,217,.2);
+            opacity: 1;
+            box-shadow: 0 0 4px 0px rgba(167,139,250,.9),
+                        0 0 10px 1px rgba(139,92,246,.5);
           }
           50% {
-            opacity:.45;
-            box-shadow:0 0 3px 1px rgba(167,139,250,.3),
-                       0 0 8px 2px rgba(139,92,246,.18);
+            opacity: .5;
+            box-shadow: 0 0 2px 0px rgba(167,139,250,.4),
+                        0 0 5px 0px rgba(139,92,246,.2);
           }
         }
         [data-cursor="laser"] .ty-caret {
-          width:2px;
-          background:linear-gradient(180deg,
+          background: linear-gradient(180deg,
             transparent 0%, rgba(233,213,255,.9) 15%,
             #c4b5fd 45%, #a78bfa 55%,
             rgba(233,213,255,.9) 85%, transparent 100%);
-          animation:laser-breathe 1s ease-in-out infinite;
+          animation: laser-breathe 1s ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="laser"] .ty-caret {
-          background:linear-gradient(180deg,
+          background: linear-gradient(180deg,
             transparent 0%, rgba(109,40,217,.85) 15%,
             #7c3aed 45%, #6d28d9 55%,
             rgba(109,40,217,.85) 85%, transparent 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="laser"] .ty-caret {
-            background:linear-gradient(180deg,
+            background: linear-gradient(180deg,
               transparent 0%, rgba(109,40,217,.85) 15%,
               #7c3aed 45%, #6d28d9 55%,
               rgba(109,40,217,.85) 85%, transparent 100%);
@@ -735,38 +1001,34 @@ export default function TypingPage() {
            ════════════════════════════════════════════════ */
         @keyframes electric-surge {
           0%,100% {
-            opacity:1;
-            box-shadow:0 0 4px 1px rgba(125,211,252,.85),
-                       0 0 14px 3px rgba(56,189,248,.55),
-                       0 0 28px 6px rgba(14,165,233,.25);
+            opacity: 1;
+            box-shadow: 0 0 4px 0px rgba(125,211,252,.9),
+                        0 0 12px 1px rgba(56,189,248,.5);
           }
-          35% { opacity:.65; box-shadow:0 0 2px 1px rgba(125,211,252,.35),0 0 6px 2px rgba(56,189,248,.2); }
+          35% { opacity: .6; box-shadow: 0 0 2px 0px rgba(125,211,252,.35); }
           65% {
-            opacity:1;
-            box-shadow:0 0 7px 2px rgba(125,211,252,1),
-                       0 0 20px 5px rgba(56,189,248,.75),
-                       0 0 40px 9px rgba(14,165,233,.38);
+            opacity: 1;
+            box-shadow: 0 0 6px 0px rgba(125,211,252,1),
+                        0 0 16px 2px rgba(56,189,248,.65);
           }
-          82% { opacity:.8; box-shadow:0 0 4px 1px rgba(125,211,252,.7),0 0 14px 3px rgba(56,189,248,.45); }
         }
         [data-cursor="electric"] .ty-caret {
-          width:2px;
-          background:linear-gradient(180deg,
+          background: linear-gradient(180deg,
             transparent 0%, rgba(224,242,254,.7) 8%,
             #fff 20%, #bae6fd 35%,
             #38bdf8 55%, #0ea5e9 75%,
             rgba(14,165,233,.4) 90%, transparent 100%);
-          animation:electric-surge 700ms ease-in-out infinite;
+          animation: electric-surge 700ms ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="electric"] .ty-caret {
-          background:linear-gradient(180deg,
+          background: linear-gradient(180deg,
             transparent 0%, rgba(3,105,161,.65) 10%,
             #0284c7 30%, #0369a1 55%,
             rgba(3,105,161,.5) 85%, transparent 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="electric"] .ty-caret {
-            background:linear-gradient(180deg,
+            background: linear-gradient(180deg,
               transparent 0%, rgba(3,105,161,.65) 10%,
               #0284c7 30%, #0369a1 55%,
               rgba(3,105,161,.5) 85%, transparent 100%);
@@ -778,32 +1040,29 @@ export default function TypingPage() {
            ════════════════════════════════════════════════ */
         @keyframes poison-pulse {
           0%,100% {
-            opacity:1;
-            box-shadow:0 0 5px 2px rgba(74,222,128,.82),
-                       0 0 14px 4px rgba(22,163,74,.52),
-                       0 0 26px 6px rgba(21,128,61,.26);
+            opacity: 1;
+            box-shadow: 0 0 4px 0px rgba(74,222,128,.85),
+                        0 0 12px 1px rgba(22,163,74,.45);
           }
-          35% { opacity:.55; box-shadow:0 0 2px 1px rgba(74,222,128,.35),0 0 6px 2px rgba(22,163,74,.2); }
+          35% { opacity: .5; box-shadow: 0 0 2px 0px rgba(74,222,128,.3); }
           68% {
-            opacity:.95;
-            box-shadow:0 0 6px 2px rgba(74,222,128,.88),
-                       0 0 18px 5px rgba(22,163,74,.58),
-                       0 0 34px 8px rgba(21,128,61,.32);
+            opacity: .95;
+            box-shadow: 0 0 5px 0px rgba(74,222,128,.9),
+                        0 0 14px 2px rgba(22,163,74,.5);
           }
         }
         [data-cursor="poison"] .ty-caret {
-          width:2px;
-          background:linear-gradient(180deg,
-            rgba(255,255,255,.92) 0%,#bbf7d0 10%,#4ade80 30%,
-            #22c55e 55%,#16a34a 78%,rgba(21,128,61,.3) 100%);
-          animation:poison-pulse 1.4s ease-in-out infinite;
+          background: linear-gradient(180deg,
+            rgba(255,255,255,.92) 0%, #bbf7d0 10%, #4ade80 30%,
+            #22c55e 55%, #16a34a 78%, rgba(21,128,61,.3) 100%);
+          animation: poison-pulse 1.4s ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="poison"] .ty-caret {
-          background:linear-gradient(180deg,rgba(255,255,255,.8) 0%,#86efac 12%,#16a34a 38%,#15803d 64%,rgba(20,83,45,.4) 100%);
+          background: linear-gradient(180deg,rgba(255,255,255,.8) 0%,#86efac 12%,#16a34a 38%,#15803d 64%,rgba(20,83,45,.4) 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="poison"] .ty-caret {
-            background:linear-gradient(180deg,rgba(255,255,255,.8) 0%,#86efac 12%,#16a34a 38%,#15803d 64%,rgba(20,83,45,.4) 100%);
+            background: linear-gradient(180deg,rgba(255,255,255,.8) 0%,#86efac 12%,#16a34a 38%,#15803d 64%,rgba(20,83,45,.4) 100%);
           }
         }
 
@@ -811,26 +1070,223 @@ export default function TypingPage() {
            5. HEARTBEAT
            ════════════════════════════════════════════════ */
         @keyframes heartbeat {
-          0%   { opacity:.35; box-shadow:0 0 2px 1px rgba(248,113,113,.18); }
-          10%  { opacity:1;   box-shadow:0 0 8px 2px rgba(248,113,113,.92),0 0 20px 6px rgba(239,68,68,.52); }
-          20%  { opacity:.45; box-shadow:0 0 3px 1px rgba(248,113,113,.28); }
-          30%  { opacity:1;   box-shadow:0 0 11px 3px rgba(248,113,113,.96),0 0 28px 8px rgba(239,68,68,.56); }
-          44%  { opacity:.3;  box-shadow:0 0 2px 1px rgba(248,113,113,.14); }
-          100% { opacity:.35; box-shadow:0 0 2px 1px rgba(248,113,113,.18); }
+          0%   { opacity: .35; box-shadow: 0 0 2px 0px rgba(248,113,113,.2); }
+          10%  { opacity: 1;   box-shadow: 0 0 6px 0px rgba(248,113,113,.95), 0 0 16px 2px rgba(239,68,68,.45); }
+          20%  { opacity: .45; box-shadow: 0 0 2px 0px rgba(248,113,113,.3); }
+          30%  { opacity: 1;   box-shadow: 0 0 8px 1px rgba(248,113,113,.98), 0 0 20px 3px rgba(239,68,68,.5); }
+          44%  { opacity: .3;  box-shadow: 0 0 1px 0px rgba(248,113,113,.15); }
+          100% { opacity: .35; box-shadow: 0 0 2px 0px rgba(248,113,113,.2); }
         }
         [data-cursor="heartbeat"] .ty-caret {
-          width:2px;
-          background:linear-gradient(180deg,
-            rgba(255,255,255,.62) 0%,#fca5a5 18%,#f87171 42%,
-            #ef4444 65%,rgba(185,28,28,.5) 100%);
-          animation:heartbeat 900ms ease-in-out infinite;
+          background: linear-gradient(180deg,
+            rgba(255,255,255,.62) 0%, #fca5a5 18%, #f87171 42%,
+            #ef4444 65%, rgba(185,28,28,.5) 100%);
+          animation: heartbeat 900ms ease-in-out infinite;
         }
         body[data-theme="light"] [data-cursor="heartbeat"] .ty-caret {
-          background:linear-gradient(180deg,rgba(255,255,255,.6) 0%,#fca5a5 18%,#ef4444 42%,#dc2626 65%,rgba(153,27,27,.5) 100%);
+          background: linear-gradient(180deg,rgba(255,255,255,.6) 0%,#fca5a5 18%,#ef4444 42%,#dc2626 65%,rgba(153,27,27,.5) 100%);
         }
         @media (prefers-color-scheme:light) {
           [data-cursor="heartbeat"] .ty-caret {
-            background:linear-gradient(180deg,rgba(255,255,255,.6) 0%,#fca5a5 18%,#ef4444 42%,#dc2626 65%,rgba(153,27,27,.5) 100%);
+            background: linear-gradient(180deg,rgba(255,255,255,.6) 0%,#fca5a5 18%,#ef4444 42%,#dc2626 65%,rgba(153,27,27,.5) 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           6. NINJA MODE CARET — sharp crimson blade
+           ════════════════════════════════════════════════ */
+        @keyframes ninja-caret-pulse {
+          0%,100% {
+            opacity: 1;
+            box-shadow: 0 0 3px 0px rgba(239,68,68,.9),
+                        0 0 8px 1px rgba(220,38,38,.4);
+          }
+          45% {
+            opacity: .7;
+            box-shadow: 0 0 2px 0px rgba(239,68,68,.5);
+          }
+          80% {
+            opacity: 1;
+            box-shadow: 0 0 5px 0px rgba(239,68,68,1),
+                        0 0 12px 1px rgba(220,38,38,.55);
+          }
+        }
+        [data-cursor="ninja"] .ty-caret {
+          background: linear-gradient(180deg,
+            rgba(255,255,255,.85) 0%,
+            #fca5a5 10%,
+            #f87171 28%,
+            #dc2626 52%,
+            #991b1b 78%,
+            rgba(127,29,29,.2) 100%);
+          animation: ninja-caret-pulse 600ms ease-in-out infinite;
+        }
+        body[data-theme="light"] [data-cursor="ninja"] .ty-caret {
+          background: linear-gradient(180deg,
+            rgba(255,255,255,.9) 0%,
+            #fca5a5 12%,
+            #ef4444 35%,
+            #b91c1c 62%,
+            rgba(127,29,29,.35) 100%);
+        }
+        @media (prefers-color-scheme:light) {
+          [data-cursor="ninja"] .ty-caret {
+            background: linear-gradient(180deg,
+              rgba(255,255,255,.9) 0%,
+              #fca5a5 12%,
+              #ef4444 35%,
+              #b91c1c 62%,
+              rgba(127,29,29,.35) 100%);
+          }
+        }
+
+        /* ════════════════════════════════════════════════
+           NINJA MODE FRAGMENT ANIMATIONS
+           GPU-only: transform + opacity exclusively.
+           ════════════════════════════════════════════════ */
+
+        /* The whole fragment container: falls + rotates + fades */
+        @keyframes ninja-word-fall {
+          0%   {
+            transform: translateY(0px) rotate(0deg) scaleY(1);
+            opacity: 1;
+          }
+          12%  {
+            /* tiny upward micro-bounce — impact snap */
+            transform: translateY(-3px) rotate(-0.5deg) scaleY(1.04);
+            opacity: 1;
+          }
+          28% {
+            transform: translateY(8px) rotate(-1.5deg) scaleY(0.96);
+            opacity: 0.92;
+          }
+          100% {
+            transform: translateY(72px) rotate(-6deg) scaleY(0.82);
+            opacity: 0;
+          }
+        }
+
+        /* The slash line: sweeps across the word width, then fades */
+        @keyframes ninja-slash-sweep {
+          0%   {
+            transform: scaleX(0) rotate(-7deg);
+            opacity: 0;
+          }
+          18%  {
+            transform: scaleX(0.08) rotate(-7deg);
+            opacity: 1;
+          }
+          55%  {
+            transform: scaleX(1) rotate(-7deg);
+            opacity: 0.85;
+          }
+          100% {
+            transform: scaleX(1) rotate(-7deg);
+            opacity: 0;
+          }
+        }
+
+        /* Optional: faint impact flash behind the word */
+        @keyframes ninja-impact-flash {
+          0%   { opacity: 0.55; transform: scaleX(1); }
+          60%  { opacity: 0.2;  transform: scaleX(1.04); }
+          100% { opacity: 0;    transform: scaleX(1); }
+        }
+
+        .ninja-frag {
+          will-change: transform, opacity;
+          /* fall animation drives the whole fragment */
+          animation: ninja-word-fall 490ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+          /* GPU layer promotion — keeps animation off main thread */
+          transform: translateZ(0);
+        }
+
+        /* Word text clone — colored like a correctly typed word */
+        .ninja-frag-text {
+          display: inline-block;
+          color: var(--tc-ok, #22d3a0);
+          position: relative;
+          z-index: 2;
+          /* subtle text glow for the premium look */
+          text-shadow:
+            0 0 8px rgba(34,211,160,.55),
+            0 0 16px rgba(34,211,160,.22);
+        }
+        body[data-theme="light"] .ninja-frag-text {
+          color: var(--tc-ok, #059669);
+          text-shadow:
+            0 0 6px rgba(5,150,105,.45),
+            0 0 12px rgba(5,150,105,.18);
+        }
+        @media (prefers-color-scheme:light) {
+          .ninja-frag-text {
+            color: var(--tc-ok, #059669);
+            text-shadow:
+              0 0 6px rgba(5,150,105,.45),
+              0 0 12px rgba(5,150,105,.18);
+          }
+        }
+
+        /* The slashing line — diagonal red/crimson streak */
+        .ninja-slash-line {
+          position: absolute;
+          /* center vertically across the word */
+          top: 50%;
+          left: -4px;
+          right: -4px;
+          height: 2px;
+          margin-top: -1px;
+          border-radius: 1px;
+          transform-origin: left center;
+          pointer-events: none;
+          z-index: 3;
+          /* dark mode: vivid crimson with glow */
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(252,165,165,.9) 8%,
+            #f87171 30%,
+            #ef4444 55%,
+            #dc2626 72%,
+            rgba(185,28,28,.6) 88%,
+            transparent 100%
+          );
+          box-shadow:
+            0 0 4px 1px rgba(239,68,68,.65),
+            0 0 10px 2px rgba(220,38,38,.3);
+          animation: ninja-slash-sweep 190ms ease-out forwards;
+          /* slash starts immediately, word falls with a tiny delay */
+          animation-delay: 0ms;
+          will-change: transform, opacity;
+        }
+        body[data-theme="light"] .ninja-slash-line {
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(185,28,28,.8) 10%,
+            #b91c1c 35%,
+            #991b1b 60%,
+            rgba(127,29,29,.7) 85%,
+            transparent 100%
+          );
+          box-shadow:
+            0 0 3px 1px rgba(185,28,28,.55),
+            0 0 7px 1px rgba(153,27,27,.25);
+        }
+        @media (prefers-color-scheme:light) {
+          .ninja-slash-line {
+            background: linear-gradient(
+              90deg,
+              transparent 0%,
+              rgba(185,28,28,.8) 10%,
+              #b91c1c 35%,
+              #991b1b 60%,
+              rgba(127,29,29,.7) 85%,
+              transparent 100%
+            );
+            box-shadow:
+              0 0 3px 1px rgba(185,28,28,.55),
+              0 0 7px 1px rgba(153,27,27,.25);
           }
         }
 
@@ -840,8 +1296,7 @@ export default function TypingPage() {
         .cs-row   { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
         .cs-label {
           font-size:10px; font-weight:700; letter-spacing:.08em;
-          text-transform:uppercase; color:var(--text3);
-          flex-shrink:0; min-width:46px;
+          text-transform:uppercase; color:var(--text3); flex-shrink:0; min-width:46px;
         }
         .cs-pills { display:flex; flex-wrap:wrap; gap:4px; }
         .cs-pill  {
@@ -860,16 +1315,19 @@ export default function TypingPage() {
         .cs-icon { font-size:10px; opacity:.82; }
 
         .cs-pill--minimal.cs-pill--active   { background:rgba(124,110,243,.14); border-color:rgba(167,139,250,.45); color:var(--accent2,#c4b5fd); }
-        .cs-pill--laser.cs-pill--active     { background:rgba(139,92,246,.18);  border-color:rgba(167,139,250,.55); color:#ddd6fe; box-shadow:0 0 10px rgba(139,92,246,.28); }
-        .cs-pill--electric.cs-pill--active  { background:rgba(56,189,248,.14);  border-color:rgba(125,211,252,.5);  color:#bae6fd; box-shadow:0 0 10px rgba(56,189,248,.25); }
-        .cs-pill--poison.cs-pill--active    { background:rgba(74,222,128,.13);  border-color:rgba(74,222,128,.48);  color:#bbf7d0; box-shadow:0 0 10px rgba(74,222,128,.22); }
-        .cs-pill--heartbeat.cs-pill--active { background:rgba(248,113,113,.13); border-color:rgba(248,113,113,.48); color:#fecaca; box-shadow:0 0 10px rgba(248,113,113,.22); }
+        .cs-pill--laser.cs-pill--active     { background:rgba(139,92,246,.18);  border-color:rgba(167,139,250,.55); color:#ddd6fe; box-shadow:0 0 8px rgba(139,92,246,.22); }
+        .cs-pill--electric.cs-pill--active  { background:rgba(56,189,248,.14);  border-color:rgba(125,211,252,.5);  color:#bae6fd; box-shadow:0 0 8px rgba(56,189,248,.2); }
+        .cs-pill--poison.cs-pill--active    { background:rgba(74,222,128,.13);  border-color:rgba(74,222,128,.48);  color:#bbf7d0; box-shadow:0 0 8px rgba(74,222,128,.18); }
+        .cs-pill--heartbeat.cs-pill--active { background:rgba(248,113,113,.13); border-color:rgba(248,113,113,.48); color:#fecaca; box-shadow:0 0 8px rgba(248,113,113,.18); }
+        /* Ninja pill — crimson */
+        .cs-pill--ninja.cs-pill--active     { background:rgba(220,38,38,.13);   border-color:rgba(239,68,68,.50);   color:#fca5a5; box-shadow:0 0 8px rgba(220,38,38,.22); }
 
         body[data-theme="light"] .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
         body[data-theme="light"] .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
         body[data-theme="light"] .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
+        body[data-theme="light"] .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
 
         @media (prefers-color-scheme:light) {
           .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
@@ -877,6 +1335,14 @@ export default function TypingPage() {
           .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
           .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
           .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
+          .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
+        }
+
+        /* ── Click-to-focus overlay ── */
+        .ty-overlay {
+          position:absolute; inset:0; border-radius:12px; z-index:20;
+          display:flex; align-items:center; justify-content:center;
+          background:rgba(0,0,0,.50); backdrop-filter:blur(3px); cursor:pointer;
         }
       `}</style>
 
@@ -889,7 +1355,6 @@ export default function TypingPage() {
           {timerLabel}
         </span>
 
-        {/* ── History navigation link — animated ── */}
         <Link href="/dashboard/typing/history" className="ty-hist-link">
           <span className="ty-hist-dot" aria-hidden="true" />
           <span className="ty-hist-icon" aria-hidden="true">📊</span>
@@ -919,8 +1384,8 @@ export default function TypingPage() {
       </div>
 
       {/* ── Typing panel ── */}
-      <div className="flex flex-col gap-3 sm:gap-5 p-4 sm:p-6 ty-panel"
-        style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}>
+      <div className="flex flex-col gap-3 sm:gap-5 p-4 sm:p-6 rounded-2xl"
+        style={{ background: "var(--surface)" }}>
 
         {/* Controls row */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1018,9 +1483,9 @@ export default function TypingPage() {
           </div>
         )}
 
-        {/* Timer + live stats row */}
+        {/* Timer row — countdown only, no live stats while typing */}
         <div className="flex items-center justify-between">
-          <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums transition-colors"
+          <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums"
             style={{
               color: testState === "running" && timeLeft <= 5
                 ? "var(--danger)"
@@ -1036,16 +1501,9 @@ export default function TypingPage() {
               click the text and start typing
             </span>
           )}
-          {testState === "running" && (
-            <div className="flex items-center gap-3 font-mono text-xs sm:text-sm"
-              style={{ color: "var(--text3)" }}>
-              {liveWpm !== null && <span style={{ color: "var(--accent2)" }}>{liveWpm} wpm</span>}
-              <span>{typedChars.length} chars</span>
-            </div>
-          )}
         </div>
 
-        {/* Typing area */}
+        {/* ── Typing area ── */}
         <div
           ref={wrapperRef}
           tabIndex={0}
@@ -1054,24 +1512,25 @@ export default function TypingPage() {
           onBlur={() => setIsFocused(false)}
           onClick={() => wrapperRef.current?.focus()}
           data-cursor={cursorStyle}
-          className={`relative outline-none select-none cursor-text ty-panel ${isFocused ? "ty-focused" : ""}`}
+          className="relative outline-none select-none cursor-text rounded-xl"
           aria-label="Typing area — click and start typing"
           style={{ outline: "none" }}
         >
           <div
             ref={clipRef}
-            className="overflow-hidden relative"
+            className="overflow-hidden relative rounded-xl"
             style={{
               height: "calc(4 * 2.4 * clamp(16px, 1.6vw + 8px, 24px))",
               padding: "0.5em 0.5em",
-              borderRadius: 12,
             }}>
 
+            {/* Top / bottom fade masks */}
             <div className="absolute top-0 left-0 right-0 pointer-events-none z-10"
               style={{ height: "2em", background: "linear-gradient(to bottom, var(--surface), transparent)" }} />
             <div className="absolute bottom-0 left-0 right-0 pointer-events-none z-10"
               style={{ height: "2em", background: "linear-gradient(to top, var(--surface), transparent)" }} />
 
+            {/* Click-to-focus overlay */}
             {!isFocused && testState !== "finished" && (
               <div className="ty-overlay" onClick={() => wrapperRef.current?.focus()}>
                 <div className="flex flex-col items-center gap-2 text-white text-center px-4">
@@ -1082,48 +1541,23 @@ export default function TypingPage() {
               </div>
             )}
 
-            <div
-              ref={textBlockRef}
-              className="ty-text font-mono"
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignContent: "flex-start",
-                transform: `translateY(${lineOffsetRef.current}px)`,
-                transition: "transform 0.1s ease",
-                paddingBottom: "4em",
-                userSelect: "none",
-              }}
-            >
-              {words.map((token, wi) => (
-                <span
-                  key={wi}
-                  ref={el => { wordElsRef.current[wi] = el; }}
-                  className="wt"
-                >
-                  {token.chars.map((ch, ci) => {
-                    const gi    = token.startIdx + ci;
-                    const state = charStates[gi] ?? "pending";
-                    const isCur = state === "cursor";
+            {/* Memoised text renderer — never re-renders on keystrokes */}
+            <TextDisplay
+              ref={textDisplayRef}
+              words={words}
+              lineOffset={lineOffset}
+              typedRef={typedRef}
+              wordElsRef={wordElsRef}
+              textBlockRef={textBlockRef}
+            />
 
-                    return (
-                      <span
-                        key={ci}
-                        className={
-                          state === "correct"   ? "tc-ok" :
-                          state === "incorrect" ? "tc-er" :
-                          "tc-p"
-                        }
-                        style={isCur ? { color: "var(--text)", position: "relative" } : undefined}
-                      >
-                        {isCur && <span className="ty-caret" aria-hidden="true" />}
-                        {ch === " " ? "\u00A0" : ch}
-                      </span>
-                    );
-                  })}
-                </span>
-              ))}
-            </div>
+            {/* ── Ninja Mode: slash+fall animation layer ───────────────────
+                Positioned inside clipRef so overflow:hidden clips
+                falling fragments that go below the viewport height.
+                Only mounts when there are active fragments — zero cost
+                when idle or in other cursor modes.
+            ──────────────────────────────────────────────────────────── */}
+            <NinjaFxLayer fragments={ninjaFragments} />
           </div>
         </div>
 
@@ -1199,7 +1633,6 @@ export default function TypingPage() {
               )}
             </div>
 
-            {/* History shortcut inside result modal */}
             <div className="flex items-center justify-center">
               <Link href="/dashboard/typing/history"
                 className="ty-hist-link text-[11px]"
