@@ -5,49 +5,6 @@ import Transaction from "@/app/models/Transaction";
 import Wallet from "@/app/models/Wallet";
 import { requireAuth } from "@/app/lib/authGuard";
 
-// ─── Rate limit store (in-memory; swap for Redis in production) ───────────────
-const rateLimitStore = new Map<string, { editCount: number; deleteCount: number; day: string }>();
-
-const DAILY_EDIT_LIMIT = 20;
-const DAILY_DELETE_LIMIT = 20;
-
-function getTodayKey() {
-  return new Date().toISOString().split("T")[0];
-}
-
-function checkRateLimit(
-  userId: string,
-  action: "edit" | "delete",
-  count = 1
-): { allowed: boolean; remaining: number; limit: number } {
-  const today = getTodayKey();
-  const key = `${userId}:${today}`;
-
-  if (!rateLimitStore.has(key)) {
-    rateLimitStore.set(key, { editCount: 0, deleteCount: 0, day: today });
-  }
-
-  const entry = rateLimitStore.get(key)!;
-
-  if (entry.day !== today) {
-    entry.editCount = 0;
-    entry.deleteCount = 0;
-    entry.day = today;
-  }
-
-  const limit = action === "edit" ? DAILY_EDIT_LIMIT : DAILY_DELETE_LIMIT;
-  const current = action === "edit" ? entry.editCount : entry.deleteCount;
-
-  if (current + count > limit) {
-    return { allowed: false, remaining: Math.max(0, limit - current), limit };
-  }
-
-  if (action === "edit") entry.editCount += count;
-  else entry.deleteCount += count;
-
-  return { allowed: true, remaining: limit - (current + count), limit };
-}
-
 // ─── GET: fetch single transaction ────────────────────────────────────────────
 export async function GET(
   request: Request,
@@ -74,7 +31,7 @@ export async function GET(
   }
 }
 
-// ─── PATCH: edit a transaction ────────────────────────────────────────────────
+// ─── PATCH: edit a transaction (no rate limit) ────────────────────────────────
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -85,23 +42,9 @@ export async function PATCH(
       return NextResponse.json({ error: authResult.message }, { status: authResult.status });
     }
 
-    const { id } = await params;
-    const userId = authResult.payload.userId;
-
-    const rl = checkRateLimit(userId, "edit");
-    if (!rl.allowed) {
-      return NextResponse.json(
-        {
-          error: `Daily edit limit reached (${DAILY_EDIT_LIMIT}/day). Try again tomorrow.`,
-          rateLimitExceeded: true,
-          remaining: 0,
-          limit: rl.limit,
-        },
-        { status: 429 }
-      );
-    }
-
-    const body = await request.json();
+    const { id }   = await params;
+    const userId   = authResult.payload.userId;
+    const body     = await request.json();
     const { amount, paymentMethod, category, note, date } = body;
 
     await connectDB();
@@ -127,18 +70,18 @@ export async function PATCH(
 
     const newAmount = amount !== undefined ? parseFloat(amount) : transaction.amount;
     const newMethod = paymentMethod || transaction.paymentMethod;
-    const newDate = date ? new Date(date) : transaction.date;
+    const newDate   = date ? new Date(date) : transaction.date;
 
     if (newAmount <= 0) {
       return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
     }
 
-    // Use end-of-day for "today" to avoid timezone issues
     const now = new Date();
     now.setHours(23, 59, 59, 999);
     if (newDate > now) {
       return NextResponse.json({ error: "Cannot set future date" }, { status: 400 });
     }
+
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
     ninetyDaysAgo.setHours(0, 0, 0, 0);
@@ -162,11 +105,11 @@ export async function PATCH(
       else wallet.onlineBalance -= newAmount;
     }
 
-    transaction.amount = newAmount;
+    transaction.amount       = newAmount;
     transaction.paymentMethod = newMethod;
     if (category !== undefined) transaction.category = category;
-    if (note !== undefined) transaction.note = note;
-    transaction.date = newDate;
+    if (note     !== undefined) transaction.note     = note;
+    transaction.date         = newDate;
 
     await Promise.all([wallet.save(), transaction.save()]);
 
@@ -175,11 +118,10 @@ export async function PATCH(
       message: "Transaction updated",
       transaction,
       wallet: {
-        cashBalance: wallet.cashBalance,
+        cashBalance:   wallet.cashBalance,
         onlineBalance: wallet.onlineBalance,
-        totalBalance: wallet.cashBalance + wallet.onlineBalance,
+        totalBalance:  wallet.cashBalance + wallet.onlineBalance,
       },
-      rateLimitRemaining: rl.remaining,
     });
   } catch (error: any) {
     console.error("Error editing transaction:", error);
@@ -187,7 +129,7 @@ export async function PATCH(
   }
 }
 
-// ─── PUT: alias for PATCH (edit a transaction) ────────────────────────────────
+// ─── PUT: alias for PATCH ─────────────────────────────────────────────────────
 export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> }
@@ -195,7 +137,7 @@ export async function PUT(
   return PATCH(request, context);
 }
 
-// ─── DELETE: delete a transaction ─────────────────────────────────────────────
+// ─── DELETE: delete a transaction (no rate limit) ─────────────────────────────
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -208,19 +150,6 @@ export async function DELETE(
 
     const { id } = await params;
     const userId = authResult.payload.userId;
-
-    const rl = checkRateLimit(userId, "delete");
-    if (!rl.allowed) {
-      return NextResponse.json(
-        {
-          error: `Daily delete limit reached (${DAILY_DELETE_LIMIT}/day). Try again tomorrow.`,
-          rateLimitExceeded: true,
-          remaining: 0,
-          limit: rl.limit,
-        },
-        { status: 429 }
-      );
-    }
 
     await connectDB();
 
@@ -238,7 +167,7 @@ export async function DELETE(
         if (transaction.paymentMethod === "cash") wallet.cashBalance += transaction.amount;
         else wallet.onlineBalance += transaction.amount;
       }
-      wallet.cashBalance = Math.max(0, wallet.cashBalance);
+      wallet.cashBalance   = Math.max(0, wallet.cashBalance);
       wallet.onlineBalance = Math.max(0, wallet.onlineBalance);
       await wallet.save();
     }
@@ -250,12 +179,11 @@ export async function DELETE(
       message: "Transaction deleted",
       wallet: wallet
         ? {
-            cashBalance: wallet.cashBalance,
+            cashBalance:   wallet.cashBalance,
             onlineBalance: wallet.onlineBalance,
-            totalBalance: wallet.cashBalance + wallet.onlineBalance,
+            totalBalance:  wallet.cashBalance + wallet.onlineBalance,
           }
         : null,
-      rateLimitRemaining: rl.remaining,
     });
   } catch (error) {
     console.error("Error deleting transaction:", error);

@@ -5,50 +5,6 @@ import Transaction from "@/app/models/Transaction";
 import Wallet from "@/app/models/Wallet";
 import { requireAuth } from "@/app/lib/authGuard";
 
-const rateLimitStore = new Map<string, { deleteCount: number; day: string }>();
-const DAILY_DELETE_LIMIT = 20;
-
-function getTodayKey() {
-  return new Date().toISOString().split("T")[0];
-}
-
-function checkBatchRateLimit(
-  userId: string,
-  count: number
-): { allowed: boolean; remaining: number; limit: number } {
-  const today = getTodayKey();
-  const key = `${userId}:${today}:batch-delete`;
-
-  if (!rateLimitStore.has(key)) {
-    rateLimitStore.set(key, { deleteCount: 0, day: today });
-  }
-
-  const entry = rateLimitStore.get(key)!;
-  if (entry.day !== today) {
-    entry.deleteCount = 0;
-    entry.day = today;
-  }
-
-  const current = entry.deleteCount;
-
-  if (current + count > DAILY_DELETE_LIMIT) {
-    return {
-      allowed: false,
-      remaining: Math.max(0, DAILY_DELETE_LIMIT - current),
-      limit: DAILY_DELETE_LIMIT,
-    };
-  }
-
-  entry.deleteCount += count;
-  return {
-    allowed: true,
-    remaining: DAILY_DELETE_LIMIT - (current + count),
-    limit: DAILY_DELETE_LIMIT,
-  };
-}
-
-// The frontend POSTs with a body containing ids, so we export POST here
-// (batch delete with a body is typically POST in REST APIs)
 export async function POST(request: Request) {
   try {
     const authResult = await requireAuth();
@@ -57,30 +13,17 @@ export async function POST(request: Request) {
     }
 
     const userId = authResult.payload.userId;
-    const body = await request.json();
+    const body   = await request.json();
     const { ids } = body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: "No transaction IDs provided" }, { status: 400 });
     }
 
-    if (ids.length > 20) {
+    if (ids.length > 100) {
       return NextResponse.json(
-        { error: "Cannot delete more than 20 transactions at once" },
+        { error: "Cannot delete more than 100 transactions at once" },
         { status: 400 }
-      );
-    }
-
-    const rl = checkBatchRateLimit(userId, ids.length);
-    if (!rl.allowed) {
-      return NextResponse.json(
-        {
-          error: `Daily delete limit (${DAILY_DELETE_LIMIT}) would be exceeded. You can delete ${rl.remaining} more today.`,
-          rateLimitExceeded: true,
-          remaining: rl.remaining,
-          limit: rl.limit,
-        },
-        { status: 429 }
       );
     }
 
@@ -103,7 +46,7 @@ export async function POST(request: Request) {
           else wallet.onlineBalance += txn.amount;
         }
       }
-      wallet.cashBalance = Math.max(0, wallet.cashBalance);
+      wallet.cashBalance   = Math.max(0, wallet.cashBalance);
       wallet.onlineBalance = Math.max(0, wallet.onlineBalance);
       await wallet.save();
     }
@@ -116,12 +59,11 @@ export async function POST(request: Request) {
       deletedCount: transactions.length,
       wallet: wallet
         ? {
-            cashBalance: wallet.cashBalance,
+            cashBalance:   wallet.cashBalance,
             onlineBalance: wallet.onlineBalance,
-            totalBalance: wallet.cashBalance + wallet.onlineBalance,
+            totalBalance:  wallet.cashBalance + wallet.onlineBalance,
           }
         : null,
-      rateLimitRemaining: rl.remaining,
     });
   } catch (error) {
     console.error("Batch delete error:", error);
