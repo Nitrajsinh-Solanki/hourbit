@@ -1,5 +1,5 @@
 "use client";
-// app/dashboard/expenses/page.tsx
+// app/dashboard/expenses/page.tsx - COMPLETELY FIXED VERSION
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -114,26 +114,13 @@ const CAT_COLORS = [
   "#f87171", "#4ade80", "#e879f9", "#38bdf8",
 ];
 
-// ─── Global CSS ───────────────────────────────────────────────────────────────
-//
-// KEY FIX: We no longer define our own hardcoded dark/light colour blocks.
-// Instead, .exp-root aliases its local shorthand vars (--sf, --tx, etc.)
-// to the layout's shared CSS variables (--surface, --text, etc.) that are
-// injected onto :root by the dashboard layout's useTheme() hook.
-// When the user toggles dark ↔ light, the layout updates :root, and every
-// alias here automatically reflects the new values — no extra work needed.
+// ─── Global CSS (COMPLETELY FIXED) ────────────────────────────────────────────
 
 const GLOBAL_CSS = `
-  /* ── Map component shorthand vars → layout shared vars ────────────────
-     The layout (app/dashboard/layout.tsx) injects these on :root:
-       --bg, --surface, --surface2, --border, --border2,
-       --text, --text2, --text3, --text4,
-       --accent, --accent2, --green, --amber, --danger
-     We alias them here so the rest of the component CSS is untouched.    */
   .exp-root {
     --sf:      var(--surface);
     --sf2:     var(--surface2);
-    --sf3:     var(--surface2);      /* closest equivalent */
+    --sf3:     var(--surface2);
     --b1:      var(--border);
     --b2:      var(--border2);
     --tx:      var(--text);
@@ -164,7 +151,20 @@ const GLOBAL_CSS = `
   @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  @keyframes modalFadeIn { 
+    from { 
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.96);
+    } 
+    to { 
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    } 
+  }
+  @keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
   .fade-in { animation: fadeUp 0.28s cubic-bezier(.2,.8,.4,1) both; }
   .spin { animation: spin 0.8s linear infinite; }
 
@@ -278,36 +278,99 @@ const GLOBAL_CSS = `
   .btn-icon-danger { border-color: rgba(248,113,113,0.2); color: var(--red); }
   .btn-icon-danger:hover { border-color: rgba(248,113,113,0.4); background: rgba(248,113,113,0.08); }
 
-  /* Modal */
+  /* Modal - COMPLETELY FIXED FOR CENTERING */
   .modal-backdrop {
-    position: fixed; inset: 0; z-index: 200;
-    background: rgba(0,0,0,0.65);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: rgba(0,0,0,0.70);
     backdrop-filter: blur(8px);
-    display: flex; align-items: center; justify-content: center;
-    padding: 16px;
-    animation: fadeUp 0.15s ease both;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: backdropFadeIn 0.2s ease both;
+    overflow-y: auto;
   }
+  
   .modal-box {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     background: var(--sf);
     border: 1px solid var(--b1);
-    border-radius: 18px;
-    padding: 26px;
-    width: 100%;
-    max-width: 440px;
-    max-height: 90dvh;
+    border-radius: 16px;
+    padding: 24px;
+    width: 90%;
+    max-width: 480px;
+    max-height: 85vh;
     overflow-y: auto;
-    box-shadow: var(--shadow-lg);
-    animation: fadeUp 0.2s cubic-bezier(.2,.8,.4,1) both;
-    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    animation: modalFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+    z-index: 10000;
   }
+  
+  @media (max-width: 640px) {
+    .modal-backdrop {
+      padding: 16px;
+    }
+    
+    .modal-box {
+      width: 95%;
+      max-width: 95%;
+      max-height: 90vh;
+      padding: 20px;
+      border-radius: 14px;
+    }
+  }
+  
+  @media (max-width: 400px) {
+    .modal-box {
+      width: 100%;
+      max-width: 100%;
+      padding: 18px;
+      border-radius: 12px;
+    }
+  }
+  
   .modal-title {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--tx);
-    margin-bottom: 22px;
+    margin-bottom: 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+  }
+  
+  @media (max-width: 640px) {
+    .modal-title {
+      font-size: 15px;
+      margin-bottom: 18px;
+    }
+  }
+  
+  .modal-btn-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  
+  @media (max-width: 400px) {
+    .modal-btn-group {
+      flex-direction: column-reverse;
+      gap: 8px;
+    }
+    
+    .modal-btn-group .btn {
+      width: 100%;
+      justify-content: center;
+    }
   }
 
   /* Form fields */
@@ -598,7 +661,7 @@ function TogglePill({
   );
 }
 
-// ─── Modal Wrapper ────────────────────────────────────────────────────────────
+// ─── Modal Wrapper (COMPLETELY FIXED) ─────────────────────────────────────────
 
 function Modal({
   open,
@@ -612,23 +675,42 @@ function Modal({
   children: React.ReactNode;
 }) {
   useEffect(() => {
-    if (open) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "";
-    return () => { document.body.style.overflow = ""; };
+    if (open) {
+      // Lock body scroll
+      document.body.style.overflow = "hidden";
+      document.body.style.paddingRight = "0px";
+    } else {
+      // Restore body scroll
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    }
+    
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    };
   }, [open]);
 
   if (!open) return null;
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+    <div 
+      className="modal-backdrop"
+      onClick={onClose}
+    >
+      <div 
+        className="modal-box" 
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-title">
           <span>{title}</span>
           <button
             className="btn btn-ghost btn-sm"
             style={{ padding: "4px 8px", gap: 4 }}
             onClick={onClose}
+            type="button"
           >
-            <X size={13} />
+            <X size={14} />
           </button>
         </div>
         {children}
@@ -776,8 +858,8 @@ function AddMoneyModal({
 
         {error && <div className="err-box">{error}</div>}
 
-        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button className="btn btn-ghost" onClick={handleClose}>
+        <div className="modal-btn-group">
+          <button className="btn btn-ghost" onClick={handleClose} type="button">
             Cancel
           </button>
           <button
@@ -785,6 +867,7 @@ function AddMoneyModal({
             style={{ flex: 1, justifyContent: "center" }}
             onClick={submit}
             disabled={loading}
+            type="button"
           >
             {loading && <Loader2 size={13} className="spin" />}
             Add Money
@@ -940,8 +1023,8 @@ function AddExpenseModal({
 
         {error && <div className="err-box">{error}</div>}
 
-        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button className="btn btn-ghost" onClick={handleClose}>
+        <div className="modal-btn-group">
+          <button className="btn btn-ghost" onClick={handleClose} type="button">
             Cancel
           </button>
           <button
@@ -949,6 +1032,7 @@ function AddExpenseModal({
             style={{ flex: 1, justifyContent: "center" }}
             onClick={submit}
             disabled={loading}
+            type="button"
           >
             {loading && <Loader2 size={13} className="spin" />}
             Add Expense
@@ -959,7 +1043,7 @@ function AddExpenseModal({
   );
 }
 
-// ─── Edit Modal ───────────────────────────────────────────────────────────────
+// ─── Edit Modal (COMPLETELY FIXED) ────────────────────────────────────────────
 
 function EditModal({
   txn,
@@ -975,7 +1059,7 @@ function EditModal({
   wallet: WalletData | null;
 }) {
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("cash");
+  const [method, setMethod] = useState<"cash" | "online">("cash");
   const [category, setCategory] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(todayStr());
@@ -996,6 +1080,11 @@ function EditModal({
       setError("");
     }
   }, [txn]);
+
+  const handleClose = () => {
+    setError("");
+    onClose();
+  };
 
   const submit = async () => {
     setError("");
@@ -1019,7 +1108,7 @@ function EditModal({
       const data = await res.json();
       if (!res.ok) return setError(data.error || "Failed to update.");
       onSuccess(data.transaction, data.wallet);
-      onClose();
+      handleClose();
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -1027,10 +1116,16 @@ function EditModal({
     }
   };
 
+  const availBal = wallet
+    ? method === "cash"
+      ? wallet.cashBalance
+      : wallet.onlineBalance
+    : 0;
+
   return (
     <Modal
       open={!!txn}
-      onClose={onClose}
+      onClose={handleClose}
       title={`✏️ Edit ${txn?.type === "expense" ? "Expense" : "Money Added"}`}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1042,17 +1137,25 @@ function EditModal({
             step="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
+            autoFocus
           />
         </Field>
 
-        <Field label="Payment Method">
+        <Field
+          label="Payment Method"
+          hint={
+            wallet && txn?.type === "expense"
+              ? `Available: ₹${fmt(availBal)} (${method})`
+              : undefined
+          }
+        >
           <TogglePill
             options={[
               { value: "cash", label: "💵 Cash" },
               { value: "online", label: "💳 Online" },
             ]}
             value={method}
-            onChange={setMethod}
+            onChange={(v) => setMethod(v as "cash" | "online")}
           />
         </Field>
 
@@ -1073,7 +1176,7 @@ function EditModal({
           </Field>
         )}
 
-        <Field label="Date">
+        <Field label="Date" hint="Select any date within the last 90 days">
           <input
             className="inp"
             type="date"
@@ -1097,8 +1200,12 @@ function EditModal({
 
         {error && <div className="err-box">{error}</div>}
 
-        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button className="btn btn-ghost" onClick={onClose}>
+        <div className="modal-btn-group">
+          <button 
+            className="btn btn-ghost" 
+            onClick={handleClose}
+            type="button"
+          >
             Cancel
           </button>
           <button
@@ -1106,6 +1213,7 @@ function EditModal({
             style={{ flex: 1, justifyContent: "center" }}
             onClick={submit}
             disabled={loading}
+            type="button"
           >
             {loading && <Loader2 size={13} className="spin" />}
             Save Changes
@@ -1175,8 +1283,8 @@ function DeleteModal({
 
         {error && <div className="err-box">{error}</div>}
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button className="btn btn-ghost" onClick={onClose}>
+        <div className="modal-btn-group">
+          <button className="btn btn-ghost" onClick={onClose} type="button">
             Cancel
           </button>
           <button
@@ -1184,6 +1292,7 @@ function DeleteModal({
             style={{ flex: 1, justifyContent: "center" }}
             onClick={confirm}
             disabled={loading}
+            type="button"
           >
             {loading && <Loader2 size={13} className="spin" />}
             Delete Transaction
@@ -1249,8 +1358,8 @@ function BatchDeleteModal({
 
         {error && <div className="err-box">{error}</div>}
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button className="btn btn-ghost" onClick={onClose}>
+        <div className="modal-btn-group">
+          <button className="btn btn-ghost" onClick={onClose} type="button">
             Cancel
           </button>
           <button
@@ -1258,6 +1367,7 @@ function BatchDeleteModal({
             style={{ flex: 1, justifyContent: "center" }}
             onClick={confirm}
             disabled={loading}
+            type="button"
           >
             {loading && <Loader2 size={13} className="spin" />}
             Delete {ids.length} item{ids.length !== 1 ? "s" : ""}
@@ -1341,7 +1451,7 @@ function WalletCards({ wallet, loading }: { wallet: WalletData | null; loading: 
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
+// ─── Overview Tab (WITH PAGINATION ADDED) ─────────────────────────────────────
 
 function OverviewTab({
   wallet,
@@ -1353,18 +1463,31 @@ function OverviewTab({
   const [recentTxns, setRecentTxns] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterMonth, setFilterMonth] = useState(monthStr());
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   const fetchRecent = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/expenses/transactions?limit=8&month=${filterMonth}`);
+      const res = await fetch(`/api/expenses/transactions?limit=${ITEMS_PER_PAGE}&page=${page}&month=${filterMonth}`);
       const data = await res.json();
-      if (data.success) setRecentTxns(data.transactions);
+      if (data.success) {
+        setRecentTxns(data.transactions);
+        setTotalPages(data.pagination?.pages || 1);
+      }
     } catch {}
     finally { setLoading(false); }
-  }, [filterMonth]);
+  }, [filterMonth, page]);
 
-  useEffect(() => { fetchRecent(); }, [fetchRecent]);
+  useEffect(() => { 
+    fetchRecent(); 
+  }, [fetchRecent]);
+
+  useEffect(() => {
+    // Reset to page 1 when month changes
+    setPage(1);
+  }, [filterMonth]);
 
   const monthExpenses = recentTxns.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const monthIncome = recentTxns.filter((t) => t.type === "add_money").reduce((s, t) => s + t.amount, 0);
@@ -1412,34 +1535,57 @@ function OverviewTab({
             <p style={{ fontSize: 12, color: "var(--tx4)" }}>Add money to your wallet or log an expense.</p>
           </div>
         ) : (
-          <div>
-            {recentTxns.map((txn) => {
-              const isExp = txn.type === "expense";
-              return (
-                <div key={txn._id} className="txn-list-item">
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: isExp ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", color: isExp ? "var(--red)" : "var(--green)", flexShrink: 0 }}>
-                      {isExp ? <ArrowDownRight size={15} /> : <ArrowUpRight size={15} />}
-                    </span>
-                    <div>
-                      <p style={{ fontSize: 13, fontWeight: 500, color: "var(--tx)" }}>
-                        {txn.category || "Money Added"}
-                      </p>
-                      <p style={{ fontSize: 11, color: "var(--tx4)", marginTop: 2 }}>
-                        {txn.paymentMethod === "cash" ? "Cash" : "Online"}
-                        {txn.note ? ` · ${txn.note}` : ""}
-                        {" · "}
-                        {formatDisplayDate(txn.date)}
-                      </p>
+          <>
+            <div>
+              {recentTxns.map((txn) => {
+                const isExp = txn.type === "expense";
+                return (
+                  <div key={txn._id} className="txn-list-item">
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: isExp ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", color: isExp ? "var(--red)" : "var(--green)", flexShrink: 0 }}>
+                        {isExp ? <ArrowDownRight size={15} /> : <ArrowUpRight size={15} />}
+                      </span>
+                      <div>
+                        <p style={{ fontSize: 13, fontWeight: 500, color: "var(--tx)" }}>
+                          {txn.category || "Money Added"}
+                        </p>
+                        <p style={{ fontSize: 11, color: "var(--tx4)", marginTop: 2 }}>
+                          {txn.paymentMethod === "cash" ? "Cash" : "Online"}
+                          {txn.note ? ` · ${txn.note}` : ""}
+                          {" · "}
+                          {formatDisplayDate(txn.date)}
+                        </p>
+                      </div>
                     </div>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: isExp ? "var(--red)" : "var(--green)", letterSpacing: "-0.3px" }}>
+                      {isExp ? "−" : "+"}₹{fmt(txn.amount)}
+                    </p>
                   </div>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: isExp ? "var(--red)" : "var(--green)", letterSpacing: "-0.3px" }}>
-                    {isExp ? "−" : "+"}₹{fmt(txn.amount)}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="pagination">
+                <button 
+                  className="page-btn" 
+                  onClick={() => setPage((p) => Math.max(1, p - 1))} 
+                  disabled={page === 1}
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="page-info">Page {page} of {totalPages}</span>
+                <button 
+                  className="page-btn" 
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))} 
+                  disabled={page === totalPages}
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
