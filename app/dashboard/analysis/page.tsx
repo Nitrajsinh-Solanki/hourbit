@@ -649,12 +649,45 @@ export default function AnalysisPage() {
             <KpiCard label="Consistency Score" value={`${data.consistencyScore}%`}
               sub={data.consistencyScore>=90?"Excellent ✦":data.consistencyScore>=75?"Good":data.consistencyScore>=60?"Needs work":"Below target"}
               color={scoreColor} icon={CheckCircle2} />
-            <KpiCard
-              label={data.overtimeH>0?"Overtime Banked":"Hours Shortfall"}
-              value={fmtH(data.overtimeH>0?data.overtimeH:data.underworkH)}
-              sub={data.overtimeH>0?"extra hours this month":"below target this month"}
-              color={data.overtimeH>0?GREEN:data.underworkH>10?DANGER:AMBER}
-              icon={data.overtimeH>0?TrendingUp:TrendingDown} />
+           
+
+<KpiCard
+  label={
+    data.overtimeH > 0
+      ? "Overtime Banked"
+      : data.underworkH > 0
+      ? "Hours Shortfall"
+      : "On Target"
+  }
+  value={
+    data.overtimeH > 0
+      ? fmtH(data.overtimeH)
+      : data.underworkH > 0
+      ? fmtH(data.underworkH)
+      : "✓"
+  }
+  sub={
+    data.overtimeH > 0
+      ? "extra hours this month"
+      : data.underworkH > 0
+      ? "below target this month"
+      : "productive hours match target"
+  }
+  color={
+    data.overtimeH > 0
+      ? GREEN
+      : data.underworkH > 0
+      ? (data.underworkH > 10 ? DANGER : AMBER)
+      : GREEN
+  }
+  icon={
+    data.overtimeH > 0
+      ? TrendingUp
+      : data.underworkH > 0
+      ? TrendingDown
+      : CheckCircle2
+  }
+/>
           </div>
 
           {/* Daily Area Chart */}

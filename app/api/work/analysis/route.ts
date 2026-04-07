@@ -12,10 +12,6 @@ const IST_TIMEZONE = "Asia/Kolkata";
 
 // ---------- TIME HELPERS ----------
 
-/**
- * Convert a Date/string to IST and return { year, month, day } parts.
- * Used for bucketing logs into the correct IST calendar day.
- */
 function toISTDateParts(dateInput: Date | string | null | undefined) {
   if (!dateInput) return null;
   const d = new Date(dateInput);
@@ -35,26 +31,6 @@ function toISTDateParts(dateInput: Date | string | null | undefined) {
   };
 }
 
-/**
- * TIME DISPLAY FUNCTION
- *
- * ⚠️  IMPORTANT — read this if times look wrong in the Analysis page:
- *
- * How entryTime/exitTime are stored in MongoDB determines which function to use:
- *
- * Case A — times stored CORRECTLY as UTC:
- *   User picks 9:00 PM IST → frontend does new Date() with local time
- *   → stored as 15:30 UTC (IST minus 5:30)
- *   → use toISTHHMM() below  (converts UTC back to IST)
- *
- * Case B — times stored as LOCAL wall-clock in UTC (common Next.js mistake):
- *   User picks 9:00 PM → frontend does new Date(`...T21:00:00.000Z`)
- *   → stored as 21:00 UTC  (no offset subtracted)
- *   → use toUTCHHMM() below  (reads UTC hours directly, no conversion)
- *
- * If Analysis shows times ~5h 30m LATER than Today's Track → you're in Case B.
- * Switch the two lines at the bottom of this block.
- */
 function toISTHHMM(dateInput: Date | string | null | undefined): string | null {
   if (!dateInput) return null;
   const d = new Date(dateInput);
@@ -72,7 +48,6 @@ function toISTHHMM(dateInput: Date | string | null | undefined): string | null {
   return `${hh}:${mm}`;
 }
 
-/** Reads UTC hours directly — use when times are stored as local-time-in-UTC (Case B). */
 function toUTCHHMM(dateInput: Date | string | null | undefined): string | null {
   if (!dateInput) return null;
   const d = new Date(dateInput);
@@ -80,14 +55,8 @@ function toUTCHHMM(dateInput: Date | string | null | undefined): string | null {
   return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-/**
- * 👉 CHANGE THIS if times look wrong.
- *    If Analysis times are ~5h 30m ahead of Today's Track → switch to toUTCHHMM
- *    If they match → keep toISTHHMM
- */
-const toDisplayHHMM = toUTCHHMM;   // ← toggle: toUTCHHMM  |  toISTHHMM
-
-// ----------
+// 👉 toggle: toUTCHHMM | toISTHHMM
+const toDisplayHHMM = toUTCHHMM;
 
 function hhmmToMins(hhmm: string | null): number | null {
   if (!hhmm) return null;
@@ -172,8 +141,16 @@ export async function GET(req: Request) {
       const dow       = dateLocal.getDay();
       const isWeekend = dow === 0 || dow === 6;
       const key       = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-      const isFuture  = key > todayKey;
       const log       = logByDay[day];
+
+      // ─── TODAY RULE ────────────────────────────────────────────────────────
+      // Today is included in analysis ONLY when BOTH entryTime AND exitTime
+      // are saved. Otherwise treat it identically to a future date so it is
+      // excluded from every total, average, streak and KPI calculation.
+      const isToday          = key === todayKey;
+      const todayFullyLogged = isToday && !!(log && !log.isHoliday && log.entryTime && log.exitTime);
+      const isFuture         = key > todayKey || (isToday && !todayFullyLogged);
+      // ──────────────────────────────────────────────────────────────────────
 
       let requiredH: number;
       if (log) {
@@ -184,37 +161,45 @@ export async function GET(req: Request) {
         requiredH = userDefaultHours;
       }
 
+      // Only expose productive/office/break data if the day is not excluded
+      const countable = !isFuture && !!(log && !log.isHoliday);
+
       return {
         day,
         dow,
         isWeekend,
         isFuture,
-        isHoliday:  log?.isHoliday ?? false,
-        hasEntry:   !!(log && !log.isHoliday && log.entryTime),
-        productiveH: log && !log.isHoliday ? toH(log.productiveTime   ?? 0) : 0,
-        officeH:     log && !log.isHoliday ? toH(log.totalOfficeTime  ?? 0) : 0,
-        breakH:      log && !log.isHoliday ? toH(log.totalBreakTime   ?? 0) : 0,
+        isToday,
+        isHoliday:   log?.isHoliday ?? false,
+        // hasEntry: true only when the day is counted (not excluded) and has an entry
+        hasEntry:    !!(log && !log.isHoliday && log.entryTime && !isFuture),
+        productiveH: countable ? toH(log.productiveTime   ?? 0) : 0,
+        officeH:     countable ? toH(log.totalOfficeTime  ?? 0) : 0,
+        breakH:      countable ? toH(log.totalBreakTime   ?? 0) : 0,
         requiredH,
 
-        // Raw ISO (kept for debugging)
+        // Raw ISO (kept for debugging / heatmap tooltip)
         entryTime: log?.entryTime ? new Date(log.entryTime).toISOString() : null,
         exitTime:  log?.exitTime  ? new Date(log.exitTime).toISOString()  : null,
 
-        // Display-ready HH:mm — consistent with how Today's Track shows times
-        entryTimeLocal: toDisplayHHMM(log?.entryTime),
-        exitTimeLocal:  toDisplayHHMM(log?.exitTime),
+        // Display HH:mm — null when day is excluded so table shows "—"
+        entryTimeLocal: !isFuture ? toDisplayHHMM(log?.entryTime) : null,
+        exitTimeLocal:  !isFuture ? toDisplayHHMM(log?.exitTime)  : null,
 
         notes:  log?.notes  ?? "",
         breaks: log?.breaks ?? [],
       };
     });
 
-    const holidayDays  = dailyData.filter(d => d.isHoliday);
-    const weekendDays  = dailyData.filter(d => d.isWeekend && !d.isFuture && !d.isHoliday);
-    const stdWorkDays  = dailyData.filter(d => !d.isWeekend && !d.isFuture && !d.isHoliday);
-    const loggedDays   = dailyData.filter(d => d.hasEntry);
-    const missingDays  = stdWorkDays.filter(d => !d.hasEntry);
+    // ─── All aggregations naturally exclude today unless fully logged ───────
 
+    const holidayDays = dailyData.filter(d => d.isHoliday);
+    const weekendDays = dailyData.filter(d => d.isWeekend && !d.isFuture && !d.isHoliday);
+    const stdWorkDays = dailyData.filter(d => !d.isWeekend && !d.isFuture && !d.isHoliday);
+    const loggedDays  = dailyData.filter(d => d.hasEntry && !d.isFuture);
+    const missingDays = stdWorkDays.filter(d => !d.hasEntry);
+
+    // totalRequiredH: only past weekdays + logged weekends (today excluded unless fully logged)
     let totalRequiredH = 0;
     for (const d of dailyData) {
       if (d.isFuture || d.isHoliday) continue;
@@ -245,14 +230,14 @@ export async function GET(req: Request) {
         return a + d.requiredH;
       }, 0);
       weeks.push({
-        weekNum:        weeks.length + 1,
-        days:           slice,
+        weekNum:          weeks.length + 1,
+        days:             slice,
         totalProductiveH: Math.round(slice.reduce((a, d) => a + d.productiveH, 0) * 100) / 100,
         totalRequiredH:   Math.round(wReq * 100) / 100,
       });
     }
 
-    // Entry/exit pattern analysis — use same display function for consistency
+    // Entry/exit timing — only fully-counted days
     const entryMins: number[] = [];
     const exitMins:  number[] = [];
     for (const d of loggedDays) {
@@ -263,13 +248,19 @@ export async function GET(req: Request) {
     }
     const avgArr = (a: number[]) => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
 
-    // Break breakdown
+    // Break breakdown — skip today's log if not fully logged
     let teaC = 0, lunchC = 0, customC = 0;
     let teaS = 0, lunchS = 0, customS = 0;
     let longestBreakSecs = 0, maxBreaksInDay = 0;
 
     for (const log of logs) {
       if ((log as any).isHoliday) continue;
+      const logParts = toISTDateParts((log as any).date);
+      if (logParts) {
+        const logKey = `${logParts.year}-${String(logParts.month).padStart(2,"0")}-${String(logParts.day).padStart(2,"0")}`;
+        // Skip today unless both entry AND exit exist
+        if (logKey === todayKey && !((log as any).entryTime && (log as any).exitTime)) continue;
+      }
       const breaks = (log as any).breaks ?? [];
       if (breaks.length > maxBreaksInDay) maxBreaksInDay = breaks.length;
       for (const b of breaks) {
@@ -288,8 +279,8 @@ export async function GET(req: Request) {
 
     // Best / worst day
     const sorted   = [...loggedDays].sort((a, b) => b.productiveH - a.productiveH);
-    const bestDay  = sorted[0]                    ?? null;
-    const worstDay = sorted[sorted.length - 1]    ?? null;
+    const bestDay  = sorted[0]                 ?? null;
+    const worstDay = sorted[sorted.length - 1] ?? null;
 
     // Streak calculation
     let currentStreak = 0, streakBroken = false;
@@ -319,19 +310,19 @@ export async function GET(req: Request) {
       success: true,
       data: {
         year, month, daysInMonth, dailyData,
-        totalLoggedDays: loggedDays.length,
+        totalLoggedDays:  loggedDays.length,
         totalWorkDays,
         totalMissingDays: missingDays.length,
-        totalHolidays: holidayDays.length,
-        totalWeekends: weekendDays.length,
+        totalHolidays:    holidayDays.length,
+        totalWeekends:    weekendDays.length,
         totalProductiveH, totalOfficeH, totalBreakH, totalRequiredH,
         overtimeH, underworkH, consistencyScore,
         weeks,
 
-        avgEntryTime:   minsToHHMM(avgArr(entryMins)),
-        avgExitTime:    minsToHHMM(avgArr(exitMins)),
-        earliestEntry:  minsToHHMM(entryMins.length ? Math.min(...entryMins) : null),
-        latestExit:     minsToHHMM(exitMins.length  ? Math.max(...exitMins)  : null),
+        avgEntryTime:  minsToHHMM(avgArr(entryMins)),
+        avgExitTime:   minsToHHMM(avgArr(exitMins)),
+        earliestEntry: minsToHHMM(entryMins.length ? Math.min(...entryMins) : null),
+        latestExit:    minsToHHMM(exitMins.length  ? Math.max(...exitMins)  : null),
 
         breakBreakdown: {
           tea:    { count: teaC,    totalH: toH(teaS)    },
@@ -349,7 +340,7 @@ export async function GET(req: Request) {
 
         prevMonth: {
           year: prevYear, month: prevMon,
-          loggedDays: prevLogged.length,
+          loggedDays:  prevLogged.length,
           productiveH: prevProductiveH,
         },
       },
