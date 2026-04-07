@@ -247,7 +247,7 @@ export default function RegisterPage() {
             </div>
 
             <p className="font-mono text-[11px] text-[#5a5a72]">
-              Use at least 6 characters
+              Use at least 8 characters
             </p>
           </div>
 
