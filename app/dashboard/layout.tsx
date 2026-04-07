@@ -1,3 +1,7 @@
+// app/dashboard/layout.tsx
+// ⚠️  ONLY CHANGE from original: Added ListChecks (Todo) nav item below BarChart2 (See Analysis)
+// Everything else is identical to the original file.
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -22,14 +26,18 @@ import {
   ChevronLeft,
   ChevronRight,
   Wallet,
+  ListChecks,   // ← NEW: Todo icon
 } from "lucide-react";
 import Logo from "../components/Logo";
+
+// ── NAV_ITEMS — Todo inserted right after See Analysis ────────────────────────
 
 const NAV_ITEMS = [
   { label: "Today's Track", href: "/dashboard/today",     icon: Clock        },
   { label: "Go Date Wise",  href: "/dashboard/date-wise", icon: CalendarDays },
   { label: "Mark Holiday",  href: "/dashboard/holiday",   icon: Palmtree     },
   { label: "See Analysis",  href: "/dashboard/analysis",  icon: BarChart2    },
+  { label: "To-Do List",    href: "/dashboard/todo",      icon: ListChecks   }, // ← NEW
   { label: "Diary",         href: "/dashboard/diary",     icon: BookOpen     },
   { label: "Typing Test",   href: "/dashboard/typing",    icon: Keyboard     },
   { label: "Expenses",      href: "/dashboard/expenses",  icon: Wallet       },
