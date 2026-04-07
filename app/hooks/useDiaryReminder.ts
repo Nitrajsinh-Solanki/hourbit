@@ -29,9 +29,9 @@ export function useDiaryReminder() {
         const { exists } = (await res.json()) as { exists: boolean };
 
         // Only show if no diary entry exists for that date
-        if (!exists) {
-          showDiaryReminderToast(router, pathname);
-        }
+      if (!exists) {
+  await showDiaryReminderToast(router, pathname);
+}
       } catch {
         // Network error — never block the user's workflow
       }

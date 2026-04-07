@@ -1,19 +1,101 @@
-// app/components/DiaryReminderToast.tsx
-//
-// A beautiful custom toast that nudges the user to write their diary
-// after they save today's work log (entry + exit time both present).
-//
-// Auto-dismisses immediately when the user navigates to a different route.
-
 "use client";
 
-import toast                         from "react-hot-toast";
-import { useRouter, usePathname }    from "next/navigation";
-import { useEffect }                 from "react";
+import toast from "react-hot-toast";
+import { useRouter, usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { BookOpen, X, ArrowRight, Sparkles } from "lucide-react";
 
-// ─── Funny message bank ──────────────────────────────────────────────────────
-const ENGLISH_MSGS: { emoji: string; title: string; body: string }[] = [
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
+type MsgItem = {
+  emoji: string;
+  title: string;
+  body: string;
+};
+
+// ─────────────────────────────────────────────────────────────
+// NAME HELPERS
+// ─────────────────────────────────────────────────────────────
+function normalizeName(name: string): string {
+  return name
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function extractFirstName(fullName?: string | null): string {
+  if (!fullName || typeof fullName !== "string") return "there";
+
+  const cleaned = fullName.trim().replace(/\s+/g, " ");
+  if (!cleaned) return "there";
+
+  const first = cleaned.split(" ")[0];
+  return normalizeName(first);
+}
+
+const PERSONAL_PREFIXES = [
+  { text: "Hey", emoji: "✨" },
+  { text: "Listen", emoji: "👀" },
+  { text: "Oye", emoji: "⚡" },
+  { text: "Yo", emoji: "🌙" },
+  { text: "Dekho", emoji: "📝" },
+  { text: "Aaj ka truth,", emoji: "🧠" },
+  { text: "Real talk,", emoji: "💭" },
+  { text: "Heads up,", emoji: "🚨" },
+  { text: "Quick one,", emoji: "📍" },
+  { text: "Pause for a sec,", emoji: "🫠" },
+];
+
+function addPersonalGreeting(body: string, firstName?: string) {
+  const safeName = extractFirstName(firstName);
+  const pick =
+    PERSONAL_PREFIXES[Math.floor(Math.random() * PERSONAL_PREFIXES.length)];
+
+  return `${pick.text} ${safeName} ${pick.emoji}, ${body}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// USER NAME FETCH
+// ─────────────────────────────────────────────────────────────
+let cachedFirstName: string | null = null;
+
+async function getCurrentUserFirstName(): Promise<string> {
+  if (cachedFirstName) return cachedFirstName;
+
+  try {
+    const meRes = await fetch("/api/auth/me", { cache: "no-store" });
+    if (meRes.ok) {
+      const meData = await meRes.json();
+      const firstName = extractFirstName(meData?.user?.fullName);
+      cachedFirstName = firstName;
+      return firstName;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const profileRes = await fetch("/api/auth/profile", { cache: "no-store" });
+    if (profileRes.ok) {
+      const profileData = await profileRes.json();
+      const firstName = extractFirstName(profileData?.user?.fullName);
+      cachedFirstName = firstName;
+      return firstName;
+    }
+  } catch {
+    // ignore
+  }
+
+  cachedFirstName = "there";
+  return "there";
+}
+
+// ─────────────────────────────────────────────────────────────
+// MESSAGE BANK
+// ─────────────────────────────────────────────────────────────
+const ENGLISH_MSGS: MsgItem[] = [
   {
     emoji: "🧠",
     title: "You Will Forget Everything",
@@ -266,7 +348,7 @@ const ENGLISH_MSGS: { emoji: string; title: string; body: string }[] = [
   },
 ];
 
-const HINDI_MSGS: { emoji: string; title: string; body: string }[] = [
+const HINDI_MSGS: MsgItem[] = [
   {
     emoji: "💀",
     title: "Kal Yaad Nahi Rahega Kuch Bhi",
@@ -519,71 +601,77 @@ const HINDI_MSGS: { emoji: string; title: string; body: string }[] = [
   },
 ];
 
-// ─── Pick a random message ─────────────────────────────────────────────────
-function getRandomMsg() {
+// ─────────────────────────────────────────────────────────────
+// PICK RANDOM MESSAGE
+// ─────────────────────────────────────────────────────────────
+function getRandomMsg(): MsgItem {
   const useHindi = Math.random() < 0.5;
-  const pool     = useHindi ? HINDI_MSGS : ENGLISH_MSGS;
+  const pool = useHindi ? HINDI_MSGS : ENGLISH_MSGS;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-// ─── Floating orb decoration ──────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// DECORATIONS
+// ─────────────────────────────────────────────────────────────
 function FloatingOrbs() {
   return (
     <div
       aria-hidden="true"
       style={{
-        position:      "absolute",
-        inset:         0,
-        overflow:      "hidden",
-        borderRadius:  "20px",
+        position: "absolute",
+        inset: 0,
+        overflow: "hidden",
+        borderRadius: "20px",
         pointerEvents: "none",
       }}
     >
       <div
         style={{
-          position:     "absolute",
-          top:          "-30px",
-          right:        "-30px",
-          width:        "120px",
-          height:       "120px",
+          position: "absolute",
+          top: "-30px",
+          right: "-30px",
+          width: "120px",
+          height: "120px",
           borderRadius: "50%",
-          background:   "radial-gradient(circle, rgba(124,110,243,0.35) 0%, transparent 70%)",
-          animation:    "hb-orb-pulse 4s ease-in-out infinite",
+          background:
+            "radial-gradient(circle, rgba(124,110,243,0.35) 0%, transparent 70%)",
+          animation: "hb-orb-pulse 4s ease-in-out infinite",
         }}
       />
       <div
         style={{
-          position:     "absolute",
-          bottom:       "-20px",
-          left:         "10px",
-          width:        "80px",
-          height:       "80px",
+          position: "absolute",
+          bottom: "-20px",
+          left: "10px",
+          width: "80px",
+          height: "80px",
           borderRadius: "50%",
-          background:   "radial-gradient(circle, rgba(167,139,250,0.25) 0%, transparent 70%)",
-          animation:    "hb-orb-pulse 4s ease-in-out infinite 2s",
+          background:
+            "radial-gradient(circle, rgba(167,139,250,0.25) 0%, transparent 70%)",
+          animation: "hb-orb-pulse 4s ease-in-out infinite 2s",
         }}
       />
       <div
         style={{
-          position:     "absolute",
-          top:          "50%",
-          left:         "-15px",
-          width:        "50px",
-          height:       "50px",
+          position: "absolute",
+          top: "50%",
+          left: "-15px",
+          width: "50px",
+          height: "50px",
           borderRadius: "50%",
-          background:   "radial-gradient(circle, rgba(99,86,218,0.2) 0%, transparent 70%)",
-          animation:    "hb-orb-pulse 6s ease-in-out infinite 1s",
+          background:
+            "radial-gradient(circle, rgba(99,86,218,0.2) 0%, transparent 70%)",
+          animation: "hb-orb-pulse 6s ease-in-out infinite 1s",
         }}
       />
     </div>
   );
 }
 
-// ─── Sparkle dots decoration ──────────────────────────────────────────────
 function SparkleParticles() {
   const particles = [
-    { top: "18%", left: "85%", size: 3, delay: "0s",   dur: "2.5s" },
-    { top: "70%", left: "92%", size: 2, delay: "0.8s", dur: "3s"   },
+    { top: "18%", left: "85%", size: 3, delay: "0s", dur: "2.5s" },
+    { top: "70%", left: "92%", size: 2, delay: "0.8s", dur: "3s" },
     { top: "35%", left: "78%", size: 2, delay: "1.4s", dur: "2.8s" },
     { top: "55%", left: "88%", size: 3, delay: "0.4s", dur: "3.2s" },
   ];
@@ -591,21 +679,27 @@ function SparkleParticles() {
   return (
     <div
       aria-hidden="true"
-      style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden", borderRadius: "20px" }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        overflow: "hidden",
+        borderRadius: "20px",
+      }}
     >
       {particles.map((p, i) => (
         <div
           key={i}
           style={{
-            position:     "absolute",
-            top:          p.top,
-            left:         p.left,
-            width:        `${p.size}px`,
-            height:       `${p.size}px`,
+            position: "absolute",
+            top: p.top,
+            left: p.left,
+            width: `${p.size}px`,
+            height: `${p.size}px`,
             borderRadius: "50%",
-            background:   "rgba(200,190,255,0.85)",
-            animation:    `hb-sparkle ${p.dur} ease-in-out ${p.delay} infinite`,
-            boxShadow:    "0 0 4px 1px rgba(180,170,255,0.5)",
+            background: "rgba(200,190,255,0.85)",
+            animation: `hb-sparkle ${p.dur} ease-in-out ${p.delay} infinite`,
+            boxShadow: "0 0 4px 1px rgba(180,170,255,0.5)",
           }}
         />
       ))}
@@ -613,27 +707,31 @@ function SparkleParticles() {
   );
 }
 
-// ─── Custom Toast Renderer ─────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// TOAST RENDERER
+// ─────────────────────────────────────────────────────────────
 interface ToastRendererProps {
-  toastId:       string;
-  emoji:         string;
-  title:         string;
-  body:          string;
-  spawnPathname: string; // pathname where the toast was created
-  onWrite:       () => void;
-  onDismiss:     () => void;
+  toastId: string;
+  emoji: string;
+  title: string;
+  body: string;
+  spawnPathname: string;
+  onWrite: () => void;
+  onDismiss: () => void;
 }
 
 function DiaryToastRenderer({
-  toastId, emoji, title, body, spawnPathname, onWrite, onDismiss,
+  toastId,
+  emoji,
+  title,
+  body,
+  spawnPathname,
+  onWrite,
+  onDismiss,
 }: ToastRendererProps) {
-
-  // ── Auto-dismiss when user navigates away ──────────────────────────────
   const currentPathname = usePathname();
 
   useEffect(() => {
-    // If the current pathname differs from where the toast was spawned,
-    // dismiss immediately.
     if (currentPathname !== spawnPathname) {
       toast.dismiss(toastId);
     }
@@ -641,7 +739,6 @@ function DiaryToastRenderer({
 
   return (
     <>
-      {/* ── Global keyframes ── */}
       <style>{`
         @keyframes hb-slide-in {
           0%   { opacity: 0; transform: translateX(80px) scale(0.88) rotate(2deg); }
@@ -653,21 +750,21 @@ function DiaryToastRenderer({
           to   { transform: scaleX(0); }
         }
         @keyframes hb-orb-pulse {
-          0%, 100% { transform: scale(1);    opacity: 0.7; }
-          50%      { transform: scale(1.18); opacity: 1;   }
+          0%, 100% { transform: scale(1); opacity: 0.7; }
+          50%      { transform: scale(1.18); opacity: 1; }
         }
         @keyframes hb-sparkle {
-          0%, 100% { opacity: 0;   transform: scale(0.5) rotate(0deg);   }
-          40%      { opacity: 1;   transform: scale(1.3) rotate(90deg);  }
-          70%      { opacity: 0.6; transform: scale(1)   rotate(180deg); }
+          0%, 100% { opacity: 0; transform: scale(0.5) rotate(0deg); }
+          40%      { opacity: 1; transform: scale(1.3) rotate(90deg); }
+          70%      { opacity: 0.6; transform: scale(1) rotate(180deg); }
         }
         @keyframes hb-icon-float {
-          0%, 100% { transform: translateY(0px) rotate(0deg);   }
-          50%      { transform: translateY(-3px) rotate(5deg);  }
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50%      { transform: translateY(-3px) rotate(5deg); }
         }
         @keyframes hb-badge-shine {
           0%   { background-position: -200% center; }
-          100% { background-position: 200% center;  }
+          100% { background-position: 200% center; }
         }
         .hb-btn-write:hover {
           transform: translateY(-2px) scale(1.02) !important;
@@ -688,19 +785,19 @@ function DiaryToastRenderer({
         }
       `}</style>
 
-      {/* ── Outer shell ── */}
       <div
         style={{
-          position:      "relative",
-          display:       "flex",
+          position: "relative",
+          display: "flex",
           flexDirection: "column",
-          gap:           "12px",
-          background:    "linear-gradient(145deg, #12102b 0%, #1a1535 40%, #0e1e45 100%)",
-          border:        "1px solid rgba(140,124,255,0.38)",
-          borderRadius:  "20px",
-          padding:       "18px 20px 14px",
-          minWidth:      "320px",
-          maxWidth:      "380px",
+          gap: "12px",
+          background:
+            "linear-gradient(145deg, #12102b 0%, #1a1535 40%, #0e1e45 100%)",
+          border: "1px solid rgba(140,124,255,0.38)",
+          borderRadius: "20px",
+          padding: "18px 20px 14px",
+          minWidth: "320px",
+          maxWidth: "380px",
           boxShadow: [
             "0 0 0 1px rgba(255,255,255,0.04)",
             "0 12px 40px rgba(0,0,0,0.55)",
@@ -708,87 +805,104 @@ function DiaryToastRenderer({
             "inset 0 1px 0 rgba(255,255,255,0.07)",
           ].join(", "),
           animation: "hb-slide-in 0.55s cubic-bezier(0.34,1.26,0.64,1) both",
-          overflow:  "hidden",
+          overflow: "hidden",
         }}
       >
         <FloatingOrbs />
         <SparkleParticles />
 
-        {/* Top mesh line accent */}
         <div
           aria-hidden="true"
           style={{
-            position:   "absolute",
-            top:        0,
-            left:       0,
-            right:      0,
-            height:     "1px",
-            background: "linear-gradient(90deg, transparent, rgba(167,139,250,0.7) 40%, rgba(99,179,237,0.4) 70%, transparent)",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "1px",
+            background:
+              "linear-gradient(90deg, transparent, rgba(167,139,250,0.7) 40%, rgba(99,179,237,0.4) 70%, transparent)",
           }}
         />
 
-        {/* ── Dismiss button ── */}
         <button
           className="hb-dismiss"
           onClick={onDismiss}
           style={{
-            position:       "absolute",
-            top:            "12px",
-            right:          "12px",
-            background:     "rgba(255,255,255,0.06)",
-            border:         "1px solid rgba(255,255,255,0.1)",
-            borderRadius:   "8px",
-            width:          "26px",
-            height:         "26px",
-            display:        "flex",
-            alignItems:     "center",
+            position: "absolute",
+            top: "12px",
+            right: "12px",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: "8px",
+            width: "26px",
+            height: "26px",
+            display: "flex",
+            alignItems: "center",
             justifyContent: "center",
-            cursor:         "pointer",
-            color:          "rgba(200,190,255,0.55)",
-            transition:     "all 0.22s ease",
-            zIndex:         10,
-            padding:        0,
+            cursor: "pointer",
+            color: "rgba(200,190,255,0.55)",
+            transition: "all 0.22s ease",
+            zIndex: 10,
+            padding: 0,
           }}
           aria-label="Dismiss"
         >
           <X size={12} strokeWidth={2.5} />
         </button>
 
-        {/* ── Header row ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", paddingRight: "32px", position: "relative", zIndex: 1 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            paddingRight: "32px",
+            position: "relative",
+            zIndex: 1,
+          }}
+        >
           <div
             style={{
-              flexShrink:     0,
-              width:          "46px",
-              height:         "46px",
-              borderRadius:   "14px",
-              background:     "linear-gradient(145deg, #7c6ef3 0%, #9b6de0 50%, #5e53c8 100%)",
-              display:        "flex",
-              alignItems:     "center",
+              flexShrink: 0,
+              width: "46px",
+              height: "46px",
+              borderRadius: "14px",
+              background:
+                "linear-gradient(145deg, #7c6ef3 0%, #9b6de0 50%, #5e53c8 100%)",
+              display: "flex",
+              alignItems: "center",
               justifyContent: "center",
-              boxShadow:      "0 6px 20px rgba(124,110,243,0.6), inset 0 1px 0 rgba(255,255,255,0.2)",
-              animation:      "hb-icon-float 3s ease-in-out infinite",
-              border:         "1px solid rgba(180,160,255,0.3)",
+              boxShadow:
+                "0 6px 20px rgba(124,110,243,0.6), inset 0 1px 0 rgba(255,255,255,0.2)",
+              animation: "hb-icon-float 3s ease-in-out infinite",
+              border: "1px solid rgba(180,160,255,0.3)",
             }}
           >
             <BookOpen size={21} color="#fff" strokeWidth={1.8} />
           </div>
 
           <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "3px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginBottom: "3px",
+              }}
+            >
               <Sparkles size={10} color="rgba(200,180,255,0.8)" />
               <span
                 style={{
-                  fontSize:             "10px",
-                  fontWeight:           700,
-                  color:                "rgba(190,170,255,0.85)",
-                  letterSpacing:        "0.1em",
-                  textTransform:        "uppercase",
-                  background:           "linear-gradient(90deg, rgba(190,170,255,0.85), rgba(140,180,255,0.8), rgba(190,170,255,0.85))",
-                  backgroundSize:       "200% auto",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: "rgba(190,170,255,0.85)",
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  background:
+                    "linear-gradient(90deg, rgba(190,170,255,0.85), rgba(140,180,255,0.8), rgba(190,170,255,0.85))",
+                  backgroundSize: "200% auto",
                   WebkitBackgroundClip: "text",
-                  WebkitTextFillColor:  "transparent",
-                  animation:            "hb-badge-shine 3s linear infinite",
+                  WebkitTextFillColor: "transparent",
+                  animation: "hb-badge-shine 3s linear infinite",
                 }}
               >
                 📔 Diary Reminder
@@ -796,11 +910,11 @@ function DiaryToastRenderer({
             </div>
             <p
               style={{
-                margin:        0,
-                fontSize:      "15px",
-                fontWeight:    700,
-                color:         "#edeaff",
-                lineHeight:    1.25,
+                margin: 0,
+                fontSize: "15px",
+                fontWeight: 700,
+                color: "#edeaff",
+                lineHeight: 1.25,
                 letterSpacing: "-0.01em",
               }}
             >
@@ -809,52 +923,52 @@ function DiaryToastRenderer({
           </div>
         </div>
 
-        {/* ── Divider ── */}
         <div
           style={{
-            height:     "1px",
-            background: "linear-gradient(90deg, rgba(124,110,243,0.5) 0%, rgba(99,179,237,0.2) 60%, transparent 100%)",
-            position:   "relative",
-            zIndex:     1,
+            height: "1px",
+            background:
+              "linear-gradient(90deg, rgba(124,110,243,0.5) 0%, rgba(99,179,237,0.2) 60%, transparent 100%)",
+            position: "relative",
+            zIndex: 1,
           }}
         />
 
-        {/* ── Body text ── */}
         <p
           style={{
-            margin:     0,
-            fontSize:   "13px",
-            color:      "rgba(210,205,235,0.88)",
+            margin: 0,
+            fontSize: "13px",
+            color: "rgba(210,205,235,0.88)",
             lineHeight: 1.6,
-            position:   "relative",
-            zIndex:     1,
+            position: "relative",
+            zIndex: 1,
           }}
         >
           {body}
         </p>
 
-        {/* ── CTA buttons ── */}
         <div style={{ display: "flex", gap: "8px", position: "relative", zIndex: 1 }}>
           <button
             className="hb-btn-write"
             onClick={onWrite}
             style={{
-              flex:           1,
-              display:        "flex",
-              alignItems:     "center",
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
               justifyContent: "center",
-              gap:            "6px",
-              background:     "linear-gradient(135deg, #7c6ef3 0%, #6152e8 60%, #8b6ef3 100%)",
-              border:         "1px solid rgba(180,160,255,0.35)",
-              borderRadius:   "12px",
-              padding:        "9px 16px",
-              color:          "#fff",
-              fontSize:       "13px",
-              fontWeight:     700,
-              cursor:         "pointer",
-              letterSpacing:  "0.01em",
-              transition:     "all 0.22s cubic-bezier(0.34,1.4,0.64,1)",
-              boxShadow:      "0 5px 16px rgba(124,110,243,0.5), inset 0 1px 0 rgba(255,255,255,0.18)",
+              gap: "6px",
+              background:
+                "linear-gradient(135deg, #7c6ef3 0%, #6152e8 60%, #8b6ef3 100%)",
+              border: "1px solid rgba(180,160,255,0.35)",
+              borderRadius: "12px",
+              padding: "9px 16px",
+              color: "#fff",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              letterSpacing: "0.01em",
+              transition: "all 0.22s cubic-bezier(0.34,1.4,0.64,1)",
+              boxShadow:
+                "0 5px 16px rgba(124,110,243,0.5), inset 0 1px 0 rgba(255,255,255,0.18)",
             }}
           >
             <BookOpen size={14} strokeWidth={2} />
@@ -866,42 +980,41 @@ function DiaryToastRenderer({
             className="hb-btn-later"
             onClick={onDismiss}
             style={{
-              background:   "rgba(255,255,255,0.06)",
-              border:       "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
               borderRadius: "12px",
-              padding:      "9px 16px",
-              color:        "rgba(210,200,240,0.75)",
-              fontSize:     "13px",
-              fontWeight:   500,
-              cursor:       "pointer",
-              transition:   "all 0.22s ease",
-              whiteSpace:   "nowrap",
+              padding: "9px 16px",
+              color: "rgba(210,200,240,0.75)",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "all 0.22s ease",
+              whiteSpace: "nowrap",
             }}
           >
             Later
           </button>
         </div>
 
-        {/* ── Progress bar ── */}
         <div
           style={{
-            position:     "relative",
-            height:       "3px",
+            position: "relative",
+            height: "3px",
             borderRadius: "2px",
-            background:   "rgba(255,255,255,0.07)",
-            overflow:     "hidden",
-            zIndex:       1,
+            background: "rgba(255,255,255,0.07)",
+            overflow: "hidden",
+            zIndex: 1,
           }}
         >
           <div
             style={{
-              position:        "absolute",
-              inset:           0,
-              background:      "linear-gradient(90deg, #7c6ef3, #a78bfa, #6ee7f7)",
-              borderRadius:    "2px",
-              animation:       "hb-progress-bar 11s linear forwards",
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(90deg, #7c6ef3, #a78bfa, #6ee7f7)",
+              borderRadius: "2px",
+              animation: "hb-progress-bar 11s linear forwards",
               transformOrigin: "left center",
-              boxShadow:       "0 0 6px rgba(167,139,250,0.8)",
+              boxShadow: "0 0 6px rgba(167,139,250,0.8)",
             }}
           />
         </div>
@@ -910,32 +1023,36 @@ function DiaryToastRenderer({
   );
 }
 
-// ─── Public function — call this from your handleSave ─────────────────────
-export function showDiaryReminderToast(
-  router:   ReturnType<typeof useRouter>,
-  pathname: string   // pass usePathname() from the calling component
-): void {
+// ─────────────────────────────────────────────────────────────
+// PUBLIC FUNCTION
+// ─────────────────────────────────────────────────────────────
+export async function showDiaryReminderToast(
+  router: ReturnType<typeof useRouter>,
+  pathname: string
+): Promise<void> {
   const msg = getRandomMsg();
+  const firstName = await getCurrentUserFirstName();
+  const personalizedBody = addPersonalGreeting(msg.body, firstName);
 
   toast.custom(
     (t) => (
       <DiaryToastRenderer
-        toastId       = {t.id}
-        emoji         = {msg.emoji}
-        title         = {msg.title}
-        body          = {msg.body}
-        spawnPathname = {pathname}
-        onWrite       = {() => {
+        toastId={t.id}
+        emoji={msg.emoji}
+        title={msg.title}
+        body={personalizedBody}
+        spawnPathname={pathname}
+        onWrite={() => {
           toast.dismiss(t.id);
           router.push("/dashboard/diary");
         }}
-        onDismiss     = {() => toast.dismiss(t.id)}
+        onDismiss={() => toast.dismiss(t.id)}
       />
     ),
     {
       duration: 17000,
       position: "bottom-center",
-      id:       "diary-reminder",
+      id: "diary-reminder",
     }
   );
 }
