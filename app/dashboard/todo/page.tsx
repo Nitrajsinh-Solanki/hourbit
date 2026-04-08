@@ -1,4 +1,11 @@
 "use client";
+// app/dashboard/todo/page.tsx
+// FIXES:
+// 1. Removed all migration logic (no more auto-carry-forward of tasks)
+// 2. Fixed edit bug — no optimistic update for edit; waits for server, prevents duplicate
+// 3. Fixed delete bug — correct query param encoding + stable optimistic removal
+// 4. Full-width layout — removed max-w-2xl constraint, uses full available space
+// 5. Fully responsive for all screen sizes
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
@@ -43,225 +50,44 @@ interface HistoryDay {
   completed:  number;
 }
 
-// ─── Dark, Funny + Motivational Messages (English / Hinglish) ─────────────────
+// ─── Motivational Messages ────────────────────────────────────────────────────
 
 const ALL_DONE_MESSAGES = [
-
-/* ===== 1–40: Clean + Premium Motivational ===== */
-
-"hey {name}, today was handled properly. keep building this rhythm.",
-"solid work, {name}. consistency like this compounds fast.",
-"well done, {name}. one more day that actually counted.",
-"clean execution, {name}. no wasted effort today.",
-"you followed through today, {name}. that matters more than motivation.",
-"good work, {name}. discipline showed up today.",
-"everything done, {name}. that’s a strong standard.",
-"another completed day, {name}. this is how progress looks.",
-"you did what you said you would, {name}. respect.",
-"steady progress, {name}. keep stacking days like this.",
-"today moved forward because you did, {name}.",
-"great finish, {name}. keep protecting this focus.",
-"this is how results are built, {name}. one day at a time.",
-"nothing flashy, just real progress. good work, {name}.",
-"you stayed consistent today, {name}. that’s rare.",
-"this is what discipline feels like, {name}.",
-"another solid day, {name}. don’t break the chain.",
-"today wasn’t wasted. that’s already a win, {name}.",
-"good execution, {name}. clean and focused.",
-"you showed up properly today, {name}. keep that standard.",
-"small wins, big direction. good work, {name}.",
-"today was productive. simple and powerful, {name}.",
-"that’s how momentum starts, {name}. keep going.",
-"finished work has weight. you earned it, {name}.",
-"you kept things under control today, {name}.",
-"nothing dramatic, just real work done. respect, {name}.",
-"today added something meaningful, {name}.",
-"you stayed on track. that’s everything, {name}.",
-"good discipline today, {name}. don’t drop it tomorrow.",
-"you built something today. keep building, {name}.",
-"this is how confidence grows, {name}.",
-"consistent effort always wins. good job, {name}.",
-"today was clean. keep it that way, {name}.",
-"progress is visible now, {name}. keep pushing.",
-"another step forward, {name}. no noise, just work.",
-"you handled today well, {name}. keep that control.",
-"focus stayed intact today, {name}. strong work.",
-"that’s a real day completed, {name}.",
-"you didn’t drift today. that’s powerful, {name}.",
-"today counts. and you made it count, {name}.",
-
-/* ===== 41–80: Hinglish (Clean + Non-cringe) ===== */
-
-"hey {name}, aaj ka kaam proper complete hua. keep going.",
-"aaj ka din waste nahi gaya, {name}. that’s solid.",
-"kaam finish ho gaya, {name}. good control today.",
-"aaj ka output strong tha, {name}. continue this.",
-"aaj focus sahi tha, {name}. maintain it.",
-"aaj discipline jeeta, {name}. that’s important.",
-"aaj ka system smooth chala, {name}. nice.",
-"kaam complete, {name}. kal bhi same energy.",
-"aaj distractions ko chance nahi mila, {name}.",
-"clean finish today, {name}. keep the pace.",
-"aaj ka effort visible hai, {name}.",
-"aaj ka plan actual mein execute hua, {name}.",
-"proper kaam hua aaj, {name}. respect.",
-"aaj ka scoreboard clean hai, {name}.",
-"aaj ka kaam sorted hai, {name}. good one.",
-"aaj tumne delay ko win nahi karne diya, {name}.",
-"aaj ka focus on point tha, {name}.",
-"aaj ka din controlled tha, {name}. strong.",
-"aaj ka kaam khatam hua. that’s rare, {name}.",
-"aaj tumne khud ko disappoint nahi kiya, {name}.",
-"aaj ka pressure handle hua, {name}. nice.",
-"aaj ka effort real tha, {name}.",
-"aaj ka kaam pura hua. that’s what matters.",
-"aaj ka execution clean tha, {name}.",
-"aaj ka din productive gaya, {name}.",
-"aaj kaam finish hua. excuses nahi chale, {name}.",
-"aaj ka result visible hai, {name}.",
-"aaj ka din control mein tha, {name}.",
-"aaj ka kaam actual kaam tha, {name}.",
-"aaj ka output fake nahi tha, {name}.",
-"aaj ka kaam complete, {name}. continue tomorrow.",
-"aaj ka effort waste nahi gaya, {name}.",
-"aaj ka discipline noticeable tha, {name}.",
-"aaj ka kaam honestly done hua, {name}.",
-"aaj ka din real progress tha, {name}.",
-"aaj ka focus solid tha, {name}.",
-"aaj ka execution sharp tha, {name}.",
-"aaj ka kaam clearly done hai, {name}.",
-"aaj ka output strong hai, {name}.",
-"aaj ka din kaam ka tha, {name}.",
-
-/* ===== 81–120: Funny + Light Roast ===== */
-
-"all done, {name}. this level of efficiency is slightly suspicious.",
-"everything finished, {name}. even procrastination gave up.",
-"task list cleared, {name}. didn’t expect that honestly.",
-"well well, {name}. look at you being consistent.",
-"all tasks done, {name}. unexpected but impressive.",
-"you actually finished everything, {name}. rare moment.",
-"0 tasks left, {name}. chaos avoided today.",
-"nice, {name}. today didn’t defeat you.",
-"everything done. even excuses couldn’t survive, {name}.",
-"that was efficient, {name}. borderline dangerous.",
-"you really handled that list, {name}. interesting.",
-"task list: defeated. {name}: still standing.",
-"everything done, {name}. productivity confirmed.",
-"you didn’t overthink today, {name}. shocking progress.",
-"that list had confidence. you removed it anyway, {name}.",
-"nice one, {name}. distractions lost today.",
-"all tasks done. your lazy version is confused, {name}.",
-"you showed discipline. rare but powerful, {name}.",
-"today actually worked out, {name}. surprising.",
-"you didn’t postpone everything. growth, {name}.",
-"this is new behavior, {name}. keep it.",
-"everything complete, {name}. no excuses survived.",
-"today was handled. that’s not normal, {name}.",
-"you finished things on time. interesting shift, {name}.",
-"task list eliminated. clean work, {name}.",
-"today wasn’t chaos. impressive, {name}.",
-"you stayed focused longer than usual, {name}. respect.",
-"everything done, {name}. your past self is confused.",
-"this was efficient. don’t scare people, {name}.",
-"today actually worked. keep it going, {name}.",
-"you didn’t spiral. that’s a win, {name}.",
-"tasks done without drama. unexpected, {name}.",
-"you completed things. not bad, {name}.",
-"today had structure. nice, {name}.",
-"you didn’t waste the day. big win, {name}.",
-"this was clean work, {name}. no chaos.",
-"you followed through. shocking but good, {name}.",
-"everything done, {name}. calm but powerful.",
-"today wasn’t messy. keep it like this, {name}.",
-"you handled it better than expected, {name}.",
-
-/* ===== 121–160: Deep / Reality Check ===== */
-
-"you did the work today, {name}. that’s what changes everything.",
-"motivation comes and goes. today you relied on discipline, {name}.",
-"this is how self-respect is built, {name}.",
-"you chose action over comfort today, {name}.",
-"progress isn’t loud. today proved that, {name}.",
-"you stayed consistent when it mattered, {name}.",
-"today wasn’t perfect, but it was finished. that matters, {name}.",
-"you honored your own plan today, {name}.",
-"this is what real follow-through looks like, {name}.",
-"you didn’t wait for motivation today, {name}.",
-"this is how confidence gets built, {name}.",
-"you reduced friction by acting, {name}.",
-"this is how habits become identity, {name}.",
-"today added weight to your progress, {name}.",
-"you kept moving forward, {name}. that’s enough.",
-"results come from days like this, {name}.",
-"you didn’t quit midway today, {name}. that’s growth.",
-"today wasn’t noise. it was effort, {name}.",
-"you respected your time today, {name}.",
-"you did what needed to be done, {name}.",
-"this is how you get ahead quietly, {name}.",
-"today built something real, {name}.",
-"you stayed accountable today, {name}.",
-"you didn’t escape work. you finished it, {name}.",
-"this is how momentum becomes real, {name}.",
-"you showed up fully today, {name}.",
-"today you proved consistency is possible, {name}.",
-"you didn’t negotiate with laziness today, {name}.",
-"this is the version of you that wins, {name}.",
-"you stayed aligned with your goals, {name}.",
-"today had clarity. keep it tomorrow, {name}.",
-"you chose growth over comfort, {name}.",
-"this is how things change slowly but surely, {name}.",
-"today mattered more than it looks, {name}.",
-"you didn’t drift. you directed your time, {name}.",
-"this is what real effort feels like, {name}.",
-"you stayed committed today, {name}.",
-"this is discipline in motion, {name}.",
-"you did not avoid the work today, {name}.",
-"this is how outcomes change, {name}.",
-
-/* ===== 161–200: Mixed / Balanced ===== */
-
-"good balance today, {name}. keep the flow steady.",
-"today was controlled, {name}. that’s powerful.",
-"you stayed sharp today, {name}. keep it.",
-"clean mindset, clean output, {name}.",
-"you didn’t overcomplicate today, {name}. nice.",
-"today moved forward without friction, {name}.",
-"everything aligned today, {name}. good sign.",
-"you handled your responsibilities, {name}.",
-"today was simple and effective, {name}.",
-"you didn’t break your own system today, {name}.",
-"this is the version you want more often, {name}.",
-"you showed up fully today, {name}.",
-"today was structured, {name}. that works.",
-"no chaos, just output. good work, {name}.",
-"you stayed consistent under normal conditions, {name}.",
-"today worked because you worked, {name}.",
-"everything done with clarity, {name}.",
-"you didn’t rush, you finished. better approach, {name}.",
-"today was intentional, {name}.",
-"you kept things steady today, {name}.",
-"you stayed on track longer than usual, {name}.",
-"today had direction. keep that.",
-"you handled the day without excuses, {name}.",
-"this is controlled progress, {name}.",
-"you respected your own priorities today, {name}.",
-"today had purpose. that’s enough, {name}.",
-"you didn’t waste energy today, {name}.",
-"this is the pace that wins long-term, {name}.",
-"you didn’t rush or delay. balanced work, {name}.",
-"today made sense, {name}.",
-"you stayed focused where it mattered, {name}.",
-"this is what steady improvement looks like, {name}.",
-"today didn’t slip away, {name}.",
-"you handled things calmly, {name}.",
-"this is sustainable progress, {name}.",
-"today was real work, not fake busy work, {name}.",
-"you kept things tight today, {name}.",
-"this is the rhythm you want, {name}.",
-"today added up correctly, {name}.",
-"you made the day count, {name}."
-
+  "hey {name}, today was handled properly. keep building this rhythm.",
+  "solid work, {name}. consistency like this compounds fast.",
+  "well done, {name}. one more day that actually counted.",
+  "clean execution, {name}. no wasted effort today.",
+  "you followed through today, {name}. that matters more than motivation.",
+  "good work, {name}. discipline showed up today.",
+  "everything done, {name}. that's a strong standard.",
+  "another completed day, {name}. this is how progress looks.",
+  "you did what you said you would, {name}. respect.",
+  "steady progress, {name}. keep stacking days like this.",
+  "today moved forward because you did, {name}.",
+  "great finish, {name}. keep protecting this focus.",
+  "this is how results are built, {name}. one day at a time.",
+  "nothing flashy, just real progress. good work, {name}.",
+  "you stayed consistent today, {name}. that's rare.",
+  "this is what discipline feels like, {name}.",
+  "another solid day, {name}. don't break the chain.",
+  "today wasn't wasted. that's already a win, {name}.",
+  "good execution, {name}. clean and focused.",
+  "you showed up properly today, {name}. keep that standard.",
+  "all done, {name}. this level of efficiency is slightly suspicious.",
+  "everything finished, {name}. even procrastination gave up.",
+  "task list cleared, {name}. didn't expect that honestly.",
+  "well well, {name}. look at you being consistent.",
+  "you actually finished everything, {name}. rare moment.",
+  "0 tasks left, {name}. chaos avoided today.",
+  "hey {name}, aaj ka kaam proper complete hua. keep going.",
+  "aaj ka din waste nahi gaya, {name}. that's solid.",
+  "kaam finish ho gaya, {name}. good control today.",
+  "aaj ka output strong tha, {name}. continue this.",
+  "you did the work today, {name}. that's what changes everything.",
+  "motivation comes and goes. today you relied on discipline, {name}.",
+  "this is how self-respect is built, {name}.",
+  "you chose action over comfort today, {name}.",
+  "progress isn't loud. today proved that, {name}.",
 ];
 
 function getMotivationalToast(name: string): string {
@@ -309,7 +135,7 @@ function MotivationalToast({ message, onDone }: { message: string; onDone: () =>
           setTimeout(() => onDone(), 0);
           return 0;
         }
-        return p - (100 / 100);
+        return p - 1;
       });
     }, 100);
     return () => clearInterval(interval);
@@ -345,7 +171,7 @@ function MotivationalToast({ message, onDone }: { message: string; onDone: () =>
               className="text-[10px] font-bold uppercase tracking-widest mb-1"
               style={{ color: "#22d3a0" }}
             >
-              🎉 Sab Kuch Done!
+              🎉 All Done!
             </p>
             <p className="text-[13px] font-medium leading-snug" style={{ color: "#e8e8f0" }}>
               {message}
@@ -385,23 +211,47 @@ function TaskItem({
   task:     Task;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
-  onEdit:   (id: string, text: string) => void;
+  onEdit:   (id: string, text: string) => Promise<void>;
   readOnly?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft]     = useState(task.text);
-  const inputRef              = useRef<HTMLInputElement>(null);
+  const [editing, setEditing]   = useState(false);
+  const [draft, setDraft]       = useState(task.text);
+  const [saving, setSaving]     = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const inputRef                = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  const handleSave = () => {
+  // Keep draft in sync if task.text changes externally (e.g. server refresh)
+  useEffect(() => {
+    if (!editing) setDraft(task.text);
+  }, [task.text, editing]);
+
+  const handleSave = async () => {
     const trimmed = draft.trim();
     if (!trimmed) { setDraft(task.text); setEditing(false); return; }
+    if (trimmed === task.text) { setEditing(false); return; } // no change
     if (trimmed.length > MAX_CHAR) { toast.error(`Max ${MAX_CHAR} characters`); return; }
-    onEdit(task.id, trimmed);
-    setEditing(false);
+    setSaving(true);
+    try {
+      await onEdit(task.id, trimmed);
+      setEditing(false);
+    } catch {
+      // error handled in parent
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      onDelete(task.id);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -414,12 +264,13 @@ function TaskItem({
         border: task.completed
           ? "1px solid rgba(34,211,160,0.15)"
           : "1px solid var(--border2)",
+        opacity: deleting ? 0.5 : 1,
       }}
     >
       {/* Checkbox */}
       {!readOnly ? (
         <button
-          onClick={() => onToggle(task.id)}
+          onClick={() => !editing && onToggle(task.id)}
           className="shrink-0 mt-0.5 border-none bg-transparent cursor-pointer p-0 transition-transform active:scale-90"
           aria-label={task.completed ? "Mark incomplete" : "Mark complete"}
         >
@@ -459,14 +310,19 @@ function TaskItem({
             <span className="text-[11px] shrink-0" style={{ color: "var(--text4)" }}>
               {draft.length}/{MAX_CHAR}
             </span>
-            <button onClick={handleSave}
-              className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer shrink-0"
-              style={{ background: "rgba(34,211,160,0.15)", color: "#22d3a0" }}>
-              <Check size={13} />
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer shrink-0 disabled:opacity-50"
+              style={{ background: "rgba(34,211,160,0.15)", color: "#22d3a0" }}
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} />}
             </button>
-            <button onClick={() => { setDraft(task.text); setEditing(false); }}
+            <button
+              onClick={() => { setDraft(task.text); setEditing(false); }}
               className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer shrink-0"
-              style={{ background: "var(--surface2)", color: "var(--text4)" }}>
+              style={{ background: "var(--surface2)", color: "var(--text4)" }}
+            >
               <X size={13} />
             </button>
           </div>
@@ -490,13 +346,13 @@ function TaskItem({
         )}
       </div>
 
-      {/* Actions */}
+      {/* Actions — always visible on mobile, hover on desktop */}
       {!readOnly && !editing && (
-        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <div className="flex items-center gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
           {!task.completed && (
             <button
               onClick={() => { setDraft(task.text); setEditing(true); }}
-              className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all"
+              className="w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all"
               style={{ background: "transparent", color: "var(--text4)" }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)";
@@ -508,12 +364,13 @@ function TaskItem({
               }}
               title="Edit"
             >
-              <Pencil size={13} />
+              <Pencil size={14} />
             </button>
           )}
           <button
-            onClick={() => onDelete(task.id)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all disabled:opacity-40"
             style={{ background: "transparent", color: "var(--text4)" }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.12)";
@@ -525,7 +382,7 @@ function TaskItem({
             }}
             title="Delete"
           >
-            <Trash2 size={13} />
+            {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={14} />}
           </button>
         </div>
       )}
@@ -537,8 +394,8 @@ function TaskItem({
 
 function HistoryDayCard({ day }: { day: HistoryDay }) {
   const [expanded, setExpanded] = useState(false);
-  const pct   = day.totalTasks > 0 ? Math.round((day.completed / day.totalTasks) * 100) : 0;
-  const color = pct === 100 ? "#22d3a0" : pct >= 50 ? "#f59e0b" : "#f87171";
+  const pct    = day.totalTasks > 0 ? Math.round((day.completed / day.totalTasks) * 100) : 0;
+  const color  = pct === 100 ? "#22d3a0" : pct >= 50 ? "#f59e0b" : "#f87171";
   const isYest = isYesterday(day.date);
 
   return (
@@ -590,7 +447,14 @@ function HistoryDayCard({ day }: { day: HistoryDay }) {
               </p>
             ) : (
               day.tasks.map((task) => (
-                <TaskItem key={task.id} task={task} readOnly onToggle={() => {}} onDelete={() => {}} onEdit={() => {}} />
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  readOnly
+                  onToggle={() => {}}
+                  onDelete={() => {}}
+                  onEdit={async () => {}}
+                />
               ))
             )}
           </div>
@@ -608,13 +472,10 @@ function TodayTab({ userName }: { userName: string }) {
   const [inputVal, setInputVal] = useState("");
   const [adding, setAdding]     = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-
-  // ── KEY FIX: toastShownToday is ONLY ever set from the server's
-  //    allCompletedToastShown field. We never reset it to false client-side.
-  //    Once the server says "toast was shown today", we lock it for the day.
   const [toastShownToday, setToastShownToday] = useState(false);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef     = useRef<HTMLInputElement>(null);
+  const toastFiredRef = useRef(false);
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -622,7 +483,6 @@ function TodayTab({ userName }: { userName: string }) {
       const data = await res.json();
       if (data.success) {
         setTasks(data.tasks);
-        // Only ever update toastShownToday from the server — never from client actions
         setToastShownToday(data.allCompletedToastShown);
       }
     } catch {
@@ -632,42 +492,28 @@ function TodayTab({ userName }: { userName: string }) {
     }
   }, []);
 
+  // On mount: only fetch tasks — NO migration
   useEffect(() => {
-    (async () => {
-      try { await fetch("/api/todo/migrate", { method: "POST" }); } catch {}
-      await fetchTasks();
-    })();
+    fetchTasks();
   }, [fetchTasks]);
 
-  // ── Show toast logic: only fires if server hasn't recorded it yet ──────────
-  // We use a local ref to guard against the effect running twice in strict mode
-  const toastFiredRef = useRef(false);
-
+  // Show motivational toast when all tasks are done
   useEffect(() => {
-    // Don't show if: no tasks, already shown today (server says so), or already fired this session
     if (tasks.length === 0 || toastShownToday || toastFiredRef.current) return;
-
     const allDone = tasks.every((t) => t.completed);
     if (!allDone) return;
 
-    // All tasks are done and toast has NOT been shown today — fire it
     toastFiredRef.current = true;
     const msg = getMotivationalToast(userName || "Legend");
     setToastMsg(msg);
 
-    // Tell the server to mark toast as shown for today
     fetch("/api/todo", {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ action: "toast-shown" }),
     })
       .then((r) => r.json())
-      .then((data) => {
-        if (data.success) {
-          // Sync the flag from server response so future renders are blocked
-          setToastShownToday(true);
-        }
-      })
+      .then((data) => { if (data.success) setToastShownToday(true); })
       .catch(() => {});
   }, [tasks, toastShownToday, userName]);
 
@@ -680,8 +526,8 @@ function TodayTab({ userName }: { userName: string }) {
   const handleAdd = async () => {
     const text = inputVal.trim();
     if (!text) return;
-    if (text.length > MAX_CHAR)      { toast.error(`Max ${MAX_CHAR} characters`); return; }
-    if (tasks.length >= MAX_TASKS)   { toast.error(`Max ${MAX_TASKS} tasks per day`); return; }
+    if (text.length > MAX_CHAR)    { toast.error(`Max ${MAX_CHAR} characters`); return; }
+    if (tasks.length >= MAX_TASKS) { toast.error(`Max ${MAX_TASKS} tasks per day`); return; }
 
     setAdding(true);
     try {
@@ -692,11 +538,8 @@ function TodayTab({ userName }: { userName: string }) {
       });
       const data = await res.json();
       if (data.success) {
-        setTasks(data.tasks);
+        setTasks(data.tasks); // use server state — source of truth
         setInputVal("");
-        // ✅ REMOVED: setToastShown(false) — adding a new task must NOT reset
-        //    the toast flag. The server correctly keeps allCompletedToastShown=true
-        //    even after new tasks are added, and we respect that.
         inputRef.current?.focus();
       } else {
         toast.error(data.message || "Failed to add task");
@@ -708,8 +551,9 @@ function TodayTab({ userName }: { userName: string }) {
     }
   };
 
+  // ── Toggle ────────────────────────────────────────────────────────────────
   const handleToggle = async (taskId: string) => {
-    // Optimistic update — but do NOT touch toastShownToday
+    // Optimistic update
     setTasks((prev) =>
       prev.map((t) =>
         t.id === taskId
@@ -717,7 +561,6 @@ function TodayTab({ userName }: { userName: string }) {
           : t
       )
     );
-    // ✅ REMOVED: setToastShown(false) — toggling tasks must NOT reset the flag
     try {
       const res  = await fetch("/api/todo", {
         method:  "PATCH",
@@ -727,8 +570,9 @@ function TodayTab({ userName }: { userName: string }) {
       const data = await res.json();
       if (data.success) {
         setTasks(data.tasks);
-        // Sync toastShownToday from server response (it may have changed)
         setToastShownToday(data.allCompletedToastShown);
+      } else {
+        fetchTasks(); // revert on error
       }
     } catch {
       toast.error("Failed to update task");
@@ -736,18 +580,31 @@ function TodayTab({ userName }: { userName: string }) {
     }
   };
 
+  // ── Delete — FIX: use correct query param format ──────────────────────────
   const handleDelete = async (taskId: string) => {
+    // Optimistic removal
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
+
     try {
-      await fetch(`/api/todo?taskId=${taskId}`, { method: "DELETE" });
+      const url = `/api/todo?taskId=${encodeURIComponent(taskId)}&date=${todayISO()}`;
+      const res = await fetch(url, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.message || "Failed to delete task");
+        fetchTasks(); // revert
+      }
+      // On success, server returns updated tasks — sync them
+      if (data.success && data.tasks) {
+        setTasks(data.tasks);
+      }
     } catch {
       toast.error("Failed to delete task");
-      fetchTasks();
+      fetchTasks(); // revert
     }
   };
 
-  const handleEdit = async (taskId: string, text: string) => {
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, text } : t)));
+  // ── Edit — FIX: no optimistic update; wait for server to avoid duplicates ─
+  const handleEdit = async (taskId: string, text: string): Promise<void> => {
     try {
       const res  = await fetch("/api/todo", {
         method:  "PATCH",
@@ -755,19 +612,25 @@ function TodayTab({ userName }: { userName: string }) {
         body:    JSON.stringify({ action: "edit", taskId, text }),
       });
       const data = await res.json();
-      if (data.success) setTasks(data.tasks);
-    } catch {
+      if (data.success) {
+        setTasks(data.tasks); // server is source of truth
+      } else {
+        toast.error(data.message || "Failed to update task");
+        throw new Error(data.message);
+      }
+    } catch (e) {
       toast.error("Failed to update task");
-      fetchTasks();
+      throw e;
     }
   };
 
+  // ── Mark All ──────────────────────────────────────────────────────────────
   const handleMarkAll = async () => {
     if (allDone) return;
+    // Optimistic
     setTasks((prev) =>
       prev.map((t) => ({ ...t, completed: true, completedAt: t.completedAt || new Date().toISOString() }))
     );
-    // ✅ REMOVED: setToastShown(false) — marking all done must NOT reset the flag
     try {
       const res  = await fetch("/api/todo", {
         method:  "PATCH",
@@ -777,8 +640,9 @@ function TodayTab({ userName }: { userName: string }) {
       const data = await res.json();
       if (data.success) {
         setTasks(data.tasks);
-        // Sync toastShownToday from server response
         setToastShownToday(data.allCompletedToastShown);
+      } else {
+        fetchTasks();
       }
     } catch {
       toast.error("Failed to mark all");
@@ -794,22 +658,29 @@ function TodayTab({ userName }: { userName: string }) {
     );
   }
 
+  const incompleteTasks = tasks.filter((t) => !t.completed);
+  const completedTasks  = tasks.filter((t) => t.completed);
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 w-full">
 
       {/* Motivational Toast */}
       {toastMsg && (
         <MotivationalToast message={toastMsg} onDone={() => setToastMsg(null)} />
       )}
 
-      {/* ── Progress bar + inline mini-stats ── */}
+      {/* ── Progress Card ── */}
       <div
-        className="rounded-2xl px-5 py-4"
+        className="rounded-2xl px-4 sm:px-5 py-4 w-full"
         style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
       >
-        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap sm:flex-nowrap">
-          <p className="text-[13px] font-semibold shrink-0" style={{ color: "var(--text2)" }}>
-            {allDone ? "🎉 All done for today!" : tasks.length === 0 ? "No tasks yet" : "Today's progress"}
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <p className="text-[13px] font-semibold" style={{ color: "var(--text2)" }}>
+            {allDone
+              ? "🎉 All done for today!"
+              : tasks.length === 0
+              ? "No tasks yet — add your first task"
+              : "Today's progress"}
           </p>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -835,8 +706,7 @@ function TodayTab({ userName }: { userName: string }) {
             >
               {tasks.length - completedCount} left
             </span>
-
-            <p className="font-mono font-bold text-[13px] ml-1" style={{ color: progressColor }}>
+            <p className="font-mono font-bold text-[13px]" style={{ color: progressColor }}>
               {progress}%
             </p>
           </div>
@@ -854,9 +724,9 @@ function TodayTab({ userName }: { userName: string }) {
         </div>
       </div>
 
-      {/* ── Input ── */}
+      {/* ── Input Card ── */}
       <div
-        className="rounded-2xl p-4 sm:p-5"
+        className="rounded-2xl p-4 sm:p-5 w-full"
         style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
       >
         <div className="flex items-center gap-2 mb-3">
@@ -872,7 +742,7 @@ function TodayTab({ userName }: { userName: string }) {
           </span>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full">
           <div className="relative flex-1 min-w-0">
             <input
               ref={inputRef}
@@ -880,13 +750,14 @@ function TodayTab({ userName }: { userName: string }) {
               onChange={(e) => setInputVal(e.target.value.slice(0, MAX_CHAR))}
               onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
               placeholder="What needs to be done today?"
-              disabled={tasks.length >= MAX_TASKS}
+              disabled={tasks.length >= MAX_TASKS || adding}
               className="w-full rounded-xl px-4 py-3 text-[14px] outline-none transition-all disabled:opacity-50"
               style={{
                 background:   "var(--surface2)",
                 border:       "1px solid var(--border2)",
                 color:        "var(--text)",
                 paddingRight: "4rem",
+                boxSizing:    "border-box",
               }}
               onFocus={(e) => {
                 e.currentTarget.style.borderColor = "rgba(124,110,243,0.5)";
@@ -908,15 +779,17 @@ function TodayTab({ userName }: { userName: string }) {
           <button
             onClick={handleAdd}
             disabled={adding || !inputVal.trim() || tasks.length >= MAX_TASKS}
-            className="flex items-center gap-1.5 px-4 sm:px-5 py-3 rounded-xl text-[13px] font-semibold border-none cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            className="flex items-center gap-1.5 px-4 py-3 rounded-xl text-[13px] font-semibold border-none cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             style={{
               background: "var(--accent)",
               color:      "#fff",
               boxShadow:  "0 0 20px rgba(124,110,243,0.25)",
+              minWidth:   "80px",
+              justifyContent: "center",
             }}
           >
             {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            <span className="hidden sm:inline">Add</span>
+            <span>Add</span>
           </button>
         </div>
 
@@ -930,11 +803,12 @@ function TodayTab({ userName }: { userName: string }) {
         )}
       </div>
 
-      {/* ── Task list ── */}
+      {/* ── Task List Card ── */}
       <div
-        className="rounded-2xl overflow-hidden"
+        className="rounded-2xl overflow-hidden w-full"
         style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
       >
+        {/* Header */}
         <div
           className="px-4 sm:px-5 py-3.5 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap"
           style={{ borderBottom: "1px solid var(--border2)" }}
@@ -970,6 +844,7 @@ function TodayTab({ userName }: { userName: string }) {
           )}
         </div>
 
+        {/* Tasks */}
         <div className="p-3 sm:p-4 flex flex-col gap-2.5">
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
@@ -986,11 +861,19 @@ function TodayTab({ userName }: { userName: string }) {
             </div>
           ) : (
             <>
-              {tasks.filter((t) => !t.completed).map((task) => (
-                <TaskItem key={task.id} task={task} onToggle={handleToggle} onDelete={handleDelete} onEdit={handleEdit} />
+              {/* Incomplete tasks */}
+              {incompleteTasks.map((task) => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                />
               ))}
 
-              {tasks.some((t) => !t.completed) && tasks.some((t) => t.completed) && (
+              {/* Divider between incomplete and complete */}
+              {incompleteTasks.length > 0 && completedTasks.length > 0 && (
                 <div className="flex items-center gap-3 my-1">
                   <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
                   <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
@@ -1000,8 +883,15 @@ function TodayTab({ userName }: { userName: string }) {
                 </div>
               )}
 
-              {tasks.filter((t) => t.completed).map((task) => (
-                <TaskItem key={task.id} task={task} onToggle={handleToggle} onDelete={handleDelete} onEdit={handleEdit} />
+              {/* Completed tasks */}
+              {completedTasks.map((task) => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                />
               ))}
             </>
           )}
@@ -1060,7 +950,7 @@ function HistoryTab() {
   const overallPct     = totalTasksAll > 0 ? Math.round((totalCompleted / totalTasksAll) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 w-full">
       {/* Summary strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -1080,7 +970,7 @@ function HistoryTab() {
         ))}
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 w-full">
         {history.map((day) => (
           <HistoryDayCard key={day.date} day={day} />
         ))}
@@ -1108,11 +998,11 @@ export default function TodoPage() {
   ] as const;
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl mx-auto w-full px-0 sm:px-0">
+    // Full width — no max-w constraint, uses all available dashboard space
+    <div className="flex flex-col gap-4 w-full px-0">
 
-      {/* ── Compact header row: title left, tabs right ── */}
+      {/* ── Header: title left, tabs right ── */}
       <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
-        {/* Title */}
         <div className="flex items-center gap-2.5">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
@@ -1142,7 +1032,7 @@ export default function TodoPage() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[12px] font-semibold border-none cursor-pointer transition-all duration-150"
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-[12px] font-semibold border-none cursor-pointer transition-all duration-150 whitespace-nowrap"
               style={{
                 background: tab === key ? "var(--accent)" : "transparent",
                 color:      tab === key ? "#fff" : "var(--text3)",
@@ -1150,15 +1040,17 @@ export default function TodoPage() {
               }}
             >
               <Icon size={13} />
-              {label}
+              <span className="hidden xs:inline sm:inline">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* ── Tab content ── */}
-      {tab === "today"   && <TodayTab userName={userName} />}
-      {tab === "history" && <HistoryTab />}
+      {/* ── Tab content — full width ── */}
+      <div className="w-full">
+        {tab === "today"   && <TodayTab userName={userName} />}
+        {tab === "history" && <HistoryTab />}
+      </div>
     </div>
   );
 }
