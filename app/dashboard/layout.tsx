@@ -1,5 +1,5 @@
 "use client";
-
+// app/dashboard/layout.tsx
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";

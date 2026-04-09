@@ -1,8 +1,7 @@
 "use client";
 
 // components/MotivationalQuoteBanner.tsx
-// Drop into your top navbar — large screens only (hidden below xl)
-// Usage: <MotivationalQuoteBanner firstName="Nikulsinh" isDark={isDark} />
+// Premium motivational quote banner with intelligent overflow handling
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -329,11 +328,12 @@ export default function MotivationalQuoteBanner({
   const [textIn, setTextIn] = useState(false);
   const [shimmer, setShimmer] = useState(false);
   const [glowing, setGlowing] = useState(false);
-  const [typedText, setTypedText] = useState("");
-  const [typingDone, setTypingDone] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   const quote = useMemo(() => getDailyQuote(), []);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const quoteRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const tagColor = TAG_COLORS[quote.tag] ?? TAG_COLORS.action;
 
@@ -351,30 +351,27 @@ export default function MotivationalQuoteBanner({
     };
   }, []);
 
+  // Check if quote text overflows
   useEffect(() => {
-    if (!textIn) return;
+    if (!textIn || !quoteRef.current || !containerRef.current) return;
 
-    let i = 0;
-    setTypedText("");
-    setTypingDone(false);
+    const checkOverflow = () => {
+      const quoteEl = quoteRef.current;
+      const containerEl = containerRef.current;
+      if (!quoteEl || !containerEl) return;
 
-    const type = () => {
-      if (i < quote.text.length) {
-        setTypedText(quote.text.slice(0, i + 1));
-        i++;
-        typingTimeoutRef.current = setTimeout(type, 18);
-      } else {
-        setTypingDone(true);
-      }
+      // Check if text width exceeds container width
+      const isOverflow = quoteEl.scrollWidth > containerEl.clientWidth;
+      setIsOverflowing(isOverflow);
     };
 
-    const starter = setTimeout(type, 320);
+    // Initial check
+    setTimeout(checkOverflow, 100);
 
-    return () => {
-      clearTimeout(starter);
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    };
-  }, [textIn, quote.text]);
+    // Recheck on window resize
+    window.addEventListener("resize", checkOverflow);
+    return () => window.removeEventListener("resize", checkOverflow);
+  }, [textIn]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -489,12 +486,12 @@ export default function MotivationalQuoteBanner({
           }
         }
 
-        @keyframes mqCursorBlink {
-          0%, 100% {
-            opacity: 1;
+        @keyframes mqMarquee {
+          0% {
+            transform: translateX(0);
           }
-          50% {
-            opacity: 0;
+          100% {
+            transform: translateX(-50%);
           }
         }
 
@@ -565,7 +562,7 @@ export default function MotivationalQuoteBanner({
           gap: 10px;
           padding: 8px 14px 8px 10px;
           border-radius: 18px;
-          max-width: 620px;
+          max-width: 100%;
           min-width: 0;
           overflow: hidden;
           flex-shrink: 1;
@@ -581,7 +578,7 @@ export default function MotivationalQuoteBanner({
         }
 
         .mq-banner:hover {
-          transform: translateY(-1px) scale(1.015);
+          transform: translateY(-1px) scale(1.008);
         }
 
         .mq-banner.mq-in {
@@ -685,16 +682,18 @@ export default function MotivationalQuoteBanner({
         }
 
         /* ─────────────────────────────
-           TEXT BLOCK
+           TEXT BLOCK - WITH MARQUEE
         ───────────────────────────── */
         .mq-texts {
           display: flex;
           align-items: baseline;
           gap: 6px;
           min-width: 0;
+          flex: 1;
           overflow: hidden;
           opacity: 0;
           z-index: 4;
+          position: relative;
         }
 
         .mq-texts.mq-text-in {
@@ -724,31 +723,72 @@ export default function MotivationalQuoteBanner({
           margin: 0 1px;
         }
 
+        .mq-quote-container {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          position: relative;
+          opacity: 0;
+        }
+
+        .mq-quote-container.mq-quote-in {
+          animation: mqQuoteFade 0.55s cubic-bezier(0.22,1,0.36,1) 0.32s forwards;
+        }
+
+        .mq-quote-wrapper {
+          display: inline-flex;
+          gap: 0;
+          white-space: nowrap;
+        }
+
+        .mq-quote-wrapper.mq-marquee {
+          animation: mqMarquee 20s linear infinite;
+        }
+
+        .mq-quote-wrapper.mq-marquee.mq-paused {
+          animation-play-state: paused;
+        }
+
         .mq-quote {
           font-family: 'Inter', system-ui, sans-serif;
           font-size: 11.8px;
           font-weight: 500;
           white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          opacity: 0;
-          flex: 1 1 0;
-          min-width: 0;
           line-height: 1.45;
-        }
-
-        .mq-quote.mq-quote-in {
-          animation: mqQuoteFade 0.55s cubic-bezier(0.22,1,0.36,1) 0.32s forwards;
-        }
-
-        .mq-cursor {
           display: inline-block;
-          width: 1.5px;
-          height: 0.9em;
-          border-radius: 999px;
-          vertical-align: middle;
-          margin-left: 2px;
-          animation: mqCursorBlink 1s step-start infinite;
+        }
+
+        .mq-quote.mq-duplicate {
+          padding-left: 2em;
+        }
+
+        /* Gradient fade edges for marquee */
+        .mq-quote-container::before,
+        .mq-quote-container::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          width: 40px;
+          z-index: 5;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.4s ease;
+        }
+
+        .mq-quote-container.mq-has-overflow::before,
+        .mq-quote-container.mq-has-overflow::after {
+          opacity: 1;
+        }
+
+        .mq-quote-container::before {
+          left: 0;
+          background: linear-gradient(to right, var(--gradient-fade-start), transparent);
+        }
+
+        .mq-quote-container::after {
+          right: 0;
+          background: linear-gradient(to left, var(--gradient-fade-start), transparent);
         }
 
         /* ─────────────────────────────
@@ -800,7 +840,8 @@ export default function MotivationalQuoteBanner({
       `}</style>
 
       <div
-        className={`mq-banner hidden xl:flex ${
+        ref={containerRef}
+        className={`mq-banner hidden lg:flex ${
           visible ? (glowing ? "mq-in mq-glow" : "mq-in") : ""
         }`}
         style={{
@@ -815,6 +856,10 @@ export default function MotivationalQuoteBanner({
           boxShadow: isDark
             ? `0 10px 35px rgba(0,0,0,0.28), 0 0 24px ${tagColor.glow.replace("0.35", "0.12")}`
             : `0 10px 30px rgba(15,23,42,0.08), 0 0 18px ${tagColor.glow.replace("0.35", "0.10")}`,
+          // @ts-ignore
+          "--gradient-fade-start": isDark
+            ? "rgba(15,17,23,1)"
+            : "rgba(240,242,248,1)",
         }}
         aria-label="Daily motivational quote"
         title={quote.text}
@@ -860,22 +905,39 @@ export default function MotivationalQuoteBanner({
             —
           </span>
 
-          <span
-            className={`mq-quote ${textIn ? "mq-quote-in" : ""}`}
-            style={{
-              color: isDark ? "#cbd5e1" : "#334155",
-            }}
+          <div
+            className={`mq-quote-container ${textIn ? "mq-quote-in" : ""} ${
+              isOverflowing ? "mq-has-overflow" : ""
+            }`}
+            onMouseEnter={() => setIsPaused(true)}
+            onMouseLeave={() => setIsPaused(false)}
           >
-            {typedText}
-            {!typingDone && textIn && (
+            <div
+              ref={quoteRef}
+              className={`mq-quote-wrapper ${
+                isOverflowing ? `mq-marquee ${isPaused ? "mq-paused" : ""}` : ""
+              }`}
+            >
               <span
-                className="mq-cursor"
+                className="mq-quote"
                 style={{
-                  background: isDark ? "#818cf8" : "#6366f1",
+                  color: isDark ? "#cbd5e1" : "#334155",
                 }}
-              />
-            )}
-          </span>
+              >
+                {quote.text}
+              </span>
+              {isOverflowing && (
+                <span
+                  className="mq-quote mq-duplicate"
+                  style={{
+                    color: isDark ? "#cbd5e1" : "#334155",
+                  }}
+                >
+                  {quote.text}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Tag pill */}
