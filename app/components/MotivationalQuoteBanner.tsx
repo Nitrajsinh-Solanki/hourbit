@@ -248,74 +248,74 @@ const TAG_COLORS: Record<
   { bg: string; text: string; darkBg: string; darkText: string; glow: string }
 > = {
   reality: {
-    bg: "rgba(220,38,38,0.10)",
-    text: "#b91c1c",
-    darkBg: "rgba(252,165,165,0.12)",
+    bg: "rgba(239,68,68,0.12)",
+    text: "#dc2626",
+    darkBg: "rgba(254,202,202,0.15)",
     darkText: "#fca5a5",
-    glow: "rgba(248,113,113,0.35)",
+    glow: "rgba(239,68,68,0.4)",
   },
   dark: {
-    bg: "rgba(88,28,135,0.12)",
+    bg: "rgba(124,58,237,0.12)",
     text: "#7c3aed",
-    darkBg: "rgba(196,181,253,0.13)",
+    darkBg: "rgba(221,214,254,0.15)",
     darkText: "#c4b5fd",
-    glow: "rgba(167,139,250,0.35)",
+    glow: "rgba(167,139,250,0.4)",
   },
   professional: {
-    bg: "rgba(30,64,175,0.10)",
-    text: "#1d4ed8",
-    darkBg: "rgba(147,197,253,0.12)",
+    bg: "rgba(37,99,235,0.12)",
+    text: "#2563eb",
+    darkBg: "rgba(191,219,254,0.15)",
     darkText: "#93c5fd",
-    glow: "rgba(96,165,250,0.35)",
+    glow: "rgba(59,130,246,0.4)",
   },
   discipline: {
-    bg: "rgba(180,83,9,0.10)",
-    text: "#b45309",
-    darkBg: "rgba(253,186,116,0.12)",
+    bg: "rgba(234,88,12,0.12)",
+    text: "#ea580c",
+    darkBg: "rgba(254,215,170,0.15)",
     darkText: "#fdba74",
-    glow: "rgba(251,191,36,0.35)",
+    glow: "rgba(251,146,60,0.4)",
   },
   growth: {
-    bg: "rgba(6,95,70,0.10)",
-    text: "#047857",
-    darkBg: "rgba(110,231,183,0.12)",
+    bg: "rgba(5,150,105,0.12)",
+    text: "#059669",
+    darkBg: "rgba(167,243,208,0.15)",
     darkText: "#6ee7b7",
-    glow: "rgba(52,211,153,0.35)",
+    glow: "rgba(52,211,153,0.4)",
   },
   resilience: {
-    bg: "rgba(190,18,60,0.10)",
-    text: "#be123c",
-    darkBg: "rgba(253,164,175,0.12)",
-    darkText: "#fda4af",
-    glow: "rgba(244,114,182,0.35)",
+    bg: "rgba(219,39,119,0.12)",
+    text: "#db2777",
+    darkBg: "rgba(251,207,232,0.15)",
+    darkText: "#f9a8d4",
+    glow: "rgba(236,72,153,0.4)",
   },
   legacy: {
-    bg: "rgba(124,45,18,0.10)",
-    text: "#9a3412",
-    darkBg: "rgba(253,186,116,0.12)",
-    darkText: "#fed7aa",
-    glow: "rgba(251,146,60,0.35)",
+    bg: "rgba(217,119,6,0.12)",
+    text: "#d97706",
+    darkBg: "rgba(254,215,170,0.15)",
+    darkText: "#fcd34d",
+    glow: "rgba(251,191,36,0.4)",
   },
   mindset: {
-    bg: "rgba(15,118,110,0.10)",
-    text: "#0f766e",
-    darkBg: "rgba(153,246,228,0.12)",
-    darkText: "#99f6e4",
-    glow: "rgba(45,212,191,0.35)",
+    bg: "rgba(20,184,166,0.12)",
+    text: "#14b8a6",
+    darkBg: "rgba(153,246,228,0.15)",
+    darkText: "#5eead4",
+    glow: "rgba(45,212,191,0.4)",
   },
   action: {
     bg: "rgba(99,102,241,0.12)",
-    text: "#4f46e5",
-    darkBg: "rgba(165,180,252,0.13)",
+    text: "#6366f1",
+    darkBg: "rgba(199,210,254,0.15)",
     darkText: "#a5b4fc",
-    glow: "rgba(129,140,248,0.35)",
+    glow: "rgba(129,140,248,0.4)",
   },
   focus: {
-    bg: "rgba(3,105,161,0.10)",
-    text: "#0369a1",
-    darkBg: "rgba(125,211,252,0.12)",
+    bg: "rgba(14,165,233,0.12)",
+    text: "#0ea5e9",
+    darkBg: "rgba(186,230,253,0.15)",
     darkText: "#7dd3fc",
-    glow: "rgba(56,189,248,0.35)",
+    glow: "rgba(56,189,248,0.4)",
   },
 };
 
@@ -340,9 +340,9 @@ export default function MotivationalQuoteBanner({
   useEffect(() => {
     setMounted(true);
 
-    const t1 = setTimeout(() => setVisible(true), 180);
-    const t2 = setTimeout(() => setTextIn(true), 380);
-    const t3 = setTimeout(() => setGlowing(true), 850);
+    const t1 = setTimeout(() => setVisible(true), 100);
+    const t2 = setTimeout(() => setTextIn(true), 400);
+    const t3 = setTimeout(() => setGlowing(true), 900);
 
     return () => {
       clearTimeout(t1);
@@ -378,13 +378,13 @@ export default function MotivationalQuoteBanner({
 
     const shimmerInterval = setInterval(() => {
       setShimmer(true);
-      setTimeout(() => setShimmer(false), 1000);
-    }, 6500);
+      setTimeout(() => setShimmer(false), 1200);
+    }, 7000);
 
     const glowInterval = setInterval(() => {
       setGlowing(false);
-      setTimeout(() => setGlowing(true), 120);
-    }, 12000);
+      setTimeout(() => setGlowing(true), 150);
+    }, 10000);
 
     return () => {
       clearInterval(shimmerInterval);
@@ -398,87 +398,105 @@ export default function MotivationalQuoteBanner({
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap');
 
         /* ─────────────────────────────
            KEYFRAMES
         ───────────────────────────── */
-        @keyframes mqBannerIn {
+        @keyframes mqBannerSlideIn {
           0% {
             opacity: 0;
-            transform: translateY(-10px) scale(0.97);
-            filter: blur(8px);
+            transform: translateY(-12px) scale(0.96);
+          }
+          60% {
+            transform: translateY(2px) scale(1.01);
           }
           100% {
             opacity: 1;
             transform: translateY(0) scale(1);
-            filter: blur(0px);
           }
         }
 
-        @keyframes mqTextIn {
+        @keyframes mqTextSlideIn {
           0% {
             opacity: 0;
-            transform: translateX(-8px);
+            transform: translateX(-12px);
+            filter: blur(4px);
           }
           100% {
             opacity: 1;
             transform: translateX(0);
+            filter: blur(0);
           }
         }
 
-        @keyframes mqDotPulse {
+        @keyframes mqDotBreathe {
           0%, 100% {
             transform: scale(1);
-            opacity: 0.6;
-            box-shadow: 0 0 0 0 rgba(129,140,248,0);
+            opacity: 0.8;
           }
           50% {
-            transform: scale(1.9);
+            transform: scale(1.4);
             opacity: 1;
-            box-shadow: 0 0 10px 4px rgba(129,140,248,0.5);
           }
         }
 
-        @keyframes mqShimmer {
+        @keyframes mqShimmerSweep {
           0% {
-            background-position: -250% center;
+            background-position: -200% center;
           }
           100% {
-            background-position: 250% center;
+            background-position: 200% center;
           }
         }
 
         @keyframes mqGlowPulse {
           0%, 100% {
             box-shadow:
-              0 0 0px rgba(129,140,248,0),
-              0 0 0px rgba(129,140,248,0);
+              0 0 0 0 rgba(0,0,0,0),
+              0 4px 20px -2px rgba(0,0,0,0.08),
+              inset 0 1px 0 0 rgba(255,255,255,0.1);
           }
           50% {
             box-shadow:
-              0 0 18px rgba(129,140,248,0.10),
-              0 0 34px rgba(129,140,248,0.08);
+              0 0 30px 2px var(--glow-color),
+              0 8px 30px -2px rgba(0,0,0,0.12),
+              inset 0 1px 0 0 rgba(255,255,255,0.15);
           }
         }
 
-        @keyframes mqNameSlide {
+        @keyframes mqGlowPulseDark {
+          0%, 100% {
+            box-shadow:
+              0 0 0 0 rgba(0,0,0,0),
+              0 8px 32px -4px rgba(0,0,0,0.4),
+              inset 0 1px 0 0 rgba(255,255,255,0.08);
+          }
+          50% {
+            box-shadow:
+              0 0 40px 4px var(--glow-color),
+              0 12px 40px -4px rgba(0,0,0,0.5),
+              inset 0 1px 0 0 rgba(255,255,255,0.12);
+          }
+        }
+
+        @keyframes mqNameFadeIn {
           0% {
             opacity: 0;
-            letter-spacing: 0.16em;
-            transform: translateY(2px);
+            letter-spacing: 0.2em;
+            transform: translateY(3px);
           }
           100% {
             opacity: 1;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.05em;
             transform: translateY(0);
           }
         }
 
-        @keyframes mqQuoteFade {
+        @keyframes mqQuoteFadeIn {
           0% {
             opacity: 0;
-            transform: translateY(5px);
+            transform: translateY(4px);
           }
           100% {
             opacity: 1;
@@ -486,7 +504,7 @@ export default function MotivationalQuoteBanner({
           }
         }
 
-        @keyframes mqMarquee {
+        @keyframes mqMarqueeScroll {
           0% {
             transform: translateX(0);
           }
@@ -495,61 +513,26 @@ export default function MotivationalQuoteBanner({
           }
         }
 
-        @keyframes mqTagPop {
+        @keyframes mqTagSpring {
           0% {
-            transform: scale(0.85);
+            transform: scale(0.75) rotate(-2deg);
             opacity: 0;
           }
           60% {
-            transform: scale(1.06);
+            transform: scale(1.08) rotate(1deg);
           }
           100% {
-            transform: scale(1);
+            transform: scale(1) rotate(0deg);
             opacity: 1;
           }
         }
 
-        @keyframes mqBarScan {
+        @keyframes mqBorderShine {
           0% {
-            transform: scaleX(0);
-            transform-origin: left;
-            opacity: 0;
-          }
-          20% {
-            opacity: 1;
-          }
-          50% {
-            transform: scaleX(1);
-            transform-origin: left;
-            opacity: 1;
-          }
-          50.01% {
-            transform-origin: right;
+            background-position: -200% center;
           }
           100% {
-            transform: scaleX(0);
-            transform-origin: right;
-            opacity: 0;
-          }
-        }
-
-        @keyframes mqBorderFlow {
-          0% {
-            background-position: 0% 50%;
-          }
-          100% {
-            background-position: 200% 50%;
-          }
-        }
-
-        @keyframes mqAurora {
-          0%, 100% {
-            transform: translateX(-8%) translateY(0%) rotate(0deg);
-            opacity: 0.35;
-          }
-          50% {
-            transform: translateX(8%) translateY(-3%) rotate(6deg);
-            opacity: 0.55;
+            background-position: 200% center;
           }
         }
 
@@ -559,9 +542,9 @@ export default function MotivationalQuoteBanner({
         .mq-banner {
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 8px 14px 8px 10px;
-          border-radius: 18px;
+          gap: 11px;
+          padding: 10px 16px 10px 12px;
+          border-radius: 16px;
           max-width: 100%;
           min-width: 0;
           overflow: hidden;
@@ -570,25 +553,30 @@ export default function MotivationalQuoteBanner({
           position: relative;
           isolation: isolate;
           transition:
-            transform 0.35s ease,
-            border-color 0.45s ease,
-            background 0.45s ease,
-            box-shadow 0.45s ease;
+            transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+            border-color 0.5s ease,
+            background 0.5s ease;
           will-change: transform, opacity;
         }
 
         .mq-banner:hover {
-          transform: translateY(-1px) scale(1.008);
+          transform: translateY(-2px) scale(1.005);
         }
 
         .mq-banner.mq-in {
-          animation: mqBannerIn 0.75s cubic-bezier(0.22,1,0.36,1) forwards;
+          animation: mqBannerSlideIn 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
 
         .mq-banner.mq-glow {
           animation:
-            mqBannerIn 0.75s cubic-bezier(0.22,1,0.36,1) forwards,
-            mqGlowPulse 4s ease-in-out 1s infinite;
+            mqBannerSlideIn 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+            mqGlowPulse 5s ease-in-out 1.2s infinite;
+        }
+
+        .mq-banner.mq-glow.mq-dark {
+          animation:
+            mqBannerSlideIn 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+            mqGlowPulseDark 5s ease-in-out 1.2s infinite;
         }
 
         /* Animated gradient border */
@@ -596,62 +584,26 @@ export default function MotivationalQuoteBanner({
           content: '';
           position: absolute;
           inset: 0;
-          padding: 1px;
+          padding: 1.5px;
           border-radius: inherit;
           background: linear-gradient(
-            120deg,
+            135deg,
             transparent 0%,
-            rgba(129,140,248,0.35) 18%,
-            rgba(56,189,248,0.28) 34%,
-            rgba(168,85,247,0.28) 52%,
-            rgba(129,140,248,0.35) 70%,
+            var(--accent-color-1) 25%,
+            var(--accent-color-2) 50%,
+            var(--accent-color-3) 75%,
             transparent 100%
           );
-          background-size: 220% 220%;
-          animation: mqBorderFlow 8s linear infinite;
+          background-size: 300% 300%;
+          animation: mqBorderShine 6s linear infinite;
           -webkit-mask:
-            linear-gradient(#000 0 0) content-box,
-            linear-gradient(#000 0 0);
+            linear-gradient(#fff 0 0) content-box,
+            linear-gradient(#fff 0 0);
           -webkit-mask-composite: xor;
           mask-composite: exclude;
           pointer-events: none;
-          z-index: 2;
-          opacity: 0.85;
-        }
-
-        /* Aurora glow layer */
-        .mq-aurora {
-          position: absolute;
-          inset: -20% -10%;
-          background:
-            radial-gradient(circle at 20% 30%, rgba(129,140,248,0.18), transparent 30%),
-            radial-gradient(circle at 80% 20%, rgba(56,189,248,0.16), transparent 28%),
-            radial-gradient(circle at 60% 80%, rgba(168,85,247,0.14), transparent 32%);
-          filter: blur(28px);
-          animation: mqAurora 8s ease-in-out infinite;
-          z-index: 0;
-          pointer-events: none;
-        }
-
-        /* Bottom scan bar */
-        .mq-banner::after {
-          content: '';
-          position: absolute;
-          left: 14px;
-          right: 14px;
-          bottom: 0;
-          height: 1.5px;
-          border-radius: 999px;
-          background: linear-gradient(
-            90deg,
-            transparent,
-            rgba(129,140,248,0.75),
-            rgba(56,189,248,0.55),
-            transparent
-          );
-          transform: scaleX(0);
-          animation: mqBarScan 6s ease-in-out 1.3s infinite;
           z-index: 3;
+          opacity: 0.7;
         }
 
         /* ─────────────────────────────
@@ -664,10 +616,11 @@ export default function MotivationalQuoteBanner({
         }
 
         .mq-dot {
-          width: 8px;
-          height: 8px;
+          width: 9px;
+          height: 9px;
           border-radius: 999px;
-          animation: mqDotPulse 2.8s ease-in-out infinite;
+          animation: mqDotBreathe 3s ease-in-out infinite;
+          box-shadow: 0 0 12px currentColor;
         }
 
         /* ─────────────────────────────
@@ -675,10 +628,12 @@ export default function MotivationalQuoteBanner({
         ───────────────────────────── */
         .mq-divider {
           flex-shrink: 0;
-          width: 1px;
-          height: 22px;
+          width: 1.5px;
+          height: 24px;
           align-self: center;
           z-index: 4;
+          border-radius: 999px;
+          opacity: 0.25;
         }
 
         /* ─────────────────────────────
@@ -687,7 +642,7 @@ export default function MotivationalQuoteBanner({
         .mq-texts {
           display: flex;
           align-items: baseline;
-          gap: 6px;
+          gap: 7px;
           min-width: 0;
           flex: 1;
           overflow: hidden;
@@ -697,30 +652,31 @@ export default function MotivationalQuoteBanner({
         }
 
         .mq-texts.mq-text-in {
-          animation: mqTextIn 0.5s cubic-bezier(0.22,1,0.36,1) 0.08s forwards;
+          animation: mqTextSlideIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s forwards;
         }
 
         .mq-name {
           font-family: 'DM Serif Display', Georgia, serif;
           font-style: italic;
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 400;
           white-space: nowrap;
           flex-shrink: 0;
           opacity: 0;
-          letter-spacing: 0.06em;
-          text-shadow: 0 0 12px rgba(129,140,248,0.10);
+          letter-spacing: 0.05em;
+          text-shadow: 0 0 20px currentColor;
         }
 
         .mq-name.mq-name-in {
-          animation: mqNameSlide 0.55s cubic-bezier(0.22,1,0.36,1) 0.2s forwards;
+          animation: mqNameFadeIn 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) 0.25s forwards;
         }
 
         .mq-sep {
-          font-size: 10px;
+          font-size: 11px;
           flex-shrink: 0;
-          opacity: 0.35;
+          opacity: 0.4;
           margin: 0 1px;
+          font-weight: 300;
         }
 
         .mq-quote-container {
@@ -732,7 +688,7 @@ export default function MotivationalQuoteBanner({
         }
 
         .mq-quote-container.mq-quote-in {
-          animation: mqQuoteFade 0.55s cubic-bezier(0.22,1,0.36,1) 0.32s forwards;
+          animation: mqQuoteFadeIn 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) 0.4s forwards;
         }
 
         .mq-quote-wrapper {
@@ -742,7 +698,7 @@ export default function MotivationalQuoteBanner({
         }
 
         .mq-quote-wrapper.mq-marquee {
-          animation: mqMarquee 20s linear infinite;
+          animation: mqMarqueeScroll 22s linear infinite;
         }
 
         .mq-quote-wrapper.mq-marquee.mq-paused {
@@ -750,16 +706,17 @@ export default function MotivationalQuoteBanner({
         }
 
         .mq-quote {
-          font-family: 'Inter', system-ui, sans-serif;
-          font-size: 11.8px;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+          font-size: 12.5px;
           font-weight: 500;
           white-space: nowrap;
-          line-height: 1.45;
+          line-height: 1.5;
           display: inline-block;
+          letter-spacing: 0.01em;
         }
 
         .mq-quote.mq-duplicate {
-          padding-left: 2em;
+          padding-left: 2.5em;
         }
 
         /* Gradient fade edges for marquee */
@@ -769,11 +726,11 @@ export default function MotivationalQuoteBanner({
           position: absolute;
           top: 0;
           bottom: 0;
-          width: 40px;
+          width: 50px;
           z-index: 5;
           pointer-events: none;
           opacity: 0;
-          transition: opacity 0.4s ease;
+          transition: opacity 0.5s ease;
         }
 
         .mq-quote-container.mq-has-overflow::before,
@@ -796,83 +753,85 @@ export default function MotivationalQuoteBanner({
         ───────────────────────────── */
         .mq-tag {
           flex-shrink: 0;
-          font-size: 9px;
-          font-weight: 800;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+          font-size: 9.5px;
+          font-weight: 700;
           text-transform: uppercase;
-          letter-spacing: 0.14em;
-          padding: 4px 10px;
+          letter-spacing: 0.12em;
+          padding: 5px 12px;
           border-radius: 999px;
           white-space: nowrap;
           opacity: 0;
-          border: 1px solid transparent;
+          border: 1.5px solid transparent;
           transition:
             background 0.4s ease,
             color 0.4s ease,
             border-color 0.4s ease,
-            transform 0.3s ease;
+            transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+            box-shadow 0.4s ease;
           z-index: 4;
           position: relative;
           overflow: hidden;
         }
 
         .mq-tag:hover {
-          transform: translateY(-1px);
+          transform: translateY(-2px) scale(1.05);
         }
 
         .mq-tag.mq-tag-in {
-          animation: mqTagPop 0.45s cubic-bezier(0.34,1.56,0.64,1) 0.55s forwards;
+          animation: mqTagSpring 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.6s forwards;
         }
 
-        .mq-tag.mq-shimmer {
-          background-image:
-            linear-gradient(
-              90deg,
-              transparent 0%,
-              rgba(255,255,255,0.28) 45%,
-              transparent 85%
-            );
-          background-size: 280% auto;
-          background-repeat: no-repeat;
-          animation:
-            mqTagPop 0.45s cubic-bezier(0.34,1.56,0.64,1) 0.55s forwards,
-            mqShimmer 1s linear;
+        .mq-tag.mq-shimmer::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255,255,255,0.4) 50%,
+            transparent 100%
+          );
+          background-size: 200% auto;
+          animation: mqShimmerSweep 1.2s ease-out;
         }
       `}</style>
 
       <div
         ref={containerRef}
         className={`mq-banner hidden lg:flex ${
-          visible ? (glowing ? "mq-in mq-glow" : "mq-in") : ""
+          visible ? (glowing ? `mq-in mq-glow ${isDark ? 'mq-dark' : ''}` : "mq-in") : ""
         }`}
         style={{
           background: isDark
-            ? "linear-gradient(135deg, rgba(255,255,255,0.045), rgba(255,255,255,0.025))"
-            : "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(255,255,255,0.52))",
-          border: `1px solid ${
-            isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.65)"
+            ? "linear-gradient(135deg, rgba(30,30,45,0.95), rgba(20,20,32,0.92))"
+            : "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.92))",
+          border: `2px solid ${
+            isDark ? "rgba(255,255,255,0.06)" : "rgba(226,232,240,0.8)"
           }`,
-          backdropFilter: "blur(18px)",
-          WebkitBackdropFilter: "blur(18px)",
-          boxShadow: isDark
-            ? `0 10px 35px rgba(0,0,0,0.28), 0 0 24px ${tagColor.glow.replace("0.35", "0.12")}`
-            : `0 10px 30px rgba(15,23,42,0.08), 0 0 18px ${tagColor.glow.replace("0.35", "0.10")}`,
+          backdropFilter: "blur(24px) saturate(180%)",
+          WebkitBackdropFilter: "blur(24px) saturate(180%)",
           // @ts-ignore
           "--gradient-fade-start": isDark
-            ? "rgba(15,17,23,1)"
-            : "rgba(240,242,248,1)",
+            ? "rgba(20,20,32,1)"
+            : "rgba(248,250,252,1)",
+          "--accent-color-1": tagColor.glow.replace("0.4", "0.6"),
+          "--accent-color-2": isDark ? "rgba(139,92,246,0.5)" : "rgba(99,102,241,0.5)",
+          "--accent-color-3": isDark ? "rgba(59,130,246,0.5)" : "rgba(14,165,233,0.5)",
+          "--glow-color": tagColor.glow,
         }}
         aria-label="Daily motivational quote"
         title={quote.text}
       >
-        {/* Aurora background */}
-        <div className="mq-aurora" />
-
         {/* Pulsing dot */}
         <div className="mq-dot-wrap">
           <span
             className="mq-dot"
             style={{
-              background: isDark ? "#818cf8" : "#6366f1",
+              background: isDark 
+                ? `linear-gradient(135deg, ${tagColor.darkText}, ${pillText})`
+                : `linear-gradient(135deg, ${tagColor.text}, ${pillText})`,
+              color: tagColor.glow,
             }}
           />
         </div>
@@ -882,8 +841,8 @@ export default function MotivationalQuoteBanner({
           className="mq-divider"
           style={{
             background: isDark
-              ? "rgba(255,255,255,0.10)"
-              : "rgba(15,23,42,0.10)",
+              ? `linear-gradient(180deg, transparent, ${tagColor.darkText}40, transparent)`
+              : `linear-gradient(180deg, transparent, ${tagColor.text}30, transparent)`,
           }}
         />
 
@@ -892,7 +851,7 @@ export default function MotivationalQuoteBanner({
           <span
             className={`mq-name ${textIn ? "mq-name-in" : ""}`}
             style={{
-              color: isDark ? "#c7d2fe" : "#312e81",
+              color: isDark ? tagColor.darkText : tagColor.text,
             }}
           >
             Hey, {firstName} ✦
@@ -900,7 +859,7 @@ export default function MotivationalQuoteBanner({
 
           <span
             className="mq-sep"
-            style={{ color: isDark ? "#64748b" : "#9ca3af" }}
+            style={{ color: isDark ? "#64748b" : "#94a3b8" }}
           >
             —
           </span>
@@ -921,7 +880,7 @@ export default function MotivationalQuoteBanner({
               <span
                 className="mq-quote"
                 style={{
-                  color: isDark ? "#cbd5e1" : "#334155",
+                  color: isDark ? "#e2e8f0" : "#1e293b",
                 }}
               >
                 {quote.text}
@@ -930,7 +889,7 @@ export default function MotivationalQuoteBanner({
                 <span
                   className="mq-quote mq-duplicate"
                   style={{
-                    color: isDark ? "#cbd5e1" : "#334155",
+                    color: isDark ? "#e2e8f0" : "#1e293b",
                   }}
                 >
                   {quote.text}
@@ -948,8 +907,8 @@ export default function MotivationalQuoteBanner({
           style={{
             background: pillBg,
             color: pillText,
-            borderColor: isDark ? `${pillText}22` : `${pillText}25`,
-            boxShadow: `0 0 16px ${tagColor.glow.replace("0.35", "0.14")}`,
+            borderColor: isDark ? `${pillText}35` : `${pillText}30`,
+            boxShadow: `0 0 20px ${tagColor.glow.replace("0.4", "0.2")}, inset 0 1px 0 rgba(255,255,255,0.1)`,
           }}
         >
           #{quote.tag}
