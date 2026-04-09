@@ -374,7 +374,7 @@ function SidebarContent({
 }
 
 // ─────────────────────────────────────────────────────────────
-// TOP NAVBAR — laptop safe quote visibility
+// TOP NAVBAR
 // ─────────────────────────────────────────────────────────────
 function DashNavbar({
   dark,
@@ -393,16 +393,15 @@ function DashNavbar({
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 h-16 z-50 grid items-center px-3 sm:px-4 lg:px-5"
+      className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center px-3 sm:px-4 lg:px-5"
       style={{
-        gridTemplateColumns: "auto minmax(0,1fr) auto",
         background: "var(--bg)",
         borderBottom: "1px solid var(--border2)",
         backdropFilter: "blur(12px)",
       }}
     >
-      {/* LEFT */}
-      <div className="flex items-center gap-3 shrink-0 min-w-fit">
+      {/* Mobile menu + Logo */}
+      <div className="flex items-center gap-3 shrink-0">
         <button
           onClick={onMobileMenuToggle}
           className="md:hidden p-1.5 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
@@ -412,26 +411,18 @@ function DashNavbar({
           {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
 
-        <div className="hidden md:flex items-center shrink-0">
-          <Link href="/dashboard/today" className="flex items-center">
-            <Logo />
-          </Link>
-        </div>
-
-        <Link href="/dashboard/today" className="md:hidden flex items-center shrink-0">
+        <Link href="/dashboard/today" className="flex items-center">
           <Logo />
         </Link>
       </div>
 
-      {/* CENTER — always priority on laptop/desktop */}
-      <div className="hidden lg:flex items-center justify-center min-w-0 px-3 xl:px-6">
-        <div className="w-full min-w-0 max-w-[860px]">
-          <MotivationalQuoteBanner firstName={firstName} isDark={dark} />
-        </div>
+      {/* Center - Quote Banner (only on large screens) */}
+      <div className="hidden lg:flex flex-1 items-center justify-center px-4 min-w-0">
+        <MotivationalQuoteBanner firstName={firstName} isDark={dark} />
       </div>
 
-      {/* RIGHT */}
-      <div className="flex items-center justify-end gap-2 lg:gap-3 shrink-0 min-w-fit">
+      {/* Right side - Developer link + Theme toggle */}
+      <div className="flex items-center gap-2 lg:gap-3 shrink-0 ml-auto">
         <a
           href="https://my-portfolio-xi-ochre-28.vercel.app/"
           target="_blank"
@@ -539,7 +530,7 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ROOT LAYOUT
+// ROOT LAYOUT - FIXED SPACING
 // ─────────────────────────────────────────────────────────────
 export default function DashboardLayout({
   children,
@@ -624,24 +615,25 @@ export default function DashboardLayout({
         onToggleCollapse={toggleCollapse}
       />
 
-      <div
-        className="transition-all duration-300"
-        style={{
-          marginLeft: "0px",
-          paddingTop: "64px",
-          paddingBottom: "64px",
-          minHeight: "100vh",
-        }}
-      >
+      {/* FIXED MAIN CONTENT AREA */}
+      <div className="hb-main-wrapper">
         <style>{`
+          .hb-main-wrapper {
+            margin-left: 0;
+            padding-top: 80px;
+            padding-bottom: 80px;
+            min-height: 100vh;
+            transition: margin-left 0.3s ease;
+          }
+          
           @media (min-width: 768px) {
-            .dashboard-main {
-              margin-left: ${desktopLeft}px !important;
+            .hb-main-wrapper {
+              margin-left: ${desktopLeft}px;
             }
           }
         `}</style>
 
-        <main className="dashboard-main h-full transition-all duration-300">
+        <main className="hb-main-content">
           {children}
         </main>
       </div>
