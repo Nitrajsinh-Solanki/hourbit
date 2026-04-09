@@ -6,6 +6,7 @@
 import React, {
   useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
+import DiaryExportButton from "@/app/components/DiaryExportButton";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -1363,12 +1364,20 @@ export default function DiaryPage() {
                       )
                     )}
 
-                    {canEdit && (
-                      <button onClick={handleManualSave} disabled={saving || isLocked}
-                        className="d-btn flex items-center gap-1 text-xs sm:text-sm font-bold px-4 py-2 rounded-xl">
-                        💾 Save
-                      </button>
-                    )}
+                    {/* Export button — always shown when entry has content */}
+<DiaryExportButton
+  currentDate={currentDate}
+  entry={entry}
+  isDark={isDark}
+  canExport={!!(entry?.content?.trim())}
+/>
+
+{canEdit && (
+  <button onClick={handleManualSave} disabled={saving || isLocked}
+    className="d-btn flex items-center gap-1 text-xs sm:text-sm font-bold px-4 py-2 rounded-xl">
+    💾 Save
+  </button>
+)}
                   </div>
                 </div>
 

@@ -153,3 +153,40 @@ export const DiarySettings: Model<IDiarySettings> =
   mongoose.model<IDiarySettings>("DiarySettings", DiarySettingsSchema);
 
 export default DiaryEntry;
+
+// ── DiaryExportLog — tracks download count per user per date (max 3) ──
+export interface IDiaryExportLog extends Document {
+  userId: mongoose.Types.ObjectId;
+  entryDate: Date;         // midnight UTC
+  exportCount: number;     // max 3 per date
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const DiaryExportLogSchema = new Schema<IDiaryExportLog>(
+  {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    entryDate: {
+      type: Date,
+      required: true,
+    },
+    exportCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 3,
+    },
+  },
+  { timestamps: true }
+);
+
+DiaryExportLogSchema.index({ userId: 1, entryDate: 1 }, { unique: true });
+
+export const DiaryExportLog: Model<IDiaryExportLog> =
+  (mongoose.models.DiaryExportLog as Model<IDiaryExportLog>) ||
+  mongoose.model<IDiaryExportLog>("DiaryExportLog", DiaryExportLogSchema);
