@@ -167,6 +167,317 @@ const EMPTY_STATS: TimerStats = {
 };
 const statsCache = new Map<number, StatsResponse>();
 
+// ─── Expenses nudge messages ──────────────────────────────────────────────────
+
+const EXPENSES_NUDGE_MSGS = [
+  { headline: "Corporate life chahiye?", body: "Toh salary kidhar ja rahi hai uska bhi audit hona chahiye.", emoji: "💼" },
+  { headline: "Typing me discipline.", body: "Expenses me pura internal collapse.", emoji: "📉" },
+  { headline: "Productivity high hai.", body: "Financial awareness abhi bhi unpaid intern level pe hai.", emoji: "🧾" },
+  { headline: "WPM impressive hai.", body: "Wallet management utna impressive nahi hai.", emoji: "⚡" },
+  { headline: "Daily improvement chal raha hai.", body: "Bas bank balance ko memo nahi mila.", emoji: "📊" },
+  { headline: "Speed badh rahi hai.", body: "Expenses bhi silently badh rahe hain.", emoji: "🚨" },
+  { headline: "Corporate grind active hai.", body: "Paisa kidhar grind ho raha hai, wo inactive hai.", emoji: "🏢" },
+  { headline: "Typing record strong hai.", body: "Expense record missing hai.", emoji: "📋" },
+  { headline: "Control typing pe hai.", body: "Money flow pe kab aayega?", emoji: "🎯" },
+  { headline: "Performance solid hai.", body: "Bas wallet ka quarterly report weak hai.", emoji: "📈" },
+
+  { headline: "Discipline visible hai.", body: "Bas UPI history me nahi.", emoji: "📱" },
+  { headline: "Adult life officially started?", body: "Expenses track hue bina toh onboarding bhi complete nahi hui.", emoji: "🧠" },
+  { headline: "System build ho raha hai.", body: "Bas finances abhi bhi manual error pe chal rahe hain.", emoji: "⚙️" },
+  { headline: "Productive lag raha hai sab.", body: "Except spending habits.", emoji: "💀" },
+  { headline: "Self-improvement on point.", body: "Expense tracking ko orphan kyu chhoda hai?", emoji: "🪦" },
+  { headline: "Career growth important hai.", body: "Financial clarity bhi hoti hai side me.", emoji: "📉" },
+  { headline: "Data pasand hai?", body: "Toh khud ke kharchon ka data bhi dekh lo.", emoji: "📊" },
+  { headline: "Professional energy aa rahi hai.", body: "Bas spending abhi bhi emotional hai.", emoji: "🧨" },
+  { headline: "Typing me focus.", body: "Wallet me fog.", emoji: "🌫️" },
+  { headline: "Corporate aesthetics strong.", body: "Financial backend down hai.", emoji: "🖥️" },
+
+  { headline: "WPM CEO level.", body: "Expense tracking still probation pe.", emoji: "👔" },
+  { headline: "Har cheez track ho rahi hai?", body: "Except the one thing that keeps disappearing.", emoji: "💸" },
+  { headline: "Kaafi sorted lag raha hai.", body: "Bank statement disagrees.", emoji: "🧾" },
+  { headline: "Typing me precision.", body: "Paison me अंदाज़ा.", emoji: "📏" },
+  { headline: "Corporate routine set hai.", body: "Budget routine kab set hoga?", emoji: "📅" },
+  { headline: "High performance mode on.", body: "Expense awareness mode still off.", emoji: "📴" },
+  { headline: "Focus impressive hai.", body: "Bas spending leaks ignore ho rahe hain.", emoji: "🕳️" },
+  { headline: "Productivity ka graph upar hai.", body: "Savings ka graph private rakha gaya hai kya?", emoji: "📉" },
+  { headline: "Typing controlled hai.", body: "Expenses free roam pe hain.", emoji: "🕊️" },
+  { headline: "Discipline kaafi visible hai.", body: "Financial discipline ne leave le li hai.", emoji: "📂" },
+
+  { headline: "Career build ho raha hai.", body: "Paisa side quests me udd raha hai.", emoji: "🎮" },
+  { headline: "Stats pasand hain?", body: "Toh खर्चे bhi stats hi hote hain.", emoji: "🔢" },
+  { headline: "Daily sessions complete.", body: "Daily spends ka kya plan hai?", emoji: "📋" },
+  { headline: "Kaam me ownership strong hai.", body: "Expenses me ownership pending hai.", emoji: "🗂️" },
+  { headline: "Speed dangerous hai.", body: "Paisa aur dangerous speed se ja raha hai.", emoji: "🔥" },
+  { headline: "Typing me growth.", body: "Financial habits abhi bhi pre-historic hain.", emoji: "🪨" },
+  { headline: "Smart work chal raha hai.", body: "Money work bilkul smart nahi chal raha.", emoji: "🧠" },
+  { headline: "Systematic lag raha hai sab.", body: "Except wallet management.", emoji: "📁" },
+  { headline: "Consistency impressive hai.", body: "Expenses ignore karne me bhi.", emoji: "🔁" },
+  { headline: "Career seriousness visible hai.", body: "Spending habits us seriousness ko disrespect kar rahi hain.", emoji: "⚠️" },
+
+  { headline: "Salary respect deserve karti hai.", body: "At least itna toh pata ho kidhar gayi.", emoji: "💰" },
+  { headline: "Productivity monster activated.", body: "Wallet ka predator bhi wahi nikla.", emoji: "👹" },
+  { headline: "Typing tracker active hai.", body: "Expense tracker coma me hai.", emoji: "🛏️" },
+  { headline: "High performer vibes.", body: "Low visibility finances.", emoji: "📉" },
+  { headline: "Intentional life chahiye?", body: "Intentional spending bhi uska part hota hai.", emoji: "🎯" },
+  { headline: "Corporate face maintained.", body: "Financial reality buffering.", emoji: "⌛" },
+  { headline: "Numbers matter karte hain.", body: "Especially jab wo account se nikal rahe ho.", emoji: "🔍" },
+  { headline: "Typing ka report clean hai.", body: "Wallet ka audit pending hai.", emoji: "📑" },
+  { headline: "Focus level strong hai.", body: "UPI statement dekhte hi weak ho jata hai?", emoji: "👀" },
+  { headline: "Professional routine built.", body: "Expense routine abhi bhi under construction hai.", emoji: "🚧" },
+
+  { headline: "Corporate polish aa gayi.", body: "Financial polish abhi bhi missing hai.", emoji: "✨" },
+  { headline: "Speed unlock ho gayi.", body: "Budgeting still locked.", emoji: "🔒" },
+  { headline: "Typing me killer accuracy.", body: "Spending me pure guesswork.", emoji: "🎲" },
+  { headline: "Life optimize ho rahi hai?", body: "Money leaks ko bhi include kar lo optimisation me.", emoji: "⚙️" },
+  { headline: "WPM record broken.", body: "Budget boundaries bhi daily break ho rahi hain.", emoji: "💥" },
+  { headline: "Professional growth real hai.", body: "Financial maturity bhi try kar sakti hai.", emoji: "📈" },
+  { headline: "Routine disciplined hai.", body: "Expenses ka routine criminal hai.", emoji: "🚔" },
+  { headline: "Track karna pasand hai?", body: "Toh ₹120 bhi track ho sakta hai.", emoji: "🧾" },
+  { headline: "Kaam structured hai.", body: "Spending completely freelance hai.", emoji: "🌀" },
+  { headline: "Corporate pressure handle ho raha hai.", body: "Budget pressure ka kya?", emoji: "📦" },
+
+  { headline: "Typing me full control.", body: "Money flow pe bhi kabhi apply kar lo.", emoji: "🎮" },
+  { headline: "Self-growth real lag rahi hai.", body: "Bas wallet us story me missing hai.", emoji: "📚" },
+  { headline: "Work ethic visible hai.", body: "Expense ethic invisible hai.", emoji: "🪞" },
+  { headline: "Daily progress unlocked.", body: "Daily expense awareness still locked out.", emoji: "🚪" },
+  { headline: "Professionalism top notch.", body: "Financial professionalism not found.", emoji: "❌" },
+  { headline: "Typing speed ka graph clean hai.", body: "Expenses ka graph dekhne layak bhi hai?", emoji: "📉" },
+  { headline: "Corporate setup strong hai.", body: "Budget setup missing dependencies ke saath chal raha hai.", emoji: "🖥️" },
+  { headline: "Typing me ROI mil raha hai.", body: "Spending me sirf loss report aa rahi hai.", emoji: "📊" },
+  { headline: "Sessions complete ho rahe hain.", body: "Expense entries kab complete hongi?", emoji: "📋" },
+  { headline: "Future build ho raha hai?", body: "Random spends uska backend kha rahe hain.", emoji: "🧱" },
+
+  { headline: "Professional energy maintained.", body: "Wallet energy depleted.", emoji: "🔋" },
+  { headline: "Corporate life accepted.", body: "Toh expenses tracking bhi package ka part hai.", emoji: "📦" },
+  { headline: "Speed me aggression hai.", body: "Savings me depression hai.", emoji: "💀" },
+  { headline: "Typing ka system efficient hai.", body: "Money management legacy code pe chal raha hai.", emoji: "🧑‍💻" },
+  { headline: "Consistency top class.", body: "Expense ignorance world class.", emoji: "🏆" },
+  { headline: "Structured growth visible hai.", body: "Financial structure abhi bhi fictional hai.", emoji: "📘" },
+  { headline: "Professional life serious lag rahi hai.", body: "Kharchे abhi bhi comedy genre me hain.", emoji: "🎭" },
+  { headline: "Performance metrics strong.", body: "Wallet metrics sensitive issue lag rahe hain.", emoji: "📈" },
+  { headline: "Typing output clean hai.", body: "Spending output suspicious hai.", emoji: "🕵️" },
+  { headline: "System pe trust hai?", body: "Toh expense tracker bhi use ho sakta hai.", emoji: "🛠️" },
+
+  { headline: "Discipline build kar liya.", body: "Bas money section ko deliberately skip kiya gaya.", emoji: "🚫" },
+  { headline: "Typing me maturity visible hai.", body: "Financial maturity abhi loading me hai.", emoji: "⌛" },
+  { headline: "Work mode active.", body: "Expense awareness mode inactive.", emoji: "📴" },
+  { headline: "Kaafi intentional lag raha hai sab.", body: "Bas spending accidental hai.", emoji: "🤷" },
+  { headline: "Productivity ke lecture ready hain?", body: "Expense history pe bhi ek नजर daal lo pehle.", emoji: "🎤" },
+  { headline: "Career seriousness detected.", body: "Wallet still not convinced.", emoji: "🧾" },
+  { headline: "Strong typing session.", body: "Weak financial session.", emoji: "📉" },
+  { headline: "Performance maintained.", body: "Budget quietly collapsed.", emoji: "🏚️" },
+  { headline: "Typing me full awareness.", body: "Expenses me spiritual blindness.", emoji: "🌀" },
+  { headline: "Corporate survival chal raha hai.", body: "Financial survival ko bhi invite kar lo.", emoji: "🫠" },
+
+  { headline: "Typing me progress visible hai.", body: "Paisa still mystery department me hai.", emoji: "🕵️" },
+  { headline: "Daily effort real hai.", body: "Daily money leaks bhi real hi hain.", emoji: "🚰" },
+  { headline: "Professional image sorted hai.", body: "Expense reality not so much.", emoji: "🪞" },
+  { headline: "WPM elite zone me hai.", body: "Budgeting tutorial zone me hai.", emoji: "📚" },
+  { headline: "Systematic life build ho rahi hai.", body: "Kharchे abhi bhi random event generator pe chal rahe hain.", emoji: "🎰" },
+  { headline: "Typing record achieved.", body: "Now achieve basic money awareness too.", emoji: "💸" },
+  { headline: "Productive enough to track words.", body: "Productive enough to track money bhi ho.", emoji: "🧾" },
+  { headline: "Corporate reality check.", body: "Salary earn karna alag hai, salary sambhalna alag.", emoji: "🏢" },
+  { headline: "Everything looks under control.", body: "Except the actual cash flow.", emoji: "📉" },
+  { headline: "Real adulthood reminder.", body: "Expenses ignore karna strategy nahi hoti.", emoji: "⚠️" }
+];
+
+// ─── Beautiful Expenses Toast Component ───────────────────────────────────────
+// Fully styled with progress bar, dark/light mode, 10-second duration.
+
+function ExpensesToastContent({
+  toastId,
+  emoji,
+  headline,
+  body,
+}: {
+  toastId: string;
+  emoji: string;
+  headline: string;
+  body: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 0,
+        width: "100%",
+        minWidth: 300,
+        maxWidth: 340,
+        overflow: "hidden",
+        borderRadius: 14,
+        // Use inline vars so it works in both themes via body[data-theme]
+        background: "var(--surface, #16162a)",
+        border: "1px solid rgba(124,110,243,0.4)",
+        boxShadow:
+          "0 0 0 1px rgba(124,110,243,0.12), 0 8px 32px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3)",
+        position: "relative",
+      }}
+    >
+      {/* Gradient top accent bar */}
+      <div
+        style={{
+          height: 3,
+          background:
+            "linear-gradient(90deg, #7c6ef3 0%, #c4b5fd 40%, #f9a8d4 70%, #fb923c 100%)",
+          borderRadius: "14px 14px 0 0",
+          flexShrink: 0,
+        }}
+      />
+
+      {/* Main content */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 14px 12px 14px" }}>
+        {/* Emoji badge */}
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 10,
+            background: "linear-gradient(135deg, rgba(124,110,243,0.25) 0%, rgba(196,181,253,0.12) 100%)",
+            border: "1px solid rgba(124,110,243,0.3)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 20,
+            flexShrink: 0,
+            boxShadow: "0 2px 8px rgba(124,110,243,0.2)",
+          }}
+        >
+          {emoji}
+        </div>
+
+        {/* Text */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              lineHeight: 1.35,
+              color: "var(--text, #e2e8f0)",
+              marginBottom: 3,
+            }}
+          >
+            {headline}
+          </div>
+          <div
+            style={{
+              fontSize: 11.5,
+              lineHeight: 1.45,
+              color: "var(--text2, #94a3b8)",
+              fontWeight: 400,
+            }}
+          >
+            {body}
+          </div>
+        </div>
+
+        {/* Close button */}
+        <button
+          onClick={() => toast.dismiss(toastId)}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text3, #64748b)",
+            fontSize: 16,
+            lineHeight: 1,
+            padding: "0 2px",
+            flexShrink: 0,
+            borderRadius: 4,
+            transition: "color 150ms",
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--text, #e2e8f0)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text3, #64748b)"; }}
+          aria-label="Dismiss"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* CTA button */}
+      <div style={{ padding: "0 14px 14px 14px" }}>
+        <a
+          href="/dashboard/expenses"
+          onClick={() => toast.dismiss(toastId)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            padding: "8px 14px",
+            borderRadius: 9,
+            background: "linear-gradient(135deg, rgba(124,110,243,0.22) 0%, rgba(196,181,253,0.10) 100%)",
+            border: "1px solid rgba(124,110,243,0.38)",
+            color: "var(--accent2, #c4b5fd)",
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            textDecoration: "none",
+            transition: "background 200ms, border-color 200ms, box-shadow 200ms",
+            cursor: "pointer",
+          }}
+          onMouseEnter={e => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.background = "linear-gradient(135deg, rgba(124,110,243,0.35) 0%, rgba(196,181,253,0.18) 100%)";
+            el.style.borderColor = "rgba(167,139,250,0.6)";
+            el.style.boxShadow = "0 0 12px rgba(124,110,243,0.3)";
+          }}
+          onMouseLeave={e => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.background = "linear-gradient(135deg, rgba(124,110,243,0.22) 0%, rgba(196,181,253,0.10) 100%)";
+            el.style.borderColor = "rgba(124,110,243,0.38)";
+            el.style.boxShadow = "none";
+          }}
+        >
+          <span style={{ fontSize: 13 }}>💰</span>
+          Open Expenses &nbsp;→
+        </a>
+      </div>
+
+      {/* 10-second progress bar at the bottom */}
+      <div
+        style={{
+          height: 3,
+          background: "rgba(124,110,243,0.15)",
+          borderRadius: "0 0 14px 14px",
+          overflow: "hidden",
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            background: "linear-gradient(90deg, #7c6ef3, #c4b5fd)",
+            borderRadius: "0 0 14px 14px",
+            // Animate from 100% to 0% over 10 seconds
+            animation: "expenses-toast-progress 10s linear forwards",
+            transformOrigin: "left center",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function fireExpensesNudge() {
+  const item = EXPENSES_NUDGE_MSGS[Math.floor(Math.random() * EXPENSES_NUDGE_MSGS.length)];
+
+  toast.custom(
+    (t) => (
+      <ExpensesToastContent
+        toastId={t.id}
+        emoji={item.emoji}
+        headline={item.headline}
+        body={item.body}
+      />
+    ),
+    {
+      duration: 10000,
+      position: "top-right",
+    }
+  );
+}
+
 // ─── StatsCard ───────────────────────────────────────────────────────────────
 
 function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
@@ -193,10 +504,6 @@ function StatsCard({ title, primary, sub1, sub2, accent, loading }: {
 }
 
 // ─── NinjaFxLayer — isolated animated overlay for sliced words ────────────────
-//
-// Renders absolutely-positioned word clones that animate slash+fall.
-// Completely isolated from typing logic — pure visual layer.
-// Lives inside the clip container so overflow:hidden clips falling fragments.
 
 function NinjaFxLayer({ fragments }: { fragments: NinjaFragment[] }) {
   if (fragments.length === 0) return null;
@@ -231,9 +538,7 @@ function NinjaFxLayer({ fragments }: { fragments: NinjaFragment[] }) {
             alignItems: "center",
           }}
         >
-          {/* The word text that falls */}
           <span className="ninja-frag-text">{f.text}</span>
-          {/* The slash line that flashes across */}
           <span className="ninja-slash-line" />
         </div>
       ))}
@@ -378,7 +683,6 @@ TextDisplay.displayName = "TextDisplay";
 
 const DEFAULT_TIMERS      = [15, 30, 60, 120];
 const LOOKAHEAD_THRESHOLD = 300;
-// Ninja animation duration: slash (180ms) + fall (480ms) + buffer = 700ms
 const NINJA_ANIM_DURATION = 700;
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -420,7 +724,6 @@ export default function TypingPage() {
   const [lineOffset, setLineOffset] = useState(0);
 
   // ── Ninja Mode state ──────────────────────────────────────────────────────
-  // Small array, only updated when a word is sliced — not on every keystroke.
   const [ninjaFragments, setNinjaFragments] = useState<NinjaFragment[]>([]);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
@@ -443,17 +746,16 @@ export default function TypingPage() {
   const lastRowRef       = useRef(-1);
   const lineOffsetRef    = useRef(0);
 
-  // Ninja Mode refs — stable, no re-renders on update
   const cursorStyleRef  = useRef<CursorStyle>(DEFAULT_CURSOR);
   const ninjaIdRef      = useRef(0);
-  // Track which word indices have already been animated (reset on initTest)
   const ninjaAnimatedRef = useRef(new Set<number>());
-  // Timeout handles for cleanup — prevents memory leaks
   const ninjaTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // ── Expenses nudge ref ────────────────────────────────────────────────────
+  const newBestRef = useRef(false);
 
   useEffect(() => { selectedTimerRef.current = selectedTimer; }, [selectedTimer]);
   useEffect(() => { typingModeRef.current    = typingMode;    }, [typingMode]);
-  // Keep cursorStyleRef in sync — used in hot path without stale closure risk
   useEffect(() => { cursorStyleRef.current   = cursorStyle;   }, [cursorStyle]);
 
   // ── Stats fetch ───────────────────────────────────────────────────────────
@@ -505,7 +807,7 @@ export default function TypingPage() {
     }
   }, []);
 
-  // ── Scroll (direct DOM — no state update per keystroke) ──────────────────
+  // ── Scroll ────────────────────────────────────────────────────────────────
 
   const updateScroll = useCallback((cursorCharIdx: number) => {
     if (!clipRef.current || !textBlockRef.current) return;
@@ -531,19 +833,10 @@ export default function TypingPage() {
     setLineOffset(newOffset);
   }, []);
 
-  // ── Ninja Mode: spawn slash+fall animation for a completed word ───────────
-  //
-  // Called only when:
-  //   1. cursorStyle === "ninja"
-  //   2. A word was just fully and correctly typed
-  //   3. That word index has not been animated yet this session
-  //
-  // Uses only refs and the stable setNinjaFragments setter — zero stale closures.
+  // ── Ninja Mode: spawn slash+fall animation ────────────────────────────────
 
   const spawnNinjaFx = useCallback((wi: number) => {
-    // Guard: only in ninja mode
     if (cursorStyleRef.current !== "ninja") return;
-    // Guard: no duplicate animations for the same word
     if (ninjaAnimatedRef.current.has(wi)) return;
     ninjaAnimatedRef.current.add(wi);
 
@@ -551,41 +844,26 @@ export default function TypingPage() {
     const clipEl = clipRef.current;
     if (!wordEl || !clipEl) return;
 
-    // Measure word position relative to the clip container
-    // getBoundingClientRect already accounts for CSS transforms (lineOffset)
     const wordRect = wordEl.getBoundingClientRect();
     const clipRect = clipEl.getBoundingClientRect();
 
     const x = wordRect.left - clipRect.left;
     const y = wordRect.top  - clipRect.top;
 
-    // Get word text (chars without trailing space)
     const token  = wordsRef.current[wi];
     const text   = token.chars.join("").trimEnd();
 
-    // Measure font metrics from the live element
     const style      = getComputedStyle(wordEl);
     const fontSize   = parseFloat(style.fontSize)   || 20;
     const lineHeight = parseFloat(style.lineHeight) || fontSize * 2.4;
 
     const id = ++ninjaIdRef.current;
 
-    // Add fragment — one small state update (very infrequent)
     setNinjaFragments(prev => [
       ...prev,
-      {
-        id,
-        text,
-        x,
-        y,
-        width:      wordRect.width,
-        height:     wordRect.height,
-        fontSize,
-        lineHeight,
-      },
+      { id, text, x, y, width: wordRect.width, height: wordRect.height, fontSize, lineHeight },
     ]);
 
-    // Auto-remove after animation completes — no memory leaks
     const handle = setTimeout(() => {
       setNinjaFragments(prev => prev.filter(f => f.id !== id));
     }, NINJA_ANIM_DURATION);
@@ -620,6 +898,9 @@ export default function TypingPage() {
       charactersTyped: chars, duration: Math.round(elapsedSec),
     };
 
+    const prevBest = statsCache.get(dur)?.stats?.highestWpm ?? 0;
+    newBestRef.current = effectiveWpm > 0 && effectiveWpm > prevBest;
+
     testStateRef.current = "finished";
     setTestState("finished");
     setResult(r);
@@ -645,13 +926,10 @@ export default function TypingPage() {
     lineOffsetRef.current = 0;
     lastRowRef.current    = -1;
 
-    // ── Ninja Mode cleanup on restart ───────────────────────────────────────
-    // Clear all pending animation timeouts to prevent stale state updates
     for (const h of ninjaTimeoutsRef.current) clearTimeout(h);
     ninjaTimeoutsRef.current = [];
     ninjaAnimatedRef.current = new Set<number>();
     setNinjaFragments([]);
-    // ────────────────────────────────────────────────────────────────────────
 
     const tokens     = generateTokens(typingModeRef.current, 200);
     wordsRef.current = tokens;
@@ -675,28 +953,44 @@ export default function TypingPage() {
     requestAnimationFrame(() => requestAnimationFrame(() => wrapperRef.current?.focus()));
   }, []);
 
+  // ── FIX #2: Unified restart handler — fires nudge on ANY restart trigger ──
+  // Covers: Tab key, "Next Test" button, "↺ restart" button.
+  // newBestRef is consumed immediately to prevent double-fire.
+  const handleRestartWithNudge = useCallback(() => {
+    if (testStateRef.current === "finished" && newBestRef.current) {
+      newBestRef.current = false;
+      fireExpensesNudge();
+    }
+    initTest();
+  }, [initTest]);
+
   useEffect(() => { initTest(); }, [selectedTimer, typingMode]); // eslint-disable-line
 
-  // Cleanup all ninja timeouts on unmount — prevents memory leaks
   useEffect(() => {
     return () => {
       for (const h of ninjaTimeoutsRef.current) clearTimeout(h);
     };
   }, []);
 
-  // ── Keyboard handler — hot path, ZERO state updates per keystroke ─────────
-  //
-  // Ninja Mode word-completion check:
-  //   - Only runs on SPACE key (word boundary)
-  //   - O(n) scan over words to find completed word — n is small in practice
-  //   - Calls spawnNinjaFx which uses only refs — no React overhead
+  // ── Keyboard handler ─────────────────────────────────────────────────────
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === "Tab") { e.preventDefault(); initTest(); return; }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        // Tab restart now delegates to handleRestartWithNudge via ref
+        // But handleRestartWithNudge can't be called inside handleKeyDown
+        // without a ref, so we inline the same logic here:
+        if (testStateRef.current === "finished" && newBestRef.current) {
+          newBestRef.current = false;
+          fireExpensesNudge();
+        }
+        initTest();
+        return;
+      }
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (testStateRef.current === "finished") {
-        if (e.key === "Enter") { e.preventDefault(); initTest(); }
+        if (e.key === "Enter") { e.preventDefault(); handleRestartWithNudge(); }
         return;
       }
       e.preventDefault();
@@ -712,7 +1006,6 @@ export default function TypingPage() {
       }
       if (e.key.length !== 1) return;
 
-      // ── Start timer on first keystroke ───────────────────────────────────
       if (testStateRef.current === "idle") {
         startTimeRef.current = Date.now();
         testStateRef.current = "running";
@@ -725,7 +1018,6 @@ export default function TypingPage() {
         }, 1000);
       }
 
-      // ── Record keystroke ─────────────────────────────────────────────────
       const pos = typedRef.current.length;
       keystrokesRef.current += 1;
       if (allCharsRef.current[pos] !== e.key) rawErrorsRef.current += 1;
@@ -733,9 +1025,6 @@ export default function TypingPage() {
       const prevLen = typedRef.current.length;
       typedRef.current.push(e.key);
 
-      // ── Ninja Mode: detect word completion on space ──────────────────────
-      // Only check on space key — this is when words complete.
-      // Scan is inexpensive: most runs find the match in ≤5 iterations.
       if (e.key === " " && cursorStyleRef.current === "ninja") {
         const newLen = typedRef.current.length;
         const tokens = wordsRef.current;
@@ -743,7 +1032,6 @@ export default function TypingPage() {
           const t = tokens[wi];
           const wordEnd = t.startIdx + t.chars.length;
           if (wordEnd !== newLen) continue;
-          // Word wi is now fully typed. Check if every char matches.
           let correct = true;
           for (let ci = 0; ci < t.chars.length; ci++) {
             if (typedRef.current[t.startIdx + ci] !== t.chars[ci]) {
@@ -755,15 +1043,12 @@ export default function TypingPage() {
           break;
         }
       }
-      // ────────────────────────────────────────────────────────────────────
 
-      // DOM update — zero React state changes
       textDisplayRef.current?.updateTyped(typedRef.current, prevLen);
-
       maybeExtendWords(typedRef.current.length);
       updateScroll(typedRef.current.length);
     },
-    [endTest, initTest, updateScroll, maybeExtendWords, spawnNinjaFx],
+    [endTest, initTest, handleRestartWithNudge, updateScroll, maybeExtendWords, spawnNinjaFx],
   );
 
   // ── Custom timer handlers ─────────────────────────────────────────────────
@@ -829,6 +1114,12 @@ export default function TypingPage() {
       style={{ background: "var(--bg)", color: "var(--text)" }}>
 
       <style>{`
+        /* ── Expenses toast progress bar animation ── */
+        @keyframes expenses-toast-progress {
+          from { width: 100%; }
+          to   { width: 0%;   }
+        }
+
         /* ── Char colours ── */
         .tc-p  { color: var(--tc-p, #7a7a8c); }
         .tc-ok { color: var(--tc-ok, var(--green, #22d3a0)); }
@@ -931,7 +1222,7 @@ export default function TypingPage() {
         }
 
         /* ════════════════════════════════════════════════
-           CARET BASE — 2px wide for ALL styles
+           CARET BASE
            ════════════════════════════════════════════════ */
         .ty-caret {
           position: absolute;
@@ -946,9 +1237,7 @@ export default function TypingPage() {
           overflow: visible;
         }
 
-        /* ════════════════════════════════════════════════
-           1. MINIMAL
-           ════════════════════════════════════════════════ */
+        /* ── 1. MINIMAL ── */
         @keyframes minimal-blink {
           0%,49%  { opacity: 1; }
           50%,100% { opacity: 0; }
@@ -959,19 +1248,15 @@ export default function TypingPage() {
           animation: minimal-blink 1.05s step-end infinite;
         }
 
-        /* ════════════════════════════════════════════════
-           2. LASER
-           ════════════════════════════════════════════════ */
+        /* ── 2. LASER ── */
         @keyframes laser-breathe {
           0%,100% {
             opacity: 1;
-            box-shadow: 0 0 4px 0px rgba(167,139,250,.9),
-                        0 0 10px 1px rgba(139,92,246,.5);
+            box-shadow: 0 0 4px 0px rgba(167,139,250,.9), 0 0 10px 1px rgba(139,92,246,.5);
           }
           50% {
             opacity: .5;
-            box-shadow: 0 0 2px 0px rgba(167,139,250,.4),
-                        0 0 5px 0px rgba(139,92,246,.2);
+            box-shadow: 0 0 2px 0px rgba(167,139,250,.4), 0 0 5px 0px rgba(139,92,246,.2);
           }
         }
         [data-cursor="laser"] .ty-caret {
@@ -996,20 +1281,16 @@ export default function TypingPage() {
           }
         }
 
-        /* ════════════════════════════════════════════════
-           3. ELECTRIC BLADE
-           ════════════════════════════════════════════════ */
+        /* ── 3. ELECTRIC BLADE ── */
         @keyframes electric-surge {
           0%,100% {
             opacity: 1;
-            box-shadow: 0 0 4px 0px rgba(125,211,252,.9),
-                        0 0 12px 1px rgba(56,189,248,.5);
+            box-shadow: 0 0 4px 0px rgba(125,211,252,.9), 0 0 12px 1px rgba(56,189,248,.5);
           }
           35% { opacity: .6; box-shadow: 0 0 2px 0px rgba(125,211,252,.35); }
           65% {
             opacity: 1;
-            box-shadow: 0 0 6px 0px rgba(125,211,252,1),
-                        0 0 16px 2px rgba(56,189,248,.65);
+            box-shadow: 0 0 6px 0px rgba(125,211,252,1), 0 0 16px 2px rgba(56,189,248,.65);
           }
         }
         [data-cursor="electric"] .ty-caret {
@@ -1035,20 +1316,16 @@ export default function TypingPage() {
           }
         }
 
-        /* ════════════════════════════════════════════════
-           4. POISON
-           ════════════════════════════════════════════════ */
+        /* ── 4. POISON ── */
         @keyframes poison-pulse {
           0%,100% {
             opacity: 1;
-            box-shadow: 0 0 4px 0px rgba(74,222,128,.85),
-                        0 0 12px 1px rgba(22,163,74,.45);
+            box-shadow: 0 0 4px 0px rgba(74,222,128,.85), 0 0 12px 1px rgba(22,163,74,.45);
           }
           35% { opacity: .5; box-shadow: 0 0 2px 0px rgba(74,222,128,.3); }
           68% {
             opacity: .95;
-            box-shadow: 0 0 5px 0px rgba(74,222,128,.9),
-                        0 0 14px 2px rgba(22,163,74,.5);
+            box-shadow: 0 0 5px 0px rgba(74,222,128,.9), 0 0 14px 2px rgba(22,163,74,.5);
           }
         }
         [data-cursor="poison"] .ty-caret {
@@ -1066,9 +1343,7 @@ export default function TypingPage() {
           }
         }
 
-        /* ════════════════════════════════════════════════
-           5. HEARTBEAT
-           ════════════════════════════════════════════════ */
+        /* ── 5. HEARTBEAT ── */
         @keyframes heartbeat {
           0%   { opacity: .35; box-shadow: 0 0 2px 0px rgba(248,113,113,.2); }
           10%  { opacity: 1;   box-shadow: 0 0 6px 0px rgba(248,113,113,.95), 0 0 16px 2px rgba(239,68,68,.45); }
@@ -1092,23 +1367,16 @@ export default function TypingPage() {
           }
         }
 
-        /* ════════════════════════════════════════════════
-           6. NINJA MODE CARET — sharp crimson blade
-           ════════════════════════════════════════════════ */
+        /* ── 6. NINJA ── */
         @keyframes ninja-caret-pulse {
           0%,100% {
             opacity: 1;
-            box-shadow: 0 0 3px 0px rgba(239,68,68,.9),
-                        0 0 8px 1px rgba(220,38,38,.4);
+            box-shadow: 0 0 3px 0px rgba(239,68,68,.9), 0 0 8px 1px rgba(220,38,38,.4);
           }
-          45% {
-            opacity: .7;
-            box-shadow: 0 0 2px 0px rgba(239,68,68,.5);
-          }
+          45% { opacity: .7; box-shadow: 0 0 2px 0px rgba(239,68,68,.5); }
           80% {
             opacity: 1;
-            box-shadow: 0 0 5px 0px rgba(239,68,68,1),
-                        0 0 12px 1px rgba(220,38,38,.55);
+            box-shadow: 0 0 5px 0px rgba(239,68,68,1), 0 0 12px 1px rgba(220,38,38,.55);
           }
         }
         [data-cursor="ninja"] .ty-caret {
@@ -1140,97 +1408,44 @@ export default function TypingPage() {
           }
         }
 
-        /* ════════════════════════════════════════════════
-           NINJA MODE FRAGMENT ANIMATIONS
-           GPU-only: transform + opacity exclusively.
-           ════════════════════════════════════════════════ */
-
-        /* The whole fragment container: falls + rotates + fades */
+        /* ── NINJA FRAGMENT ANIMATIONS ── */
         @keyframes ninja-word-fall {
-          0%   {
-            transform: translateY(0px) rotate(0deg) scaleY(1);
-            opacity: 1;
-          }
-          12%  {
-            /* tiny upward micro-bounce — impact snap */
-            transform: translateY(-3px) rotate(-0.5deg) scaleY(1.04);
-            opacity: 1;
-          }
-          28% {
-            transform: translateY(8px) rotate(-1.5deg) scaleY(0.96);
-            opacity: 0.92;
-          }
-          100% {
-            transform: translateY(72px) rotate(-6deg) scaleY(0.82);
-            opacity: 0;
-          }
+          0%   { transform: translateY(0px) rotate(0deg) scaleY(1); opacity: 1; }
+          12%  { transform: translateY(-3px) rotate(-0.5deg) scaleY(1.04); opacity: 1; }
+          28%  { transform: translateY(8px) rotate(-1.5deg) scaleY(0.96); opacity: 0.92; }
+          100% { transform: translateY(72px) rotate(-6deg) scaleY(0.82); opacity: 0; }
         }
-
-        /* The slash line: sweeps across the word width, then fades */
         @keyframes ninja-slash-sweep {
-          0%   {
-            transform: scaleX(0) rotate(-7deg);
-            opacity: 0;
-          }
-          18%  {
-            transform: scaleX(0.08) rotate(-7deg);
-            opacity: 1;
-          }
-          55%  {
-            transform: scaleX(1) rotate(-7deg);
-            opacity: 0.85;
-          }
-          100% {
-            transform: scaleX(1) rotate(-7deg);
-            opacity: 0;
-          }
-        }
-
-        /* Optional: faint impact flash behind the word */
-        @keyframes ninja-impact-flash {
-          0%   { opacity: 0.55; transform: scaleX(1); }
-          60%  { opacity: 0.2;  transform: scaleX(1.04); }
-          100% { opacity: 0;    transform: scaleX(1); }
+          0%   { transform: scaleX(0) rotate(-7deg); opacity: 0; }
+          18%  { transform: scaleX(0.08) rotate(-7deg); opacity: 1; }
+          55%  { transform: scaleX(1) rotate(-7deg); opacity: 0.85; }
+          100% { transform: scaleX(1) rotate(-7deg); opacity: 0; }
         }
 
         .ninja-frag {
           will-change: transform, opacity;
-          /* fall animation drives the whole fragment */
           animation: ninja-word-fall 490ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-          /* GPU layer promotion — keeps animation off main thread */
           transform: translateZ(0);
         }
-
-        /* Word text clone — colored like a correctly typed word */
         .ninja-frag-text {
           display: inline-block;
           color: var(--tc-ok, #22d3a0);
           position: relative;
           z-index: 2;
-          /* subtle text glow for the premium look */
-          text-shadow:
-            0 0 8px rgba(34,211,160,.55),
-            0 0 16px rgba(34,211,160,.22);
+          text-shadow: 0 0 8px rgba(34,211,160,.55), 0 0 16px rgba(34,211,160,.22);
         }
         body[data-theme="light"] .ninja-frag-text {
           color: var(--tc-ok, #059669);
-          text-shadow:
-            0 0 6px rgba(5,150,105,.45),
-            0 0 12px rgba(5,150,105,.18);
+          text-shadow: 0 0 6px rgba(5,150,105,.45), 0 0 12px rgba(5,150,105,.18);
         }
         @media (prefers-color-scheme:light) {
           .ninja-frag-text {
             color: var(--tc-ok, #059669);
-            text-shadow:
-              0 0 6px rgba(5,150,105,.45),
-              0 0 12px rgba(5,150,105,.18);
+            text-shadow: 0 0 6px rgba(5,150,105,.45), 0 0 12px rgba(5,150,105,.18);
           }
         }
-
-        /* The slashing line — diagonal red/crimson streak */
         .ninja-slash-line {
           position: absolute;
-          /* center vertically across the word */
           top: 50%;
           left: -4px;
           right: -4px;
@@ -1240,7 +1455,6 @@ export default function TypingPage() {
           transform-origin: left center;
           pointer-events: none;
           z-index: 3;
-          /* dark mode: vivid crimson with glow */
           background: linear-gradient(
             90deg,
             transparent 0%,
@@ -1251,48 +1465,29 @@ export default function TypingPage() {
             rgba(185,28,28,.6) 88%,
             transparent 100%
           );
-          box-shadow:
-            0 0 4px 1px rgba(239,68,68,.65),
-            0 0 10px 2px rgba(220,38,38,.3);
+          box-shadow: 0 0 4px 1px rgba(239,68,68,.65), 0 0 10px 2px rgba(220,38,38,.3);
           animation: ninja-slash-sweep 190ms ease-out forwards;
-          /* slash starts immediately, word falls with a tiny delay */
           animation-delay: 0ms;
           will-change: transform, opacity;
         }
         body[data-theme="light"] .ninja-slash-line {
           background: linear-gradient(
-            90deg,
-            transparent 0%,
-            rgba(185,28,28,.8) 10%,
-            #b91c1c 35%,
-            #991b1b 60%,
-            rgba(127,29,29,.7) 85%,
-            transparent 100%
+            90deg, transparent 0%, rgba(185,28,28,.8) 10%,
+            #b91c1c 35%, #991b1b 60%, rgba(127,29,29,.7) 85%, transparent 100%
           );
-          box-shadow:
-            0 0 3px 1px rgba(185,28,28,.55),
-            0 0 7px 1px rgba(153,27,27,.25);
+          box-shadow: 0 0 3px 1px rgba(185,28,28,.55), 0 0 7px 1px rgba(153,27,27,.25);
         }
         @media (prefers-color-scheme:light) {
           .ninja-slash-line {
             background: linear-gradient(
-              90deg,
-              transparent 0%,
-              rgba(185,28,28,.8) 10%,
-              #b91c1c 35%,
-              #991b1b 60%,
-              rgba(127,29,29,.7) 85%,
-              transparent 100%
+              90deg, transparent 0%, rgba(185,28,28,.8) 10%,
+              #b91c1c 35%, #991b1b 60%, rgba(127,29,29,.7) 85%, transparent 100%
             );
-            box-shadow:
-              0 0 3px 1px rgba(185,28,28,.55),
-              0 0 7px 1px rgba(153,27,27,.25);
+            box-shadow: 0 0 3px 1px rgba(185,28,28,.55), 0 0 7px 1px rgba(153,27,27,.25);
           }
         }
 
-        /* ════════════════════════════════════════════════
-           CURSOR SELECTOR UI
-           ════════════════════════════════════════════════ */
+        /* ── CURSOR SELECTOR UI ── */
         .cs-row   { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
         .cs-label {
           font-size:10px; font-weight:700; letter-spacing:.08em;
@@ -1313,22 +1508,18 @@ export default function TypingPage() {
         }
         .cs-pill:hover:not(.cs-pill--active) { color:var(--text2); background:var(--surface2); }
         .cs-icon { font-size:10px; opacity:.82; }
-
         .cs-pill--minimal.cs-pill--active   { background:rgba(124,110,243,.14); border-color:rgba(167,139,250,.45); color:var(--accent2,#c4b5fd); }
         .cs-pill--laser.cs-pill--active     { background:rgba(139,92,246,.18);  border-color:rgba(167,139,250,.55); color:#ddd6fe; box-shadow:0 0 8px rgba(139,92,246,.22); }
         .cs-pill--electric.cs-pill--active  { background:rgba(56,189,248,.14);  border-color:rgba(125,211,252,.5);  color:#bae6fd; box-shadow:0 0 8px rgba(56,189,248,.2); }
         .cs-pill--poison.cs-pill--active    { background:rgba(74,222,128,.13);  border-color:rgba(74,222,128,.48);  color:#bbf7d0; box-shadow:0 0 8px rgba(74,222,128,.18); }
         .cs-pill--heartbeat.cs-pill--active { background:rgba(248,113,113,.13); border-color:rgba(248,113,113,.48); color:#fecaca; box-shadow:0 0 8px rgba(248,113,113,.18); }
-        /* Ninja pill — crimson */
         .cs-pill--ninja.cs-pill--active     { background:rgba(220,38,38,.13);   border-color:rgba(239,68,68,.50);   color:#fca5a5; box-shadow:0 0 8px rgba(220,38,38,.22); }
-
         body[data-theme="light"] .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
         body[data-theme="light"] .cs-pill--electric.cs-pill--active  { background:rgba(3,105,161,.08);   border-color:rgba(3,105,161,.4);   color:#0369a1; box-shadow:none; }
         body[data-theme="light"] .cs-pill--poison.cs-pill--active    { background:rgba(21,128,61,.08);   border-color:rgba(21,128,61,.4);   color:#166534; box-shadow:none; }
         body[data-theme="light"] .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
         body[data-theme="light"] .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
-
         @media (prefers-color-scheme:light) {
           .cs-pill--minimal.cs-pill--active   { background:rgba(91,33,182,.08);   border-color:rgba(91,33,182,.4);   color:#5b21b6; box-shadow:none; }
           .cs-pill--laser.cs-pill--active     { background:rgba(109,40,217,.08);  border-color:rgba(109,40,217,.4);  color:#5b21b6; box-shadow:none; }
@@ -1337,6 +1528,42 @@ export default function TypingPage() {
           .cs-pill--heartbeat.cs-pill--active { background:rgba(185,28,28,.08);   border-color:rgba(185,28,28,.4);   color:#991b1b; box-shadow:none; }
           .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
         }
+
+        /* ─── FIX #3: Custom timer delete button — completely outside the timer pill ─── */
+        /* The group wrapper clips to its natural height; the × sits beside the pill, not inside it. */
+        .custom-timer-group {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          position: relative;
+        }
+        .custom-timer-del {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          border-radius: 5px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: var(--danger, #f87171);
+          font-size: 14px;
+          line-height: 1;
+          cursor: pointer;
+          opacity: 0;
+          transition: opacity 150ms ease, background 150ms ease, border-color 150ms ease;
+          flex-shrink: 0;
+          padding: 0;
+        }
+        .custom-timer-group:hover .custom-timer-del {
+          opacity: 1;
+        }
+        .custom-timer-del:hover {
+          background: rgba(248,113,113,.12);
+          border-color: rgba(248,113,113,.3);
+        }
+        body[data-theme="light"] .custom-timer-del { color: #dc2626; }
+        @media (prefers-color-scheme:light) { .custom-timer-del { color: #dc2626; } }
 
         /* ── Click-to-focus overlay ── */
         .ty-overlay {
@@ -1404,10 +1631,13 @@ export default function TypingPage() {
               </button>
             ))}
 
+            {/* ── FIX #3: Custom timers — delete button is fully OUTSIDE the timer pill ── */}
             {customTimers.map(ct => (
-              <div key={ct._id} className="relative group flex items-center">
-                <button onClick={() => setSelectedTimer(ct.duration)}
-                  className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all pr-5"
+              <div key={ct._id} className="custom-timer-group">
+                {/* Timer select button — no padding hack, no absolute children */}
+                <button
+                  onClick={() => setSelectedTimer(ct.duration)}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all"
                   style={{
                     background: selectedTimer === ct.duration ? "var(--accent)"  : "var(--surface2)",
                     color:      selectedTimer === ct.duration ? "#fff"            : "var(--text2)",
@@ -1415,9 +1645,15 @@ export default function TypingPage() {
                   }}>
                   {fmtDur(ct.duration)}
                 </button>
-                <button onClick={() => setConfirmDel(ct)}
-                  className="absolute right-0.5 top-1/2 -translate-y-1/2 text-xs w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ color: "var(--danger)" }}>×</button>
+                {/* Delete button — clearly separate, shown on group hover */}
+                <button
+                  onClick={() => setConfirmDel(ct)}
+                  className="custom-timer-del"
+                  title={`Delete ${fmtDur(ct.duration)} timer`}
+                  aria-label={`Delete ${fmtDur(ct.duration)} timer`}
+                >
+                  ×
+                </button>
               </div>
             ))}
 
@@ -1483,7 +1719,7 @@ export default function TypingPage() {
           </div>
         )}
 
-        {/* Timer row — countdown only, no live stats while typing */}
+        {/* Timer row */}
         <div className="flex items-center justify-between">
           <span className="font-mono text-3xl sm:text-4xl font-bold tabular-nums"
             style={{
@@ -1524,13 +1760,11 @@ export default function TypingPage() {
               padding: "0.5em 0.5em",
             }}>
 
-            {/* Top / bottom fade masks */}
             <div className="absolute top-0 left-0 right-0 pointer-events-none z-10"
               style={{ height: "2em", background: "linear-gradient(to bottom, var(--surface), transparent)" }} />
             <div className="absolute bottom-0 left-0 right-0 pointer-events-none z-10"
               style={{ height: "2em", background: "linear-gradient(to top, var(--surface), transparent)" }} />
 
-            {/* Click-to-focus overlay */}
             {!isFocused && testState !== "finished" && (
               <div className="ty-overlay" onClick={() => wrapperRef.current?.focus()}>
                 <div className="flex flex-col items-center gap-2 text-white text-center px-4">
@@ -1541,7 +1775,6 @@ export default function TypingPage() {
               </div>
             )}
 
-            {/* Memoised text renderer — never re-renders on keystrokes */}
             <TextDisplay
               ref={textDisplayRef}
               words={words}
@@ -1551,19 +1784,14 @@ export default function TypingPage() {
               textBlockRef={textBlockRef}
             />
 
-            {/* ── Ninja Mode: slash+fall animation layer ───────────────────
-                Positioned inside clipRef so overflow:hidden clips
-                falling fragments that go below the viewport height.
-                Only mounts when there are active fragments — zero cost
-                when idle or in other cursor modes.
-            ──────────────────────────────────────────────────────────── */}
             <NinjaFxLayer fragments={ninjaFragments} />
           </div>
         </div>
 
         {/* Restart hint */}
         <div className="flex items-center justify-center gap-3">
-          <button onClick={initTest}
+          {/* FIX #2: restart button also fires nudge if new best */}
+          <button onClick={handleRestartWithNudge}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm transition-all"
             style={{ color: "var(--text3)", background: "transparent", border: "1px solid transparent" }}
             onMouseEnter={e => {
@@ -1643,7 +1871,8 @@ export default function TypingPage() {
               </Link>
             </div>
 
-            <button onClick={initTest}
+            {/* FIX #2: "Next Test" button fires nudge if new best */}
+            <button onClick={handleRestartWithNudge}
               className="w-full py-3 rounded-xl text-sm font-semibold transition-opacity"
               style={{ background: "var(--accent)", color: "#fff" }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = ".85"; }}

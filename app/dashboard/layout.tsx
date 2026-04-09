@@ -1,9 +1,5 @@
-// app/dashboard/layout.tsx
-// ⚠️  ONLY CHANGE from original: Added ListChecks (Todo) nav item below BarChart2 (See Analysis)
-// Everything else is identical to the original file.
-
 "use client";
-
+// app/dashboard/layout.tsx
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -26,27 +22,33 @@ import {
   ChevronLeft,
   ChevronRight,
   Wallet,
-  ListChecks,   // ← NEW: Todo icon
+  ListChecks,
 } from "lucide-react";
+
 import Logo from "../components/Logo";
+import MotivationalQuoteBanner from "../components/MotivationalQuoteBanner";
 
-// ── NAV_ITEMS — Todo inserted right after See Analysis ────────────────────────
-
+// ─────────────────────────────────────────────────────────────
+// NAV ITEMS
+// ─────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { label: "Today's Track", href: "/dashboard/today",     icon: Clock        },
-  { label: "Go Date Wise",  href: "/dashboard/date-wise", icon: CalendarDays },
-  { label: "Mark Holiday",  href: "/dashboard/holiday",   icon: Palmtree     },
-  { label: "See Analysis",  href: "/dashboard/analysis",  icon: BarChart2    },
-  { label: "To-Do List",    href: "/dashboard/todo",      icon: ListChecks   }, // ← NEW
-  { label: "Diary",         href: "/dashboard/diary",     icon: BookOpen     },
-  { label: "Typing Test",   href: "/dashboard/typing",    icon: Keyboard     },
-  { label: "Expenses",      href: "/dashboard/expenses",  icon: Wallet       },
-  { label: "Profile",       href: "/dashboard/profile",   icon: User         },
+  { label: "Today's Track", href: "/dashboard/today", icon: Clock },
+  { label: "Go Date Wise", href: "/dashboard/date-wise", icon: CalendarDays },
+  { label: "Mark Holiday", href: "/dashboard/holiday", icon: Palmtree },
+  { label: "See Analysis", href: "/dashboard/analysis", icon: BarChart2 },
+  { label: "To-Do List", href: "/dashboard/todo", icon: ListChecks },
+  { label: "Diary", href: "/dashboard/diary", icon: BookOpen },
+  { label: "Typing Test", href: "/dashboard/typing", icon: Keyboard },
+  { label: "Expenses", href: "/dashboard/expenses", icon: Wallet },
+  { label: "Profile", href: "/dashboard/profile", icon: User },
 ];
 
-const SIDEBAR_WIDTH     = 232;
+const SIDEBAR_WIDTH = 232;
 const SIDEBAR_COLLAPSED = 64;
 
+// ─────────────────────────────────────────────────────────────
+// THEME
+// ─────────────────────────────────────────────────────────────
 const DARK_THEME = `
   :root {
     --bg:       #0f1117;
@@ -83,11 +85,27 @@ const LIGHT_THEME = `
     --amber:    #d97706;
     --danger:   #dc2626;
   }
-  * { box-sizing: border-box; }
-  input, textarea, select, button { font-family: inherit; }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
+  }
+
   input[type='number']::-webkit-inner-spin-button,
-  input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  input[type='number'] { -moz-appearance: textfield; }
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
 `;
 
 function useTheme() {
@@ -103,12 +121,14 @@ function useTheme() {
   function applyTheme(isDark: boolean) {
     const existing = document.getElementById("hb-theme-vars");
     if (existing) existing.remove();
+
     const style = document.createElement("style");
     style.id = "hb-theme-vars";
     style.textContent = isDark ? DARK_THEME : LIGHT_THEME;
     document.head.appendChild(style);
+
     document.body.style.background = isDark ? "#0f1117" : "#f4f6fb";
-    document.body.style.color      = isDark ? "#f0f2f8" : "#111827";
+    document.body.style.color = isDark ? "#f0f2f8" : "#111827";
   }
 
   const toggle = () => {
@@ -121,6 +141,9 @@ function useTheme() {
   return { dark, toggle };
 }
 
+// ─────────────────────────────────────────────────────────────
+// SIDEBAR
+// ─────────────────────────────────────────────────────────────
 function Sidebar({
   fullName,
   mobileOpen,
@@ -135,7 +158,7 @@ function Sidebar({
   onToggleCollapse: () => void;
 }) {
   const pathname = usePathname();
-  const router   = useRouter();
+  const router = useRouter();
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -231,6 +254,7 @@ function SidebarContent({
             </span>{" "}
             👋
           </p>
+
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
@@ -278,7 +302,10 @@ function SidebarContent({
 
       <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-0.5">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href || (href === "/dashboard/today" && pathname === "/dashboard");
+          const active =
+            pathname === href ||
+            (href === "/dashboard/today" && pathname === "/dashboard");
+
           return (
             <Link
               key={href}
@@ -288,7 +315,9 @@ function SidebarContent({
               className="flex items-center gap-3 rounded-xl text-[13px] font-medium transition-all duration-150 no-underline"
               style={{
                 background: active ? "rgba(124,110,243,0.14)" : "transparent",
-                border: active ? "1px solid rgba(124,110,243,0.22)" : "1px solid transparent",
+                border: active
+                  ? "1px solid rgba(124,110,243,0.22)"
+                  : "1px solid transparent",
                 color: active ? "var(--text)" : "var(--text2)",
                 padding: collapsed ? "10px 0" : "10px 12px",
                 justifyContent: collapsed ? "center" : "flex-start",
@@ -306,7 +335,10 @@ function SidebarContent({
                 }
               }}
             >
-              <Icon size={16} style={{ color: active ? "#7c6ef3" : "var(--text3)", flexShrink: 0 }} />
+              <Icon
+                size={16}
+                style={{ color: active ? "#7c6ef3" : "var(--text3)", flexShrink: 0 }}
+              />
               {!collapsed && label}
             </Link>
           );
@@ -341,28 +373,36 @@ function SidebarContent({
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// TOP NAVBAR — laptop safe quote visibility
+// ─────────────────────────────────────────────────────────────
 function DashNavbar({
   dark,
   onThemeToggle,
   onMobileMenuToggle,
   mobileOpen,
+  fullName,
 }: {
   dark: boolean;
   onThemeToggle: () => void;
   onMobileMenuToggle: () => void;
   mobileOpen: boolean;
+  fullName: string;
 }) {
+  const firstName = fullName.trim().split(/\s+/)[0] ?? "";
+
   return (
     <header
-      className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center justify-between px-5"
+      className="fixed top-0 left-0 right-0 h-16 z-50 grid items-center px-3 sm:px-4 lg:px-5"
       style={{
+        gridTemplateColumns: "auto minmax(0,1fr) auto",
         background: "var(--bg)",
         borderBottom: "1px solid var(--border2)",
         backdropFilter: "blur(12px)",
       }}
     >
       {/* LEFT */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 shrink-0 min-w-fit">
         <button
           onClick={onMobileMenuToggle}
           className="md:hidden p-1.5 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
@@ -372,24 +412,31 @@ function DashNavbar({
           {mobileOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
 
-        <div className="hidden md:flex items-center">
+        <div className="hidden md:flex items-center shrink-0">
           <Link href="/dashboard/today" className="flex items-center">
             <Logo />
           </Link>
         </div>
 
-        <Link href="/dashboard/today" className="md:hidden flex items-center">
+        <Link href="/dashboard/today" className="md:hidden flex items-center shrink-0">
           <Logo />
         </Link>
       </div>
 
+      {/* CENTER — always priority on laptop/desktop */}
+      <div className="hidden lg:flex items-center justify-center min-w-0 px-3 xl:px-6">
+        <div className="w-full min-w-0 max-w-[860px]">
+          <MotivationalQuoteBanner firstName={firstName} isDark={dark} />
+        </div>
+      </div>
+
       {/* RIGHT */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-end gap-2 lg:gap-3 shrink-0 min-w-fit">
         <a
           href="https://my-portfolio-xi-ochre-28.vercel.app/"
           target="_blank"
           rel="noopener noreferrer"
-          className="hidden lg:block text-[13px] transition-colors no-underline"
+          className="hidden 2xl:block text-[13px] transition-colors no-underline whitespace-nowrap"
           style={{ color: "var(--text3)" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
           onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text3)")}
@@ -403,7 +450,7 @@ function DashNavbar({
         <button
           onClick={onThemeToggle}
           aria-label="Toggle theme"
-          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer"
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer shrink-0"
           style={{
             background: "var(--surface)",
             border: "1px solid var(--border2)",
@@ -425,6 +472,9 @@ function DashNavbar({
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// FOOTER
+// ─────────────────────────────────────────────────────────────
 function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   const leftOffset = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
 
@@ -438,7 +488,13 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
         backdropFilter: "blur(12px)",
       }}
     >
-      <style>{`@media (min-width: 768px) { .dash-footer { left: ${leftOffset}px !important; } }`}</style>
+      <style>{`
+        @media (min-width: 768px) {
+          .dash-footer {
+            left: ${leftOffset}px !important;
+          }
+        }
+      `}</style>
 
       <p className="text-[12px] whitespace-nowrap" style={{ color: "var(--text3)" }}>
         Made with <span style={{ color: "#e05252" }}>♥</span> —{" "}
@@ -482,12 +538,20 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
   );
 }
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+// ─────────────────────────────────────────────────────────────
+// ROOT LAYOUT
+// ─────────────────────────────────────────────────────────────
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { dark, toggle } = useTheme();
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [fullName, setFullName] = useState("");
+
   const router = useRouter();
 
   useEffect(() => {
@@ -496,8 +560,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, []);
 
   const toggleCollapse = () => {
-    setSidebarCollapsed((p) => {
-      const next = !p;
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
       localStorage.setItem("hb-sidebar-collapsed", String(next));
       return next;
     });
@@ -514,10 +578,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       })
       .then((data) => {
         if (!data) return;
+
         if (!data.success) {
           router.replace("/auth/login");
           return;
         }
+
         setFullName(data.user.fullName || data.user.email || "");
       })
       .catch(() => router.replace("/auth/login"));
@@ -527,6 +593,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const handle = () => {
       if (window.innerWidth >= 768) setMobileOpen(false);
     };
+
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
   }, []);
@@ -534,12 +601,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const desktopLeft = sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "var(--bg)",
+        color: "var(--text)",
+      }}
+    >
       <DashNavbar
         dark={dark}
         onThemeToggle={toggle}
-        onMobileMenuToggle={() => setMobileOpen((p) => !p)}
+        onMobileMenuToggle={() => setMobileOpen((prev) => !prev)}
         mobileOpen={mobileOpen}
+        fullName={fullName}
       />
 
       <Sidebar
@@ -559,13 +633,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           minHeight: "100vh",
         }}
       >
-        <style>{`@media (min-width: 768px) { .dash-content-area { margin-left: ${desktopLeft}px !important; } }`}</style>
+        <style>{`
+          @media (min-width: 768px) {
+            .dashboard-main {
+              margin-left: ${desktopLeft}px !important;
+            }
+          }
+        `}</style>
 
-        <div className="dash-content-area transition-all duration-300">
-          <main className="px-4 sm:px-6 md:px-8 lg:px-10 py-5 max-w-screen-2xl">
-            {children}
-          </main>
-        </div>
+        <main className="dashboard-main h-full transition-all duration-300">
+          {children}
+        </main>
       </div>
 
       <DashFooter sidebarCollapsed={sidebarCollapsed} />

@@ -4,7 +4,6 @@
 import { useEffect, useState } from "react";
 import {
   Keyboard,
-  Brain,
   Clock,
   BookOpen,
   Zap,
@@ -17,9 +16,15 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
+  ListChecks,
+  Wallet,
+  DollarSign,
+  CreditCard,
+  ShoppingCart,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
 type TypingStats = {
   highestWpm: number;
   highestAccuracy: number;
@@ -38,17 +43,31 @@ type WorkData = {
   avgEntryTime: string | null;
 };
 
-type QuizData = {
-  totalXp: number;
-  categories: { name: string; completedLevels: number; totalLevels: number }[];
-};
-
 type DiaryData = {
   totalEntries: number;
   dates: string[];
 };
 
+type TodoData = {
+  totalDays: number;
+  totalTasks: number;
+  completedTasks: number;
+  todayTasks: number;
+  todayCompleted: number;
+};
+
+type ExpenseData = {
+  totalSpent: number;
+  totalAdded: number;
+  cashBalance: number;
+  onlineBalance: number;
+  totalBalance: number;
+  biggestCategory: string;
+  expenseCount: number;
+};
+
 // ── Stat card ─────────────────────────────────────────────────────────────────
+
 function StatCard({
   icon: Icon,
   label,
@@ -108,6 +127,7 @@ function StatCard({
 }
 
 // ── Section header ────────────────────────────────────────────────────────────
+
 function SectionHeader({
   icon: Icon,
   title,
@@ -133,6 +153,7 @@ function SectionHeader({
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
+
 function ProgressBar({ value, color }: { value: number; color: string }) {
   return (
     <div
@@ -148,10 +169,11 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
 }
 
 // ── Loading skeleton ──────────────────────────────────────────────────────────
+
 function Skeleton() {
   return (
     <div className="space-y-6">
-      {[1, 2, 3].map((s) => (
+      {[1, 2, 3, 4, 5].map((s) => (
         <div key={s} className="space-y-3">
           <div className="h-4 w-32 rounded-lg animate-pulse" style={{ background: "var(--surface2)" }} />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -165,14 +187,22 @@ function Skeleton() {
   );
 }
 
+// ── Currency formatter ────────────────────────────────────────────────────────
+
+function fmtCurrency(n: number): string {
+  return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
+
 export default function InsightsTab() {
-  const [typing, setTyping]   = useState<TypingStats | null>(null);
-  const [work,   setWork]     = useState<WorkData | null>(null);
-  const [quiz,   setQuiz]     = useState<QuizData | null>(null);
-  const [diary,  setDiary]    = useState<DiaryData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(false);
+  const [typing,   setTyping]   = useState<TypingStats | null>(null);
+  const [work,     setWork]     = useState<WorkData | null>(null);
+  const [diary,    setDiary]    = useState<DiaryData | null>(null);
+  const [todo,     setTodo]     = useState<TodoData | null>(null);
+  const [expense,  setExpense]  = useState<ExpenseData | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -181,14 +211,17 @@ export default function InsightsTab() {
       const now   = new Date();
       const year  = now.getFullYear();
       const month = now.getMonth() + 1;
+      const monthStr = `${year}-${String(month).padStart(2, "0")}`;
 
-      const [typingRes, xpRes, catRes, workRes, diaryRes] = await Promise.all([
-        fetch("/api/typing/stats?timer=0").then((r) => r.json()),
-        fetch("/api/quiz/xp").then((r) => r.json()),
-        fetch("/api/quiz/categories").then((r) => r.json()),
-        fetch(`/api/work/analysis?year=${year}&month=${month}`).then((r) => r.json()),
-        fetch("/api/diary/meta").then((r) => r.json()),
-      ]);
+      const [typingRes, workRes, diaryRes, todoHistRes, expenseRes, walletRes] =
+        await Promise.all([
+          fetch("/api/typing/stats?timer=0").then((r) => r.json()),
+          fetch(`/api/work/analysis?year=${year}&month=${month}`).then((r) => r.json()),
+          fetch("/api/diary/meta").then((r) => r.json()),
+          fetch("/api/todo/history?limit=90").then((r) => r.json()),
+          fetch(`/api/expenses/analysis?month=${monthStr}`).then((r) => r.json()),
+          fetch("/api/expenses/wallet").then((r) => r.json()),
+        ]);
 
       // typing
       if (typingRes.success) {
@@ -199,12 +232,6 @@ export default function InsightsTab() {
           averageWpm:      typingRes.stats.averageWpm,
         });
       }
-
-      // quiz
-      setQuiz({
-        totalXp:    xpRes.success ? xpRes.totalXp : 0,
-        categories: catRes.success ? catRes.categories : [],
-      });
 
       // work
       if (workRes.success) {
@@ -224,6 +251,47 @@ export default function InsightsTab() {
       // diary
       if (diaryRes.dates) {
         setDiary({ totalEntries: diaryRes.totalPages, dates: diaryRes.dates });
+      }
+
+      // todo — aggregate from history
+      if (todoHistRes.success) {
+        const history: { totalTasks: number; completed: number }[] =
+          todoHistRes.history ?? [];
+        const total     = history.reduce((a, d) => a + d.totalTasks, 0);
+        const completed = history.reduce((a, d) => a + d.completed, 0);
+
+        // Today's tasks (separate call)
+        let todayTasks = 0;
+        let todayCompleted = 0;
+        try {
+          const todayRes = await fetch("/api/todo").then((r) => r.json());
+          if (todayRes.success) {
+            todayTasks     = (todayRes.tasks ?? []).length;
+            todayCompleted = (todayRes.tasks ?? []).filter((t: any) => t.completed).length;
+          }
+        } catch { /* silent */ }
+
+        setTodo({
+          totalDays:      history.length,
+          totalTasks:     total + todayTasks,
+          completedTasks: completed + todayCompleted,
+          todayTasks,
+          todayCompleted,
+        });
+      }
+
+      // expenses
+      if (expenseRes.success) {
+        const wallet = walletRes.success ? walletRes.wallet : null;
+        setExpense({
+          totalSpent:      expenseRes.summary.totalSpent,
+          totalAdded:      expenseRes.summary.totalAdded,
+          cashBalance:     wallet?.cashBalance   ?? 0,
+          onlineBalance:   wallet?.onlineBalance ?? 0,
+          totalBalance:    wallet?.totalBalance  ?? 0,
+          biggestCategory: expenseRes.summary.biggestCategory,
+          expenseCount:    expenseRes.summary.expenseCount,
+        });
       }
 
     } catch {
@@ -262,16 +330,10 @@ export default function InsightsTab() {
   }
 
   // ── derived values ────────────────────────────────────────────────────────
-  const totalQuizLevels     = quiz?.categories.reduce((a, c) => a + c.totalLevels, 0) ?? 0;
-  const completedQuizLevels = quiz?.categories.reduce((a, c) => a + c.completedLevels, 0) ?? 0;
-  const quizProgress        = totalQuizLevels > 0 ? Math.round((completedQuizLevels / totalQuizLevels) * 100) : 0;
-
-  // diary — entries this month
-  const now         = new Date();
+  const now          = new Date();
   const thisMonthPfx = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const diaryThisMonth = diary?.dates.filter((d) => d.startsWith(thisMonthPfx)).length ?? 0;
 
-  // work consistency colour
   const consistencyColor =
     (work?.consistencyScore ?? 0) >= 80
       ? "var(--green)"
@@ -279,60 +341,28 @@ export default function InsightsTab() {
       ? "var(--amber)"
       : "var(--danger)";
 
+  const todoCompletionPct =
+    (todo?.totalTasks ?? 0) > 0
+      ? Math.round(((todo?.completedTasks ?? 0) / (todo?.totalTasks ?? 1)) * 100)
+      : 0;
+
+  const todoTodayPct =
+    (todo?.todayTasks ?? 0) > 0
+      ? Math.round(((todo?.todayCompleted ?? 0) / (todo?.todayTasks ?? 1)) * 100)
+      : 0;
+
   return (
     <div className="space-y-7">
 
       {/* ════════════════════════════════════════════
-          TYPING
+          WORK LOGS (current month)
       ════════════════════════════════════════════ */}
       <section>
-        <SectionHeader icon={Keyboard} title="Typing" color="#60a5fa" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard
-            icon={Zap}
-            label="Best Speed"
-            value={`${typing?.highestWpm ?? 0}`}
-            sub="WPM — all-time high"
-            iconColor="#60a5fa"
-            iconBg="rgba(96,165,250,0.12)"
-            badge={
-              (typing?.highestWpm ?? 0) >= 60
-                ? { text: "Fast", color: "#60a5fa", bg: "rgba(96,165,250,0.10)" }
-                : undefined
-            }
-          />
-          <StatCard
-            icon={Target}
-            label="Best Accuracy"
-            value={`${typing?.highestAccuracy ?? 0}%`}
-            sub="highest ever"
-            iconColor="var(--green)"
-            iconBg="rgba(34,211,160,0.12)"
-          />
-          <StatCard
-            icon={TrendingUp}
-            label="Avg Speed"
-            value={`${typing?.averageWpm ?? 0}`}
-            sub="WPM — overall avg"
-            iconColor="var(--accent)"
-            iconBg="rgba(124,110,243,0.12)"
-          />
-          <StatCard
-            icon={BarChart2}
-            label="Tests Done"
-            value={typing?.totalTests ?? 0}
-            sub="all time"
-            iconColor="var(--amber)"
-            iconBg="rgba(245,158,11,0.12)"
-          />
-        </div>
-      </section>
-
-      {/* ════════════════════════════════════════════
-          WORK HOURS (current month)
-      ════════════════════════════════════════════ */}
-      <section>
-        <SectionHeader icon={Clock} title={`Work Hours — ${now.toLocaleString("default", { month: "long" })} ${now.getFullYear()}`} color="var(--green)" />
+        <SectionHeader
+          icon={Clock}
+          title={`Work Logs — ${now.toLocaleString("default", { month: "long" })} ${now.getFullYear()}`}
+          color="var(--green)"
+        />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           <StatCard
             icon={Clock}
@@ -396,11 +426,11 @@ export default function InsightsTab() {
           <ProgressBar value={work?.consistencyScore ?? 0} color={consistencyColor} />
           <div className="flex items-center justify-between mt-2">
             <p className="text-xs" style={{ color: "var(--text4)" }}>
-              {work?.consistencyScore === 100
+              {(work?.consistencyScore ?? 0) === 100
                 ? "Perfect month! 🎉"
-                : work?.consistencyScore ?? 0 >= 80
+                : (work?.consistencyScore ?? 0) >= 80
                 ? "Great consistency"
-                : work?.consistencyScore ?? 0 >= 50
+                : (work?.consistencyScore ?? 0) >= 50
                 ? "Room to improve"
                 : "Getting started"}
             </p>
@@ -414,95 +444,10 @@ export default function InsightsTab() {
       </section>
 
       {/* ════════════════════════════════════════════
-          BRAIN QUIZ
+          DIARY ENTRIES
       ════════════════════════════════════════════ */}
       <section>
-        <SectionHeader icon={Brain} title="Brain Quiz" color="var(--accent)" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
-          <StatCard
-            icon={Zap}
-            label="Total XP"
-            value={quiz?.totalXp.toLocaleString() ?? "0"}
-            sub="brain XP earned"
-            iconColor="var(--amber)"
-            iconBg="rgba(245,158,11,0.12)"
-          />
-          <StatCard
-            icon={CheckCircle2}
-            label="Levels Done"
-            value={completedQuizLevels}
-            sub={`of ${totalQuizLevels} total`}
-            iconColor="var(--green)"
-            iconBg="rgba(34,211,160,0.12)"
-          />
-          <StatCard
-            icon={Brain}
-            label="Categories"
-            value={quiz?.categories.length ?? 0}
-            sub="available to explore"
-            iconColor="var(--accent)"
-            iconBg="rgba(124,110,243,0.12)"
-          />
-        </div>
-
-        {/* per-category progress */}
-        {(quiz?.categories.length ?? 0) > 0 && (
-          <div
-            className="rounded-2xl overflow-hidden"
-            style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
-          >
-            <div className="px-5 py-3.5" style={{ borderBottom: "1px solid var(--border2)" }}>
-              <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--text4)" }}>
-                Progress by category
-              </p>
-            </div>
-            <div className="p-4 space-y-3">
-              {quiz!.categories.map((cat) => {
-                const pct = cat.totalLevels > 0
-                  ? Math.round((cat.completedLevels / cat.totalLevels) * 100)
-                  : 0;
-                const color =
-                  pct === 100 ? "var(--green)" : pct > 0 ? "var(--accent)" : "var(--border2)";
-                return (
-                  <div key={String(cat.name)}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm font-medium" style={{ color: "var(--text2)" }}>
-                        {cat.name}
-                      </span>
-                      <span className="text-xs font-mono" style={{ color: "var(--text3)" }}>
-                        {cat.completedLevels}/{cat.totalLevels}
-                      </span>
-                    </div>
-                    <ProgressBar value={pct} color={color} />
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* overall bar */}
-            <div
-              className="px-4 pb-4 pt-1"
-              style={{ borderTop: "1px solid var(--border2)", marginTop: 4 }}
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
-                  Overall
-                </span>
-                <span className="text-xs font-bold font-mono" style={{ color: "var(--accent)" }}>
-                  {quizProgress}%
-                </span>
-              </div>
-              <ProgressBar value={quizProgress} color="var(--accent)" />
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ════════════════════════════════════════════
-          DIARY
-      ════════════════════════════════════════════ */}
-      <section>
-        <SectionHeader icon={BookOpen} title="Diary" color="#f472b6" />
+        <SectionHeader icon={BookOpen} title="Diary Entries" color="#f472b6" />
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <StatCard
             icon={BookOpen}
@@ -529,7 +474,7 @@ export default function InsightsTab() {
             icon={Flame}
             label="Writing Streak"
             value={(() => {
-              if (!diary || diary.dates.length === 0) return 0;
+              if (!diary || diary.dates.length === 0) return "0d";
               const sorted = [...diary.dates].sort().reverse();
               let streak = 0;
               const d = new Date();
@@ -549,19 +494,255 @@ export default function InsightsTab() {
         </div>
       </section>
 
-      {/* ── Empty state — no activity at all ── */}
-      {!typing?.totalTests && !work?.totalLoggedDays && !diary?.totalEntries && !quiz?.totalXp && (
-        <div
-          className="rounded-2xl p-8 text-center"
-          style={{ background: "var(--surface2)", border: "1px dashed var(--border2)" }}
-        >
-          <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>No activity yet</p>
-          <p className="text-sm mt-1" style={{ color: "var(--text3)" }}>
-            Start logging work, taking quizzes, typing tests, or writing diary entries — your stats will appear here.
-          </p>
+      {/* ════════════════════════════════════════════
+          TO-DO LISTS
+      ════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader icon={ListChecks} title="To-Do Lists" color="#22d3a0" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <StatCard
+            icon={ListChecks}
+            label="Total Tasks"
+            value={todo?.totalTasks ?? 0}
+            sub="across all days"
+            iconColor="var(--green)"
+            iconBg="rgba(34,211,160,0.12)"
+          />
+          <StatCard
+            icon={CheckCircle2}
+            label="Completed"
+            value={todo?.completedTasks ?? 0}
+            sub={`${todoCompletionPct}% completion rate`}
+            iconColor="#60a5fa"
+            iconBg="rgba(96,165,250,0.12)"
+            badge={
+              todoCompletionPct >= 80
+                ? { text: "🎯 Great", color: "#60a5fa", bg: "rgba(96,165,250,0.10)" }
+                : undefined
+            }
+          />
+          <StatCard
+            icon={Calendar}
+            label="Days Tracked"
+            value={todo?.totalDays ?? 0}
+            sub="days with todos"
+            iconColor="var(--accent)"
+            iconBg="rgba(124,110,243,0.12)"
+          />
+          <StatCard
+            icon={Zap}
+            label="Today"
+            value={`${todo?.todayCompleted ?? 0}/${todo?.todayTasks ?? 0}`}
+            sub="tasks done today"
+            iconColor="var(--amber)"
+            iconBg="rgba(245,158,11,0.12)"
+            badge={
+              (todo?.todayTasks ?? 0) > 0 && todo?.todayCompleted === todo?.todayTasks
+                ? { text: "✓ Done", color: "var(--green)", bg: "rgba(34,211,160,0.10)" }
+                : undefined
+            }
+          />
         </div>
-      )}
 
+        {/* Overall completion bar */}
+        {(todo?.totalTasks ?? 0) > 0 && (
+          <div
+            className="rounded-2xl px-5 py-4"
+            style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <BarChart2 size={14} style={{ color: "var(--green)" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                  Overall Completion
+                </span>
+              </div>
+              <span className="text-sm font-bold font-mono" style={{ color: "var(--green)" }}>
+                {todoCompletionPct}%
+              </span>
+            </div>
+            <ProgressBar value={todoCompletionPct} color="var(--green)" />
+            {(todo?.todayTasks ?? 0) > 0 && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs" style={{ color: "var(--text4)" }}>Today's progress</span>
+                  <span className="text-xs font-mono" style={{ color: "var(--amber)" }}>
+                    {todoTodayPct}%
+                  </span>
+                </div>
+                <ProgressBar value={todoTodayPct} color="var(--amber)" />
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ════════════════════════════════════════════
+          TYPING TEST
+      ════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader icon={Keyboard} title="Typing Test" color="#60a5fa" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard
+            icon={Zap}
+            label="Best Speed"
+            value={`${typing?.highestWpm ?? 0}`}
+            sub="WPM — all-time high"
+            iconColor="#60a5fa"
+            iconBg="rgba(96,165,250,0.12)"
+            badge={
+              (typing?.highestWpm ?? 0) >= 60
+                ? { text: "Fast", color: "#60a5fa", bg: "rgba(96,165,250,0.10)" }
+                : undefined
+            }
+          />
+          <StatCard
+            icon={Target}
+            label="Best Accuracy"
+            value={`${typing?.highestAccuracy ?? 0}%`}
+            sub="highest ever"
+            iconColor="var(--green)"
+            iconBg="rgba(34,211,160,0.12)"
+          />
+          <StatCard
+            icon={TrendingUp}
+            label="Avg Speed"
+            value={`${typing?.averageWpm ?? 0}`}
+            sub="WPM — overall avg"
+            iconColor="var(--accent)"
+            iconBg="rgba(124,110,243,0.12)"
+          />
+          <StatCard
+            icon={BarChart2}
+            label="Tests Done"
+            value={typing?.totalTests ?? 0}
+            sub="all time"
+            iconColor="var(--amber)"
+            iconBg="rgba(245,158,11,0.12)"
+          />
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════
+          EXPENSES (current month)
+      ════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader
+          icon={Wallet}
+          title={`Expenses — ${now.toLocaleString("default", { month: "long" })} ${now.getFullYear()}`}
+          color="var(--accent)"
+        />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <StatCard
+            icon={ShoppingCart}
+            label="Total Spent"
+            value={fmtCurrency(expense?.totalSpent ?? 0)}
+            sub={`${expense?.expenseCount ?? 0} transactions`}
+            iconColor="var(--danger)"
+            iconBg="rgba(248,113,113,0.12)"
+          />
+          <StatCard
+            icon={TrendingUp}
+            label="Total Added"
+            value={fmtCurrency(expense?.totalAdded ?? 0)}
+            sub="money added this month"
+            iconColor="var(--green)"
+            iconBg="rgba(34,211,160,0.12)"
+          />
+          <StatCard
+            icon={DollarSign}
+            label="Cash Balance"
+            value={fmtCurrency(expense?.cashBalance ?? 0)}
+            sub="available in cash"
+            iconColor="var(--amber)"
+            iconBg="rgba(245,158,11,0.12)"
+          />
+          <StatCard
+            icon={CreditCard}
+            label="Online Balance"
+            value={fmtCurrency(expense?.onlineBalance ?? 0)}
+            sub="available online"
+            iconColor="#60a5fa"
+            iconBg="rgba(96,165,250,0.12)"
+          />
+        </div>
+
+        {/* Wallet summary bar */}
+        <div
+          className="rounded-2xl px-5 py-4"
+          style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Wallet size={14} style={{ color: "var(--accent)" }} />
+              <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Wallet Overview
+              </span>
+            </div>
+            <span className="text-sm font-bold font-mono" style={{ color: "var(--accent)" }}>
+              {fmtCurrency(expense?.totalBalance ?? 0)} total
+            </span>
+          </div>
+
+          {/* Cash vs Online split bars */}
+          {(expense?.totalBalance ?? 0) > 0 && (
+            <div className="space-y-2.5">
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs" style={{ color: "var(--text4)" }}>Cash</span>
+                  <span className="text-xs font-mono" style={{ color: "var(--amber)" }}>
+                    {Math.round(((expense?.cashBalance ?? 0) / (expense?.totalBalance ?? 1)) * 100)}%
+                  </span>
+                </div>
+                <ProgressBar
+                  value={Math.round(((expense?.cashBalance ?? 0) / (expense?.totalBalance ?? 1)) * 100)}
+                  color="var(--amber)"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs" style={{ color: "var(--text4)" }}>Online</span>
+                  <span className="text-xs font-mono" style={{ color: "#60a5fa" }}>
+                    {Math.round(((expense?.onlineBalance ?? 0) / (expense?.totalBalance ?? 1)) * 100)}%
+                  </span>
+                </div>
+                <ProgressBar
+                  value={Math.round(((expense?.onlineBalance ?? 0) / (expense?.totalBalance ?? 1)) * 100)}
+                  color="#60a5fa"
+                />
+              </div>
+            </div>
+          )}
+
+          {expense?.biggestCategory && expense.biggestCategory !== "None" && (
+            <p className="text-xs mt-3" style={{ color: "var(--text4)" }}>
+              Top category this month:{" "}
+              <span style={{ color: "var(--text2)", fontWeight: 600 }}>
+                {expense.biggestCategory}
+              </span>
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* ── Empty state — no activity at all ── */}
+      {!typing?.totalTests &&
+        !work?.totalLoggedDays &&
+        !diary?.totalEntries &&
+        !(todo?.totalTasks) &&
+        !(expense?.expenseCount) && (
+          <div
+            className="rounded-2xl p-8 text-center"
+            style={{ background: "var(--surface2)", border: "1px dashed var(--border2)" }}
+          >
+            <p className="text-lg font-semibold" style={{ color: "var(--text)" }}>
+              No activity yet
+            </p>
+            <p className="text-sm mt-1" style={{ color: "var(--text3)" }}>
+              Start logging work, typing tests, diary entries, to-do tasks, or expenses — your stats will appear here.
+            </p>
+          </div>
+        )}
     </div>
   );
 }
