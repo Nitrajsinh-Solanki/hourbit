@@ -1,5 +1,5 @@
 "use client";
-// app/dashboard/layout.tsx
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -43,8 +43,10 @@ const NAV_ITEMS = [
   { label: "Profile", href: "/dashboard/profile", icon: User },
 ];
 
-const SIDEBAR_WIDTH = 232;
-const SIDEBAR_COLLAPSED = 64;
+const SIDEBAR_WIDTH = 248;
+const SIDEBAR_COLLAPSED = 72;
+const NAVBAR_HEIGHT = 72;
+const FOOTER_HEIGHT = 68;
 
 // ─────────────────────────────────────────────────────────────
 // THEME
@@ -54,6 +56,7 @@ const DARK_THEME = `
     --bg:       #0f1117;
     --surface:  #181b24;
     --surface2: #1e2130;
+    --surface3: #141824;
     --border:   rgba(255,255,255,0.07);
     --border2:  rgba(255,255,255,0.13);
     --text:     #f0f2f8;
@@ -66,15 +69,21 @@ const DARK_THEME = `
     --amber:    #f59e0b;
     --danger:   #f87171;
   }
+
+  html, body {
+    background: #0f1117;
+    color: #f0f2f8;
+  }
 `;
 
 const LIGHT_THEME = `
   :root {
-    --bg:       #f0f2f8;
+    --bg:       #f4f6fb;
     --surface:  #ffffff;
-    --surface2: #e8ecf5;
-    --border:   rgba(0,0,0,0.09);
-    --border2:  rgba(0,0,0,0.16);
+    --surface2: #eef2f8;
+    --surface3: #e8edf6;
+    --border:   rgba(0,0,0,0.08);
+    --border2:  rgba(0,0,0,0.14);
     --text:     #111827;
     --text2:    #1f2937;
     --text3:    #4b5563;
@@ -84,6 +93,11 @@ const LIGHT_THEME = `
     --green:    #059669;
     --amber:    #d97706;
     --danger:   #dc2626;
+  }
+
+  html, body {
+    background: #f4f6fb;
+    color: #111827;
   }
 
   * {
@@ -173,7 +187,7 @@ function Sidebar({
         <div
           className="fixed inset-0 bg-black/60 z-30 md:hidden"
           onClick={onMobileClose}
-          style={{ backdropFilter: "blur(2px)" }}
+          style={{ backdropFilter: "blur(3px)" }}
         />
       )}
 
@@ -186,8 +200,8 @@ function Sidebar({
           width: `${SIDEBAR_WIDTH}px`,
           background: "var(--bg)",
           borderRight: "1px solid var(--border2)",
-          paddingTop: "64px",
-          paddingBottom: "64px",
+          paddingTop: `${NAVBAR_HEIGHT}px`,
+          paddingBottom: `${FOOTER_HEIGHT}px`,
         }}
       >
         <SidebarContent
@@ -207,8 +221,8 @@ function Sidebar({
           width: `${sidebarWidth}px`,
           background: "var(--bg)",
           borderRight: "1px solid var(--border2)",
-          paddingTop: "64px",
-          paddingBottom: "64px",
+          paddingTop: `${NAVBAR_HEIGHT}px`,
+          paddingBottom: `${FOOTER_HEIGHT}px`,
           overflow: "hidden",
         }}
       >
@@ -244,10 +258,13 @@ function SidebarContent({
     <>
       {!collapsed && (
         <div
-          className="px-4 py-3 flex items-center justify-between"
+          className="px-4 py-4 flex items-center justify-between"
           style={{ borderBottom: "1px solid var(--border)" }}
         >
-          <p className="text-[13px] font-medium truncate" style={{ color: "var(--text2)" }}>
+          <p
+            className="text-[13px] font-medium truncate"
+            style={{ color: "var(--text2)" }}
+          >
             Hi,{" "}
             <span className="font-semibold" style={{ color: "var(--text)" }}>
               {fullName || "User"}
@@ -259,18 +276,20 @@ function SidebarContent({
             <button
               onClick={onToggleCollapse}
               title="Collapse sidebar"
-              className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer border-none"
+              className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer border-none"
               style={{ background: "var(--surface2)", color: "var(--text3)" }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLElement).style.color = "var(--accent)";
-                (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)";
+                (e.currentTarget as HTMLElement).style.background =
+                  "rgba(124,110,243,0.12)";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLElement).style.color = "var(--text3)";
-                (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
+                (e.currentTarget as HTMLElement).style.background =
+                  "var(--surface2)";
               }}
             >
-              <ChevronLeft size={14} />
+              <ChevronLeft size={15} />
             </button>
           )}
         </div>
@@ -278,29 +297,31 @@ function SidebarContent({
 
       {collapsed && onToggleCollapse && (
         <div
-          className="flex items-center justify-center py-3"
+          className="flex items-center justify-center py-4"
           style={{ borderBottom: "1px solid var(--border)" }}
         >
           <button
             onClick={onToggleCollapse}
             title="Expand sidebar"
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer border-none"
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer border-none"
             style={{ background: "var(--surface2)", color: "var(--text3)" }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLElement).style.color = "var(--accent)";
-              (e.currentTarget as HTMLElement).style.background = "rgba(124,110,243,0.12)";
+              (e.currentTarget as HTMLElement).style.background =
+                "rgba(124,110,243,0.12)";
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLElement).style.color = "var(--text3)";
-              (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
+              (e.currentTarget as HTMLElement).style.background =
+                "var(--surface2)";
             }}
           >
-            <ChevronRight size={14} />
+            <ChevronRight size={15} />
           </button>
         </div>
       )}
 
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-3 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 space-y-1">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const active =
             pathname === href ||
@@ -312,32 +333,37 @@ function SidebarContent({
               href={href}
               onClick={onLinkClick}
               title={collapsed ? label : undefined}
-              className="flex items-center gap-3 rounded-xl text-[13px] font-medium transition-all duration-150 no-underline"
+              className="flex items-center gap-3 rounded-2xl text-[13px] font-medium transition-all duration-150 no-underline"
               style={{
                 background: active ? "rgba(124,110,243,0.14)" : "transparent",
                 border: active
                   ? "1px solid rgba(124,110,243,0.22)"
                   : "1px solid transparent",
                 color: active ? "var(--text)" : "var(--text2)",
-                padding: collapsed ? "10px 0" : "10px 12px",
+                padding: collapsed ? "12px 0" : "12px 14px",
                 justifyContent: collapsed ? "center" : "flex-start",
               }}
               onMouseEnter={(e) => {
                 if (!active) {
-                  (e.currentTarget as HTMLElement).style.background = "var(--surface2)";
+                  (e.currentTarget as HTMLElement).style.background =
+                    "var(--surface2)";
                   (e.currentTarget as HTMLElement).style.color = "var(--text)";
                 }
               }}
               onMouseLeave={(e) => {
                 if (!active) {
-                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                  (e.currentTarget as HTMLElement).style.background =
+                    "transparent";
                   (e.currentTarget as HTMLElement).style.color = "var(--text2)";
                 }
               }}
             >
               <Icon
-                size={16}
-                style={{ color: active ? "#7c6ef3" : "var(--text3)", flexShrink: 0 }}
+                size={17}
+                style={{
+                  color: active ? "#7c6ef3" : "var(--text3)",
+                  flexShrink: 0,
+                }}
               />
               {!collapsed && label}
             </Link>
@@ -345,27 +371,28 @@ function SidebarContent({
         })}
       </nav>
 
-      <div className="px-2 py-3" style={{ borderTop: "1px solid var(--border)" }}>
+      <div className="px-3 py-4" style={{ borderTop: "1px solid var(--border)" }}>
         <button
           onClick={onLogout}
           title={collapsed ? "Logout" : undefined}
-          className="flex items-center gap-3 w-full rounded-xl text-[13px] font-medium transition-all duration-150 cursor-pointer border-none"
+          className="flex items-center gap-3 w-full rounded-2xl text-[13px] font-medium transition-all duration-150 cursor-pointer border-none"
           style={{
             color: "var(--text2)",
             background: "transparent",
-            padding: collapsed ? "10px 0" : "10px 12px",
+            padding: collapsed ? "12px 0" : "12px 14px",
             justifyContent: collapsed ? "center" : "flex-start",
           }}
           onMouseEnter={(e) => {
             (e.currentTarget as HTMLElement).style.color = "#f87171";
-            (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.08)";
+            (e.currentTarget as HTMLElement).style.background =
+              "rgba(248,113,113,0.08)";
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLElement).style.color = "var(--text2)";
             (e.currentTarget as HTMLElement).style.background = "transparent";
           }}
         >
-          <LogOut size={16} style={{ color: "var(--text3)", flexShrink: 0 }} />
+          <LogOut size={17} style={{ color: "var(--text3)", flexShrink: 0 }} />
           {!collapsed && "Logout"}
         </button>
       </div>
@@ -393,71 +420,77 @@ function DashNavbar({
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 h-16 z-50 flex items-center px-3 sm:px-4 lg:px-5"
+      className="fixed top-0 left-0 right-0 z-50"
       style={{
+        height: `${NAVBAR_HEIGHT}px`,
         background: "var(--bg)",
         borderBottom: "1px solid var(--border2)",
-        backdropFilter: "blur(12px)",
+        backdropFilter: "blur(14px)",
       }}
     >
-      {/* Mobile menu + Logo */}
-      <div className="flex items-center gap-3 shrink-0">
-        <button
-          onClick={onMobileMenuToggle}
-          className="md:hidden p-1.5 rounded-lg transition-colors cursor-pointer border-none bg-transparent"
-          style={{ color: "var(--text2)" }}
-          aria-label="Toggle menu"
-        >
-          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+      <div className="h-full flex items-center px-4 sm:px-5 lg:px-6 xl:px-8">
+        {/* LEFT */}
+        <div className="flex items-center gap-3 shrink-0 min-w-fit">
+          <button
+            onClick={onMobileMenuToggle}
+            className="md:hidden p-2 rounded-xl transition-colors cursor-pointer border-none bg-transparent"
+            style={{ color: "var(--text2)" }}
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
 
-        <Link href="/dashboard/today" className="flex items-center">
-          <Logo />
-        </Link>
-      </div>
+          <Link href="/dashboard/today" className="flex items-center shrink-0">
+            <Logo />
+          </Link>
+        </div>
 
-      {/* Center - Quote Banner (only on large screens) */}
-      <div className="hidden lg:flex flex-1 items-center justify-center px-4 min-w-0">
-        <MotivationalQuoteBanner firstName={firstName} isDark={dark} />
-      </div>
+        {/* CENTER */}
+        <div className="hidden xl:flex flex-1 items-center justify-center min-w-0 px-6">
+          <div className="w-full max-w-[900px] min-w-0">
+            <MotivationalQuoteBanner firstName={firstName} isDark={dark} />
+          </div>
+        </div>
 
-      {/* Right side - Developer link + Theme toggle */}
-      <div className="flex items-center gap-2 lg:gap-3 shrink-0 ml-auto">
-        <a
-          href="https://my-portfolio-xi-ochre-28.vercel.app/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden 2xl:block text-[13px] transition-colors no-underline whitespace-nowrap"
-          style={{ color: "var(--text3)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text3)")}
-        >
-          Developer —{" "}
-          <span style={{ color: "var(--text2)", fontWeight: 500 }}>
-            Nitrajsinh Solanki
-          </span>
-        </a>
+        {/* RIGHT */}
+        <div className="flex items-center gap-3 shrink-0 ml-auto min-w-fit">
+          <a
+            href="https://my-portfolio-xi-ochre-28.vercel.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden 2xl:block text-[13px] transition-colors no-underline whitespace-nowrap"
+            style={{ color: "var(--text3)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text3)")}
+          >
+            Developer —{" "}
+            <span style={{ color: "var(--text2)", fontWeight: 500 }}>
+              Nitrajsinh Solanki
+            </span>
+          </a>
 
-        <button
-          onClick={onThemeToggle}
-          aria-label="Toggle theme"
-          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer shrink-0"
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border2)",
-            color: "var(--text2)",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.borderColor = "rgba(124,110,243,0.5)";
-            (e.currentTarget as HTMLElement).style.color = "var(--accent)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)";
-            (e.currentTarget as HTMLElement).style.color = "var(--text2)";
-          }}
-        >
-          {dark ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+          <button
+            onClick={onThemeToggle}
+            aria-label="Toggle theme"
+            className="w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200 cursor-pointer shrink-0"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border2)",
+              color: "var(--text2)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.borderColor =
+                "rgba(124,110,243,0.5)";
+              (e.currentTarget as HTMLElement).style.color = "var(--accent)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.borderColor = "var(--border2)";
+              (e.currentTarget as HTMLElement).style.color = "var(--text2)";
+            }}
+          >
+            {dark ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -471,9 +504,10 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
 
   return (
     <footer
-      className="dash-footer fixed bottom-0 right-0 h-16 z-40 flex items-center justify-between px-5 transition-all duration-300"
+      className="dash-footer fixed bottom-0 right-0 z-40 flex items-center justify-between px-5 sm:px-6 lg:px-8 transition-all duration-300"
       style={{
         left: "0",
+        height: `${FOOTER_HEIGHT}px`,
         background: "var(--bg)",
         borderTop: "1px solid var(--border2)",
         backdropFilter: "blur(12px)",
@@ -492,7 +526,7 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
         <span style={{ color: "var(--text2)" }}>Nitrajsinh Solanki</span>
       </p>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 sm:gap-5">
         {[
           {
             href: "https://www.linkedin.com/in/nitrajsinh-solanki-647b11293",
@@ -530,7 +564,7 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ROOT LAYOUT - FIXED SPACING
+// ROOT LAYOUT — FIXED SHELL
 // ─────────────────────────────────────────────────────────────
 export default function DashboardLayout({
   children,
@@ -615,27 +649,56 @@ export default function DashboardLayout({
         onToggleCollapse={toggleCollapse}
       />
 
-      {/* FIXED MAIN CONTENT AREA */}
-      <div className="hb-main-wrapper">
+      {/* MAIN APP AREA */}
+      <div className="hb-main-shell">
         <style>{`
-          .hb-main-wrapper {
+          .hb-main-shell {
             margin-left: 0;
-            padding-top: 80px;
-            padding-bottom: 80px;
             min-height: 100vh;
+            padding-top: ${NAVBAR_HEIGHT + 20}px;
+            padding-bottom: ${FOOTER_HEIGHT + 24}px;
             transition: margin-left 0.3s ease;
           }
-          
+
           @media (min-width: 768px) {
-            .hb-main-wrapper {
+            .hb-main-shell {
               margin-left: ${desktopLeft}px;
+            }
+          }
+
+          .hb-page-container {
+            width: 100%;
+            max-width: 1560px;
+            margin: 0 auto;
+            padding-left: 18px;
+            padding-right: 18px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+          }
+
+          @media (min-width: 640px) {
+            .hb-page-container {
+              padding-left: 22px;
+              padding-right: 22px;
+            }
+          }
+
+          @media (min-width: 1024px) {
+            .hb-page-container {
+              padding-left: 28px;
+              padding-right: 28px;
+            }
+          }
+
+          @media (min-width: 1440px) {
+            .hb-page-container {
+              padding-left: 34px;
+              padding-right: 34px;
             }
           }
         `}</style>
 
-        <main className="hb-main-content">
-          {children}
-        </main>
+        <main className="hb-page-container">{children}</main>
       </div>
 
       <DashFooter sidebarCollapsed={sidebarCollapsed} />
