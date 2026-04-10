@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { connectDB } from "@/app/lib/mongodb";
-import { TypingCustomTimer, TypingResult } from "@/app/models/TypingModels";
+import { TypingCustomTimer, TypingResult, TypingStats } from "@/app/models/TypingModels";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
   }
 }
 
-// DELETE /api/typing/timers — delete a custom timer + all its results
+// DELETE /api/typing/timers — delete a custom timer + all its results + stats
 export async function DELETE(req: Request) {
   try {
     const userId = await getAuthUserId();
@@ -135,6 +135,13 @@ export async function DELETE(req: Request) {
       );
     }
 
+    if (!duration || typeof duration !== "number") {
+      return NextResponse.json(
+        { success: false, message: "Missing or invalid duration" },
+        { status: 400 }
+      );
+    }
+
     await connectDB();
 
     const timer = await TypingCustomTimer.findOne({ _id: timerId, userId });
@@ -145,15 +152,82 @@ export async function DELETE(req: Request) {
       );
     }
 
-    // Delete all results with this duration for this user
-    await TypingResult.deleteMany({ userId, timerDuration: duration });
+    // CRITICAL FIX: Delete ALL related data for this timer
+    // 1. Delete all typing results with this duration
+    const resultsDeleted = await TypingResult.deleteMany({ 
+      userId, 
+      timerDuration: duration 
+    });
 
-    // Delete the timer
+    // 2. Delete the stats document for this specific timer duration
+    const statsDeleted = await TypingStats.deleteOne({ 
+      userId, 
+      timerDuration: duration 
+    });
+
+    // 3. Recalculate global stats (timerDuration: 0) to reflect the deletion
+    // Get all remaining results for this user
+    const remainingResults = await TypingResult.find({ userId }).lean();
+    
+    if (remainingResults.length > 0) {
+      // Recalculate global stats from scratch
+      let highestWpm = 0;
+      let accuracyAtHighestWpm = 0;
+      let highestAccuracy = 0;
+      let wpmAtHighestAccuracy = 0;
+      let totalWpmSum = 0;
+      
+      for (const result of remainingResults) {
+        totalWpmSum += result.wpm;
+        
+        if (result.wpm > highestWpm) {
+          highestWpm = result.wpm;
+          accuracyAtHighestWpm = result.accuracy;
+        }
+        
+        if (result.accuracy > highestAccuracy) {
+          highestAccuracy = result.accuracy;
+          wpmAtHighestAccuracy = result.wpm;
+        }
+      }
+      
+      // Update global stats (timerDuration: 0)
+      await TypingStats.findOneAndUpdate(
+        { userId, timerDuration: 0 },
+        {
+          $set: {
+            highestWpm,
+            accuracyAtHighestWpm,
+            highestAccuracy,
+            wpmAtHighestAccuracy,
+            totalTests: remainingResults.length,
+            totalWpmSum,
+          }
+        },
+        { upsert: true }
+      );
+    } else {
+      // No results left, delete global stats too
+      await TypingStats.deleteOne({ userId, timerDuration: 0 });
+    }
+
+    // 4. Delete the timer itself
     await TypingCustomTimer.deleteOne({ _id: timerId, userId });
+
+    console.log(`Timer deletion complete:
+      - Timer deleted: ${timerId}
+      - Results deleted: ${resultsDeleted.deletedCount}
+      - Stats deleted: ${statsDeleted.deletedCount ? 'Yes' : 'No'}
+      - Global stats recalculated: Yes
+    `);
 
     return NextResponse.json({
       success: true,
       message: "Timer and all associated results deleted",
+      details: {
+        resultsDeleted: resultsDeleted.deletedCount,
+        statsDeleted: statsDeleted.deletedCount,
+      }
     });
   } catch (error) {
     console.error("DELETE TIMER ERROR:", error);
