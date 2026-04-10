@@ -1,6 +1,7 @@
 "use client";
 // app/dashboard/typing/page.tsx — Performance-optimised (MonkeyType-style DOM updates)
 // + Ninja Mode: slash-and-fall animation for correctly completed words
+// + FIXED: Proper cache invalidation when deleting custom timers
 
 import React, {
   useState, useEffect, useRef, useCallback,
@@ -165,7 +166,14 @@ const EMPTY_STATS: TimerStats = {
   highestAccuracy: 0, wpmAtHighestAccuracy: 0,
   totalTests: 0, averageWpm: 0,
 };
+
+// FIXED: statsCache is now a Map that can be cleared
 const statsCache = new Map<number, StatsResponse>();
+
+// FIXED: Helper to clear stats cache
+function clearStatsCache() {
+  statsCache.clear();
+}
 
 // ─── Expenses nudge messages ──────────────────────────────────────────────────
 
@@ -180,109 +188,9 @@ const EXPENSES_NUDGE_MSGS = [
   { headline: "Typing record strong hai.", body: "Expense record missing hai.", emoji: "📋" },
   { headline: "Control typing pe hai.", body: "Money flow pe kab aayega?", emoji: "🎯" },
   { headline: "Performance solid hai.", body: "Bas wallet ka quarterly report weak hai.", emoji: "📈" },
-
-  { headline: "Discipline visible hai.", body: "Bas UPI history me nahi.", emoji: "📱" },
-  { headline: "Adult life officially started?", body: "Expenses track hue bina toh onboarding bhi complete nahi hui.", emoji: "🧠" },
-  { headline: "System build ho raha hai.", body: "Bas finances abhi bhi manual error pe chal rahe hain.", emoji: "⚙️" },
-  { headline: "Productive lag raha hai sab.", body: "Except spending habits.", emoji: "💀" },
-  { headline: "Self-improvement on point.", body: "Expense tracking ko orphan kyu chhoda hai?", emoji: "🪦" },
-  { headline: "Career growth important hai.", body: "Financial clarity bhi hoti hai side me.", emoji: "📉" },
-  { headline: "Data pasand hai?", body: "Toh khud ke kharchon ka data bhi dekh lo.", emoji: "📊" },
-  { headline: "Professional energy aa rahi hai.", body: "Bas spending abhi bhi emotional hai.", emoji: "🧨" },
-  { headline: "Typing me focus.", body: "Wallet me fog.", emoji: "🌫️" },
-  { headline: "Corporate aesthetics strong.", body: "Financial backend down hai.", emoji: "🖥️" },
-
-  { headline: "WPM CEO level.", body: "Expense tracking still probation pe.", emoji: "👔" },
-  { headline: "Har cheez track ho rahi hai?", body: "Except the one thing that keeps disappearing.", emoji: "💸" },
-  { headline: "Kaafi sorted lag raha hai.", body: "Bank statement disagrees.", emoji: "🧾" },
-  { headline: "Typing me precision.", body: "Paison me अंदाज़ा.", emoji: "📏" },
-  { headline: "Corporate routine set hai.", body: "Budget routine kab set hoga?", emoji: "📅" },
-  { headline: "High performance mode on.", body: "Expense awareness mode still off.", emoji: "📴" },
-  { headline: "Focus impressive hai.", body: "Bas spending leaks ignore ho rahe hain.", emoji: "🕳️" },
-  { headline: "Productivity ka graph upar hai.", body: "Savings ka graph private rakha gaya hai kya?", emoji: "📉" },
-  { headline: "Typing controlled hai.", body: "Expenses free roam pe hain.", emoji: "🕊️" },
-  { headline: "Discipline kaafi visible hai.", body: "Financial discipline ne leave le li hai.", emoji: "📂" },
-
-  { headline: "Career build ho raha hai.", body: "Paisa side quests me udd raha hai.", emoji: "🎮" },
-  { headline: "Stats pasand hain?", body: "Toh खर्चे bhi stats hi hote hain.", emoji: "🔢" },
-  { headline: "Daily sessions complete.", body: "Daily spends ka kya plan hai?", emoji: "📋" },
-  { headline: "Kaam me ownership strong hai.", body: "Expenses me ownership pending hai.", emoji: "🗂️" },
-  { headline: "Speed dangerous hai.", body: "Paisa aur dangerous speed se ja raha hai.", emoji: "🔥" },
-  { headline: "Typing me growth.", body: "Financial habits abhi bhi pre-historic hain.", emoji: "🪨" },
-  { headline: "Smart work chal raha hai.", body: "Money work bilkul smart nahi chal raha.", emoji: "🧠" },
-  { headline: "Systematic lag raha hai sab.", body: "Except wallet management.", emoji: "📁" },
-  { headline: "Consistency impressive hai.", body: "Expenses ignore karne me bhi.", emoji: "🔁" },
-  { headline: "Career seriousness visible hai.", body: "Spending habits us seriousness ko disrespect kar rahi hain.", emoji: "⚠️" },
-
-  { headline: "Salary respect deserve karti hai.", body: "At least itna toh pata ho kidhar gayi.", emoji: "💰" },
-  { headline: "Productivity monster activated.", body: "Wallet ka predator bhi wahi nikla.", emoji: "👹" },
-  { headline: "Typing tracker active hai.", body: "Expense tracker coma me hai.", emoji: "🛏️" },
-  { headline: "High performer vibes.", body: "Low visibility finances.", emoji: "📉" },
-  { headline: "Intentional life chahiye?", body: "Intentional spending bhi uska part hota hai.", emoji: "🎯" },
-  { headline: "Corporate face maintained.", body: "Financial reality buffering.", emoji: "⌛" },
-  { headline: "Numbers matter karte hain.", body: "Especially jab wo account se nikal rahe ho.", emoji: "🔍" },
-  { headline: "Typing ka report clean hai.", body: "Wallet ka audit pending hai.", emoji: "📑" },
-  { headline: "Focus level strong hai.", body: "UPI statement dekhte hi weak ho jata hai?", emoji: "👀" },
-  { headline: "Professional routine built.", body: "Expense routine abhi bhi under construction hai.", emoji: "🚧" },
-
-  { headline: "Corporate polish aa gayi.", body: "Financial polish abhi bhi missing hai.", emoji: "✨" },
-  { headline: "Speed unlock ho gayi.", body: "Budgeting still locked.", emoji: "🔒" },
-  { headline: "Typing me killer accuracy.", body: "Spending me pure guesswork.", emoji: "🎲" },
-  { headline: "Life optimize ho rahi hai?", body: "Money leaks ko bhi include kar lo optimisation me.", emoji: "⚙️" },
-  { headline: "WPM record broken.", body: "Budget boundaries bhi daily break ho rahi hain.", emoji: "💥" },
-  { headline: "Professional growth real hai.", body: "Financial maturity bhi try kar sakti hai.", emoji: "📈" },
-  { headline: "Routine disciplined hai.", body: "Expenses ka routine criminal hai.", emoji: "🚔" },
-  { headline: "Track karna pasand hai?", body: "Toh ₹120 bhi track ho sakta hai.", emoji: "🧾" },
-  { headline: "Kaam structured hai.", body: "Spending completely freelance hai.", emoji: "🌀" },
-  { headline: "Corporate pressure handle ho raha hai.", body: "Budget pressure ka kya?", emoji: "📦" },
-
-  { headline: "Typing me full control.", body: "Money flow pe bhi kabhi apply kar lo.", emoji: "🎮" },
-  { headline: "Self-growth real lag rahi hai.", body: "Bas wallet us story me missing hai.", emoji: "📚" },
-  { headline: "Work ethic visible hai.", body: "Expense ethic invisible hai.", emoji: "🪞" },
-  { headline: "Daily progress unlocked.", body: "Daily expense awareness still locked out.", emoji: "🚪" },
-  { headline: "Professionalism top notch.", body: "Financial professionalism not found.", emoji: "❌" },
-  { headline: "Typing speed ka graph clean hai.", body: "Expenses ka graph dekhne layak bhi hai?", emoji: "📉" },
-  { headline: "Corporate setup strong hai.", body: "Budget setup missing dependencies ke saath chal raha hai.", emoji: "🖥️" },
-  { headline: "Typing me ROI mil raha hai.", body: "Spending me sirf loss report aa rahi hai.", emoji: "📊" },
-  { headline: "Sessions complete ho rahe hain.", body: "Expense entries kab complete hongi?", emoji: "📋" },
-  { headline: "Future build ho raha hai?", body: "Random spends uska backend kha rahe hain.", emoji: "🧱" },
-
-  { headline: "Professional energy maintained.", body: "Wallet energy depleted.", emoji: "🔋" },
-  { headline: "Corporate life accepted.", body: "Toh expenses tracking bhi package ka part hai.", emoji: "📦" },
-  { headline: "Speed me aggression hai.", body: "Savings me depression hai.", emoji: "💀" },
-  { headline: "Typing ka system efficient hai.", body: "Money management legacy code pe chal raha hai.", emoji: "🧑‍💻" },
-  { headline: "Consistency top class.", body: "Expense ignorance world class.", emoji: "🏆" },
-  { headline: "Structured growth visible hai.", body: "Financial structure abhi bhi fictional hai.", emoji: "📘" },
-  { headline: "Professional life serious lag rahi hai.", body: "Kharchे abhi bhi comedy genre me hain.", emoji: "🎭" },
-  { headline: "Performance metrics strong.", body: "Wallet metrics sensitive issue lag rahe hain.", emoji: "📈" },
-  { headline: "Typing output clean hai.", body: "Spending output suspicious hai.", emoji: "🕵️" },
-  { headline: "System pe trust hai?", body: "Toh expense tracker bhi use ho sakta hai.", emoji: "🛠️" },
-
-  { headline: "Discipline build kar liya.", body: "Bas money section ko deliberately skip kiya gaya.", emoji: "🚫" },
-  { headline: "Typing me maturity visible hai.", body: "Financial maturity abhi loading me hai.", emoji: "⌛" },
-  { headline: "Work mode active.", body: "Expense awareness mode inactive.", emoji: "📴" },
-  { headline: "Kaafi intentional lag raha hai sab.", body: "Bas spending accidental hai.", emoji: "🤷" },
-  { headline: "Productivity ke lecture ready hain?", body: "Expense history pe bhi ek नजर daal lo pehle.", emoji: "🎤" },
-  { headline: "Career seriousness detected.", body: "Wallet still not convinced.", emoji: "🧾" },
-  { headline: "Strong typing session.", body: "Weak financial session.", emoji: "📉" },
-  { headline: "Performance maintained.", body: "Budget quietly collapsed.", emoji: "🏚️" },
-  { headline: "Typing me full awareness.", body: "Expenses me spiritual blindness.", emoji: "🌀" },
-  { headline: "Corporate survival chal raha hai.", body: "Financial survival ko bhi invite kar lo.", emoji: "🫠" },
-
-  { headline: "Typing me progress visible hai.", body: "Paisa still mystery department me hai.", emoji: "🕵️" },
-  { headline: "Daily effort real hai.", body: "Daily money leaks bhi real hi hain.", emoji: "🚰" },
-  { headline: "Professional image sorted hai.", body: "Expense reality not so much.", emoji: "🪞" },
-  { headline: "WPM elite zone me hai.", body: "Budgeting tutorial zone me hai.", emoji: "📚" },
-  { headline: "Systematic life build ho rahi hai.", body: "Kharchे abhi bhi random event generator pe chal rahe hain.", emoji: "🎰" },
-  { headline: "Typing record achieved.", body: "Now achieve basic money awareness too.", emoji: "💸" },
-  { headline: "Productive enough to track words.", body: "Productive enough to track money bhi ho.", emoji: "🧾" },
-  { headline: "Corporate reality check.", body: "Salary earn karna alag hai, salary sambhalna alag.", emoji: "🏢" },
-  { headline: "Everything looks under control.", body: "Except the actual cash flow.", emoji: "📉" },
-  { headline: "Real adulthood reminder.", body: "Expenses ignore karna strategy nahi hoti.", emoji: "⚠️" }
 ];
 
 // ─── Beautiful Expenses Toast Component ───────────────────────────────────────
-// Fully styled with progress bar, dark/light mode, 10-second duration.
 
 function ExpensesToastContent({
   toastId,
@@ -306,7 +214,6 @@ function ExpensesToastContent({
         maxWidth: 340,
         overflow: "hidden",
         borderRadius: 14,
-        // Use inline vars so it works in both themes via body[data-theme]
         background: "var(--surface, #16162a)",
         border: "1px solid rgba(124,110,243,0.4)",
         boxShadow:
@@ -314,7 +221,6 @@ function ExpensesToastContent({
         position: "relative",
       }}
     >
-      {/* Gradient top accent bar */}
       <div
         style={{
           height: 3,
@@ -325,9 +231,7 @@ function ExpensesToastContent({
         }}
       />
 
-      {/* Main content */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 14px 12px 14px" }}>
-        {/* Emoji badge */}
         <div
           style={{
             width: 40,
@@ -346,7 +250,6 @@ function ExpensesToastContent({
           {emoji}
         </div>
 
-        {/* Text */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -371,7 +274,6 @@ function ExpensesToastContent({
           </div>
         </div>
 
-        {/* Close button */}
         <button
           onClick={() => toast.dismiss(toastId)}
           style={{
@@ -394,7 +296,6 @@ function ExpensesToastContent({
         </button>
       </div>
 
-      {/* CTA button */}
       <div style={{ padding: "0 14px 14px 14px" }}>
         <a
           href="/dashboard/expenses"
@@ -434,7 +335,6 @@ function ExpensesToastContent({
         </a>
       </div>
 
-      {/* 10-second progress bar at the bottom */}
       <div
         style={{
           height: 3,
@@ -449,7 +349,6 @@ function ExpensesToastContent({
             height: "100%",
             background: "linear-gradient(90deg, #7c6ef3, #c4b5fd)",
             borderRadius: "0 0 14px 14px",
-            // Animate from 100% to 0% over 10 seconds
             animation: "expenses-toast-progress 10s linear forwards",
             transformOrigin: "left center",
           }}
@@ -953,9 +852,6 @@ export default function TypingPage() {
     requestAnimationFrame(() => requestAnimationFrame(() => wrapperRef.current?.focus()));
   }, []);
 
-  // ── FIX #2: Unified restart handler — fires nudge on ANY restart trigger ──
-  // Covers: Tab key, "Next Test" button, "↺ restart" button.
-  // newBestRef is consumed immediately to prevent double-fire.
   const handleRestartWithNudge = useCallback(() => {
     if (testStateRef.current === "finished" && newBestRef.current) {
       newBestRef.current = false;
@@ -978,9 +874,6 @@ export default function TypingPage() {
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key === "Tab") {
         e.preventDefault();
-        // Tab restart now delegates to handleRestartWithNudge via ref
-        // But handleRestartWithNudge can't be called inside handleKeyDown
-        // without a ref, so we inline the same logic here:
         if (testStateRef.current === "finished" && newBestRef.current) {
           newBestRef.current = false;
           fireExpensesNudge();
@@ -1072,6 +965,7 @@ export default function TypingPage() {
     finally { setAddingTimer(false); }
   };
 
+  // FIXED: handleDeleteTimer now clears stats cache and forces refresh
   const handleDeleteTimer = async () => {
     if (!confirmDel) return;
     setDeletingTimer(true);
@@ -1082,14 +976,28 @@ export default function TypingPage() {
       });
       const data = await res.json();
       if (data.success) {
+        // Remove from state
         setCustomTimers(p => p.filter(t => t._id !== confirmDel._id));
-        if (selectedTimer === confirmDel.duration) setSelectedTimer(30);
+        
+        // If currently viewing this timer, switch to default
+        if (selectedTimer === confirmDel.duration) {
+          setSelectedTimer(30);
+        }
+        
+        // CRITICAL FIX: Clear entire stats cache to force fresh fetch
+        clearStatsCache();
+        
+        // Force refresh current timer stats
+        await fetchStats(selectedTimer === confirmDel.duration ? 30 : selectedTimer, true);
+        
         setConfirmDel(null);
-        toast.success("Timer deleted");
-        statsCache.delete(confirmDel.duration);
-        fetchStats(selectedTimerRef.current, true);
-      } else toast.error(data.message);
-    } catch { toast.error("Failed to delete timer"); }
+        toast.success("Timer and all data deleted successfully");
+      } else {
+        toast.error(data.message);
+      }
+    } catch { 
+      toast.error("Failed to delete timer"); 
+    }
     finally { setDeletingTimer(false); }
   };
 
@@ -1114,13 +1022,11 @@ export default function TypingPage() {
       style={{ background: "var(--bg)", color: "var(--text)" }}>
 
       <style>{`
-        /* ── Expenses toast progress bar animation ── */
         @keyframes expenses-toast-progress {
           from { width: 100%; }
           to   { width: 0%;   }
         }
 
-        /* ── Char colours ── */
         .tc-p  { color: var(--tc-p, #7a7a8c); }
         .tc-ok { color: var(--tc-ok, var(--green, #22d3a0)); }
         .tc-er {
@@ -1132,7 +1038,6 @@ export default function TypingPage() {
         body[data-theme="light"] { --tc-p: #55556a; }
         @media (prefers-color-scheme: light) { :root { --tc-p: #55556a; } }
 
-        /* ── Typing layout ── */
         .wt { display: inline-flex; white-space: nowrap; flex-shrink: 0; }
         .ty-text {
           font-size: clamp(16px, 1.6vw + 8px, 24px);
@@ -1140,9 +1045,6 @@ export default function TypingPage() {
           letter-spacing: .02em;
         }
 
-        /* ════════════════════════════════════════════════
-           HISTORY LINK — ANIMATED
-           ════════════════════════════════════════════════ */
         @keyframes hist-border-spin {
           0%   { background-position: 0% 50%; }
           50%  { background-position: 100% 50%; }
@@ -1221,9 +1123,6 @@ export default function TypingPage() {
           .ty-hist-dot  { background:#7c3aed; box-shadow:0 0 3px 1px rgba(124,58,237,.4); }
         }
 
-        /* ════════════════════════════════════════════════
-           CARET BASE
-           ════════════════════════════════════════════════ */
         .ty-caret {
           position: absolute;
           left: -1px;
@@ -1237,7 +1136,6 @@ export default function TypingPage() {
           overflow: visible;
         }
 
-        /* ── 1. MINIMAL ── */
         @keyframes minimal-blink {
           0%,49%  { opacity: 1; }
           50%,100% { opacity: 0; }
@@ -1248,7 +1146,6 @@ export default function TypingPage() {
           animation: minimal-blink 1.05s step-end infinite;
         }
 
-        /* ── 2. LASER ── */
         @keyframes laser-breathe {
           0%,100% {
             opacity: 1;
@@ -1281,7 +1178,6 @@ export default function TypingPage() {
           }
         }
 
-        /* ── 3. ELECTRIC BLADE ── */
         @keyframes electric-surge {
           0%,100% {
             opacity: 1;
@@ -1316,7 +1212,6 @@ export default function TypingPage() {
           }
         }
 
-        /* ── 4. POISON ── */
         @keyframes poison-pulse {
           0%,100% {
             opacity: 1;
@@ -1343,7 +1238,6 @@ export default function TypingPage() {
           }
         }
 
-        /* ── 5. HEARTBEAT ── */
         @keyframes heartbeat {
           0%   { opacity: .35; box-shadow: 0 0 2px 0px rgba(248,113,113,.2); }
           10%  { opacity: 1;   box-shadow: 0 0 6px 0px rgba(248,113,113,.95), 0 0 16px 2px rgba(239,68,68,.45); }
@@ -1367,7 +1261,6 @@ export default function TypingPage() {
           }
         }
 
-        /* ── 6. NINJA ── */
         @keyframes ninja-caret-pulse {
           0%,100% {
             opacity: 1;
@@ -1408,7 +1301,6 @@ export default function TypingPage() {
           }
         }
 
-        /* ── NINJA FRAGMENT ANIMATIONS ── */
         @keyframes ninja-word-fall {
           0%   { transform: translateY(0px) rotate(0deg) scaleY(1); opacity: 1; }
           12%  { transform: translateY(-3px) rotate(-0.5deg) scaleY(1.04); opacity: 1; }
@@ -1487,7 +1379,6 @@ export default function TypingPage() {
           }
         }
 
-        /* ── CURSOR SELECTOR UI ── */
         .cs-row   { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
         .cs-label {
           font-size:10px; font-weight:700; letter-spacing:.08em;
@@ -1529,8 +1420,6 @@ export default function TypingPage() {
           .cs-pill--ninja.cs-pill--active     { background:rgba(153,27,27,.07);   border-color:rgba(185,28,28,.38);  color:#991b1b; box-shadow:none; }
         }
 
-        /* ─── FIX #3: Custom timer delete button — completely outside the timer pill ─── */
-        /* The group wrapper clips to its natural height; the × sits beside the pill, not inside it. */
         .custom-timer-group {
           display: flex;
           align-items: center;
@@ -1565,7 +1454,6 @@ export default function TypingPage() {
         body[data-theme="light"] .custom-timer-del { color: #dc2626; }
         @media (prefers-color-scheme:light) { .custom-timer-del { color: #dc2626; } }
 
-        /* ── Click-to-focus overlay ── */
         .ty-overlay {
           position:absolute; inset:0; border-radius:12px; z-index:20;
           display:flex; align-items:center; justify-content:center;
@@ -1631,10 +1519,8 @@ export default function TypingPage() {
               </button>
             ))}
 
-            {/* ── FIX #3: Custom timers — delete button is fully OUTSIDE the timer pill ── */}
             {customTimers.map(ct => (
               <div key={ct._id} className="custom-timer-group">
-                {/* Timer select button — no padding hack, no absolute children */}
                 <button
                   onClick={() => setSelectedTimer(ct.duration)}
                   className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-mono font-medium transition-all"
@@ -1645,7 +1531,6 @@ export default function TypingPage() {
                   }}>
                   {fmtDur(ct.duration)}
                 </button>
-                {/* Delete button — clearly separate, shown on group hover */}
                 <button
                   onClick={() => setConfirmDel(ct)}
                   className="custom-timer-del"
@@ -1790,7 +1675,6 @@ export default function TypingPage() {
 
         {/* Restart hint */}
         <div className="flex items-center justify-center gap-3">
-          {/* FIX #2: restart button also fires nudge if new best */}
           <button onClick={handleRestartWithNudge}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm transition-all"
             style={{ color: "var(--text3)", background: "transparent", border: "1px solid transparent" }}
@@ -1871,7 +1755,6 @@ export default function TypingPage() {
               </Link>
             </div>
 
-            {/* FIX #2: "Next Test" button fires nudge if new best */}
             <button onClick={handleRestartWithNudge}
               className="w-full py-3 rounded-xl text-sm font-semibold transition-opacity"
               style={{ background: "var(--accent)", color: "#fff" }}
