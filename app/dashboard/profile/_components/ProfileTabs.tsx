@@ -1,16 +1,17 @@
 // app/dashboard/profile/_components/ProfileTabs.tsx
 "use client";
 
-import { BarChart3, LockKeyhole, UserRound } from "lucide-react";
+import { BarChart3, LockKeyhole, UserRound, Monitor } from "lucide-react";
 
 type Props = {
-  activeTab: "basic" | "security" | "insights";
-  setActiveTab: (tab: "basic" | "security" | "insights") => void;
+  activeTab: "basic" | "security" | "insights" | "sessions";
+  setActiveTab: (tab: "basic" | "security" | "insights" | "sessions") => void;
 };
 
 const TABS = [
   { id: "basic" as const, label: "Basic Info", icon: UserRound },
   { id: "security" as const, label: "Security", icon: LockKeyhole },
+  { id: "sessions" as const, label: "Sessions", icon: Monitor },
   { id: "insights" as const, label: "Insights", icon: BarChart3 },
 ];
 
