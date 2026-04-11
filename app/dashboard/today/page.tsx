@@ -19,89 +19,6 @@ import { useDiaryReminder } from "@/app/hooks/useDiaryReminder";
 // ─────────────────────────────────────────────────────────────────
 const STORAGE_KEY        = "hourbit_today_draft";
 const DEFAULT_WORK_HOURS = 8.5;
-const CONFETTI_KEY       = "hourbit_confetti_shown";
-
-// ─────────────────────────────────────────────────────────────────
-// HELPERS  (defined first so confetti fns can call todayDateStr)
-// ─────────────────────────────────────────────────────────────────
-const pad2 = (n: number) => String(n).padStart(2, "0");
-const uid  = () => Math.random().toString(36).slice(2, 9);
-
-function breaksToKey(breaks: BreakEntry[]): string {
-  return breaks.map(b => `${b.type}:${b.minutes}:${b.label}`).join("|");
-}
-
-function fmtDuration(mins: number): string {
-  if (mins <= 0) return "—";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
-}
-
-function fmtSecs(totalSecs: number): string {
-  if (totalSecs <= 0) return "00:00:00";
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const s = totalSecs % 60;
-  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
-}
-
-function to12h(hhmm: string): string {
-  if (!hhmm) return "—";
-  const [h, m] = hhmm.split(":").map(Number);
-  const ap = h >= 12 ? "PM" : "AM";
-  return `${pad2(h % 12 || 12)}:${pad2(m)} ${ap}`;
-}
-
-function isoToHHMM(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
-}
-
-function nowHHMM(): string {
-  const d = new Date();
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
-function todayLabel(): string {
-  return new Date().toLocaleDateString("en-IN", {
-    weekday: "long", day: "2-digit", month: "long", year: "numeric",
-  });
-}
-
-function todayDateStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function addMinsToTime(hhmm: string, mins: number): string {
-  if (!hhmm) return "";
-  const [h, m] = hhmm.split(":").map(Number);
-  const total = h * 60 + m + mins;
-  return `${pad2(Math.floor(total / 60) % 24)}:${pad2(total % 60)}`;
-}
-
-function toMins(hhmm: string): number {
-  if (!hhmm) return -1;
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function to24h(h12: number, minute: number, ampm: "AM" | "PM"): string {
-  let h24 = h12 % 12;
-  if (ampm === "PM") h24 += 12;
-  return `${pad2(h24)}:${pad2(minute)}`;
-}
-
-function fmtHoursLabel(h: number): string {
-  const hrs  = Math.floor(h);
-  const mins = Math.round((h - hrs) * 60);
-  if (mins === 0) return `${hrs}h`;
-  return `${hrs}h ${mins}m`;
-}
 
 // ─────────────────────────────────────────────────────────────────
 // TYPES
@@ -132,13 +49,96 @@ interface DraftState {
   savedAt:           string;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const uid  = () => Math.random().toString(36).slice(2, 9);
+
+function breaksToKey(breaks: BreakEntry[]): string {
+  return breaks.map(b => `${b.type}:${b.minutes}:${b.label}`).join("|");
+}
+
 const EMPTY_SNAPSHOT: SavedSnapshot = {
   entryTime: "", exitTime: "", notes: "", breaksKey: "",
   requiredWorkHours: DEFAULT_WORK_HOURS,
 };
 
+function fmtDuration(mins: number): string {
+  if (mins <= 0) return "—";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function fmtSecs(totalSecs: number): string {
+  if (totalSecs <= 0) return "00:00:00";
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+}
+
+function to12h(hhmm: string): string {
+  if (!hhmm) return "—";
+  const [h, m] = hhmm.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  return `${pad2(h % 12 || 12)}:${pad2(m)} ${ap}`;
+}
+
+// THE FIX: use UTC getters — the API stores times as UTC so "08:40" UTC = what user typed
+function isoToHHMM(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+function nowHHMM(): string {
+  const d = new Date();
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function todayLabel(): string {
+  return new Date().toLocaleDateString("en-IN", {
+    weekday: "long", day: "2-digit", month: "long", year: "numeric",
+  });
+}
+
+function todayDateStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function addMinsToTime(hhmm: string, mins: number): string {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  const total = h * 60 + m + mins;
+  return `${pad2(Math.floor(total / 60) % 24)}:${pad2(total % 60)}`;
+}
+
+function toMins(hhmm: string): number {
+  if (!hhmm) return -1; // -1 = not set
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function to24h(h12: number, minute: number, ampm: "AM" | "PM"): string {
+  let h24 = h12 % 12;
+  if (ampm === "PM") h24 += 12;
+  return `${pad2(h24)}:${pad2(minute)}`;
+}
+
+function fmtHoursLabel(h: number): string {
+  const hrs  = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  if (mins === 0) return `${hrs}h`;
+  return `${hrs}h ${mins}m`;
+}
+
 // ─────────────────────────────────────────────────────────────────
-// DRAFT PERSISTENCE
+// DRAFT PERSISTENCE  (sessionStorage, keyed to today's date)
 // ─────────────────────────────────────────────────────────────────
 function loadDraft(): DraftState | null {
   try {
@@ -161,152 +161,6 @@ function saveDraft(state: Omit<DraftState, "savedAt">) {
 
 function clearDraft() {
   try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// CONFETTI ENGINE  — zero-dependency, canvas-based, once-per-day
-// todayDateStr() is defined above so these calls are safe.
-// ─────────────────────────────────────────────────────────────────
-function hasShownConfettiToday(): boolean {
-  try {
-    return localStorage.getItem(CONFETTI_KEY) === todayDateStr();
-  } catch { return false; }
-}
-
-function markConfettiShownToday(): void {
-  try { localStorage.setItem(CONFETTI_KEY, todayDateStr()); } catch { /* ignore */ }
-}
-
-interface Particle {
-  x: number; y: number;
-  vx: number; vy: number;
-  color: string;
-  rotation: number;
-  rotationSpeed: number;
-  width: number; height: number;
-  opacity: number;
-  shape: "rect" | "circle" | "star";
-  gravity: number;
-  drag: number;
-}
-
-const CONFETTI_COLORS = [
-  "#7c6ef3", "#a78bfa", "#22d3a0", "#f59e0b",
-  "#f472b6", "#38bdf8", "#fb923c", "#a3e635",
-  "#e879f9", "#34d399", "#fbbf24", "#60a5fa",
-];
-
-function createParticles(W: number, H: number, count: number): Particle[] {
-  const particles: Particle[] = [];
-  const cx = W / 2;
-  const shapes: Particle["shape"][] = ["rect", "rect", "circle", "star"];
-
-  for (let i = 0; i < count; i++) {
-    const speed = 4 + Math.random() * 14;
-    const biasedAngle =
-      -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
-    particles.push({
-      x:             cx + (Math.random() - 0.5) * 120,
-      y:             H * 0.55,
-      vx:            Math.cos(biasedAngle) * speed,
-      vy:            Math.sin(biasedAngle) * speed - 3,
-      color:         CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
-      rotation:      Math.random() * Math.PI * 2,
-      rotationSpeed: (Math.random() - 0.5) * 0.25,
-      width:         6 + Math.random() * 10,
-      height:        3 + Math.random() * 5,
-      opacity:       1,
-      shape:         shapes[Math.floor(Math.random() * shapes.length)],
-      gravity:       0.25 + Math.random() * 0.15,
-      drag:          0.985 + Math.random() * 0.01,
-    });
-  }
-  return particles;
-}
-
-function drawStar(ctx: CanvasRenderingContext2D, r: number) {
-  const spikes = 5;
-  ctx.beginPath();
-  for (let i = 0; i < spikes * 2; i++) {
-    const radius = i % 2 === 0 ? r : r * 0.4;
-    const angle  = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
-    const px     = Math.cos(angle) * radius;
-    const py     = Math.sin(angle) * radius;
-    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-}
-
-function launchConfetti(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const dpr = window.devicePixelRatio || 1;
-  const W   = window.innerWidth;
-  const H   = window.innerHeight;
-
-  // Physical pixel size
-  canvas.width  = W * dpr;
-  canvas.height = H * dpr;
-  // CSS size stays 100vw/100vh via inline style
-  ctx.scale(dpr, dpr);
-
-  const count = W < 640 ? 90 : 160;
-  let particles = createParticles(W, H, count);
-  let rafId: number;
-
-  function tick() {
-    ctx!.clearRect(0, 0, W, H);
-
-    const alive: Particle[] = [];
-    for (const p of particles) {
-      p.x  += p.vx;
-      p.y  += p.vy;
-      p.vy += p.gravity;
-      p.vx *= p.drag;
-      p.vy *= p.drag;
-      p.rotation += p.rotationSpeed;
-
-      if (p.y > H * 0.6)                               p.opacity -= 0.012;
-      if (Math.abs(p.vy) < 0.5 && p.y > H * 0.5)      p.opacity -= 0.018;
-
-      if (p.opacity <= 0 || p.y > H + 40) continue;
-      alive.push(p);
-
-      ctx!.save();
-      ctx!.globalAlpha = Math.max(0, p.opacity);
-      ctx!.translate(p.x, p.y);
-      ctx!.rotate(p.rotation);
-      ctx!.fillStyle = p.color;
-
-      if (p.shape === "circle") {
-        ctx!.beginPath();
-        ctx!.arc(0, 0, p.width / 2, 0, Math.PI * 2);
-        ctx!.fill();
-      } else if (p.shape === "star") {
-        drawStar(ctx!, p.width / 2);
-        ctx!.fill();
-      } else {
-        ctx!.fillRect(-p.width / 2, -p.height / 2, p.width, p.height);
-      }
-      ctx!.restore();
-    }
-
-    particles = alive;
-    if (particles.length > 0) {
-      rafId = requestAnimationFrame(tick);
-    } else {
-      canvas.style.display = "none";
-    }
-  }
-
-  rafId = requestAnimationFrame(tick);
-
-  // Safety net: cancel after 6 s regardless
-  setTimeout(() => {
-    cancelAnimationFrame(rafId);
-    canvas.style.display = "none";
-  }, 6000);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -344,30 +198,6 @@ function ThemeStyleInjector() {
   }, []);
   return null;
 }
-
-// ─────────────────────────────────────────────────────────────────
-// CONFETTI CANVAS  — single instance, always mounted at root level
-// ─────────────────────────────────────────────────────────────────
-const ConfettiCanvas = ({
-  canvasRef,
-}: {
-  canvasRef: React.RefObject<HTMLCanvasElement | null>;
-}) => (
-  <canvas
-    ref={canvasRef}
-    style={{
-      display:       "none",
-      position:      "fixed",
-      top:           0,
-      left:          0,
-      width:         "100vw",
-      height:        "100vh",
-      pointerEvents: "none",
-      zIndex:        9999,
-    }}
-    aria-hidden="true"
-  />
-);
 
 // ─────────────────────────────────────────────────────────────────
 // CLOCK PICKER
@@ -601,7 +431,7 @@ function TimeButton({
 }
 
 // ─────────────────────────────────────────────────────────────────
-// REQUIRED HOURS EDITOR
+// REQUIRED HOURS EDITOR  — per-day override, today only
 // ─────────────────────────────────────────────────────────────────
 function RequiredHoursEditor({
   value, defaultValue, hasOverride, onChange, onClear,
@@ -737,7 +567,7 @@ function RequiredHoursEditor({
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LIVE TIMER
+// LIVE TIMER  — ticks every second, subtracts break time
 // ─────────────────────────────────────────────────────────────────
 function LiveTimer({
   entryHHMM, breakMinutes, requiredHours,
@@ -924,19 +754,7 @@ export default function TodayTrackPage() {
   const [everSaved,     setEverSaved]     = useState(false);
   const { triggerDiaryReminder } = useDiaryReminder();
 
-  // ── Confetti canvas ref — declared once, never unmounted ─────
-  const confettiCanvasRef = useRef<HTMLCanvasElement>(null);
-
-  function triggerConfetti() {
-    if (hasShownConfettiToday()) return;
-    markConfettiShownToday();
-    const canvas = confettiCanvasRef.current;
-    if (!canvas) return;
-    canvas.style.display = "block";
-    launchConfetti(canvas);
-  }
-
-  // Live now-minutes
+  // Live now-minutes — ticks every minute so stats update when no exit set
   const [nowMins, setNowMins] = useState(() => {
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
@@ -945,11 +763,11 @@ export default function TodayTrackPage() {
     const id = setInterval(() => {
       const d = new Date();
       setNowMins(d.getHours() * 60 + d.getMinutes());
-    }, 30000);
+    }, 30000); // every 30s is fine for display
     return () => clearInterval(id);
   }, []);
 
-  // ── Draft ref ────────────────────────────────────────────────
+  // ── Draft ref (synced on every state change) ──────────────────
   const draftRef = useRef<Omit<DraftState, "savedAt">>({
     entryTime: "", entryAmpm: "AM", exitTime: "", exitAmpm: "PM",
     breaks: [], notes: "", requiredWorkHours: DEFAULT_WORK_HOURS,
@@ -1017,12 +835,15 @@ export default function TodayTrackPage() {
     );
   }, [entryTime, exitTime, breaks, notes, savedSnapshot, everSaved, requiredWorkHours, userDefaultHours]);
 
-  // ── Calculations ─────────────────────────────────────────────
+  // ── CALCULATIONS FIX ─────────────────────────────────────────
+  // When no exit time is set but we have an entry, use current time (nowMins)
+  // so the stats update live. This fixes: Productive=— and Daily progress=0%
   const calc = useMemo(() => {
-    const entryMins  = toMins(entryTime);
+    const entryMins = toMins(entryTime);  // returns -1 if empty
     const totalBreak = breaks.reduce((a, b) => a + b.minutes, 0);
 
     if (entryMins < 0) {
+      // No entry time at all — everything is zero
       const required = requiredWorkHours * 60;
       return {
         totalBreak, officeMins: 0, productive: 0,
@@ -1031,14 +852,22 @@ export default function TodayTrackPage() {
       };
     }
 
-    const exitMins   = exitTime ? toMins(exitTime) : nowMins;
-    const isLive     = !exitTime;
+    // Determine the effective exit for calculation purposes:
+    // If user has typed an exit, use it. Otherwise use "now" for live display.
+    const exitMins = exitTime ? toMins(exitTime) : nowMins;
+    const isLive   = !exitTime; // true = using current time as exit
+
+    // officeMins = wall-clock time from entry to effective exit
     const officeMins = exitMins > entryMins ? exitMins - entryMins : 0;
+    // productive = office time minus break time (can't go negative)
     const productive = Math.max(0, officeMins - totalBreak);
-    const required   = requiredWorkHours * 60;
-    const remaining  = Math.max(0, required - productive);
-    const pct        = required > 0 ? Math.min(100, (productive / required) * 100) : 0;
-    const overtime   = Math.max(0, productive - required);
+
+    const required  = requiredWorkHours * 60;
+    const remaining = Math.max(0, required - productive);
+    const pct       = required > 0 ? Math.min(100, (productive / required) * 100) : 0;
+    const overtime  = Math.max(0, productive - required);
+
+    // predictedLeave: only when live (not clocked out) and entry is set
     const predictedLeave = isLive && entryMins >= 0
       ? addMinsToTime(entryTime, required + totalBreak)
       : "";
@@ -1113,9 +942,9 @@ export default function TodayTrackPage() {
       const effectiveHours: number     = d.requiredWorkHours ?? serverDefault;
       const overrideVal: number | null = d.requiredWorkHoursOverride ?? null;
 
-      const loadedEntry  = isoToHHMM(d.entryTime);
-      const loadedExit   = isoToHHMM(d.exitTime);
-      const loadedNotes  = d.notes || "";
+      const loadedEntry = isoToHHMM(d.entryTime);
+      const loadedExit  = isoToHHMM(d.exitTime);
+      const loadedNotes = d.notes || "";
       const loadedBreaks: BreakEntry[] = (d.breaks || []).map((b: any) => ({
         id:      uid(),
         label:   b.label || (b.type === "tea" ? "Tea Break" : b.type === "lunch" ? "Lunch Break" : "Custom Break"),
@@ -1212,16 +1041,8 @@ export default function TodayTrackPage() {
 
       if (data.success) {
         toast.success("Work log saved! 🎉");
-
-        // ── Confetti: only when a complete log (entry + exit) is saved,
-        //    and only once per calendar day via localStorage guard.
-        if (exitTime) {
-          triggerConfetti();
-        }
-
-        const today = new Date().toISOString().split("T")[0];
-        await triggerDiaryReminder(entryTime, exitTime, today);
-
+    const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
+    await triggerDiaryReminder(entryTime, exitTime, today);
         const savedHours: number = data.data?.requiredWorkHours ?? requiredWorkHours;
         setSavedSnapshot({
           entryTime, exitTime,
@@ -1246,12 +1067,6 @@ export default function TodayTrackPage() {
     return (
       <>
         <ThemeStyleInjector />
-        {/*
-          Canvas is rendered here too so the ref is always attached
-          regardless of loading state. It stays hidden (display:none)
-          until triggerConfetti() makes it visible.
-        */}
-        <ConfettiCanvas canvasRef={confettiCanvasRef} />
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-4">
             <div className="w-8 h-8 rounded-full border-2 animate-spin"
@@ -1269,13 +1084,6 @@ export default function TodayTrackPage() {
   return (
     <>
       <ThemeStyleInjector />
-
-      {/*
-        Confetti canvas — always rendered at this level so the ref is
-        stable across the loading→loaded transition. Fixed overlay,
-        pointer-events:none so it never blocks any UI interaction.
-      */}
-      <ConfettiCanvas canvasRef={confettiCanvasRef} />
 
       {activePicker && (
         <ClockPicker
@@ -1537,7 +1345,7 @@ export default function TodayTrackPage() {
               {/* ════ RIGHT COLUMN ════ */}
               <div className="space-y-5">
 
-                {/* LIVE TIMER */}
+                {/* LIVE TIMER — only shown when clocked in without exit */}
                 {entryTime && !exitTime && (
                   <LiveTimer
                     entryHHMM={entryTime}
