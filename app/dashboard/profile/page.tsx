@@ -9,6 +9,7 @@ import ProfileTabs    from "./_components/ProfileTabs";
 import BasicInfoTab   from "./_components/BasicInfoTab";
 import SecurityTab    from "./_components/SecurityTab";
 import InsightsTab    from "./_components/InsightsTab";
+import SessionsTab    from "./_components/SessionsTab";
 
 export type ProfileUser = {
   fullName: string;
@@ -19,7 +20,7 @@ export type ProfileUser = {
 };
 
 export default function ProfilePage() {
-  const [activeTab, setActiveTab] = useState<"basic" | "security" | "insights">("basic");
+  const [activeTab, setActiveTab] = useState<"basic" | "security" | "insights" | "sessions">("basic");
   const [user, setUser]           = useState<ProfileUser | null>(null);
   const [loading, setLoading]     = useState(true);
 
@@ -128,6 +129,9 @@ export default function ProfilePage() {
       )}
       {activeTab === "security" && (
         <SecurityTab email={user.email} />
+      )}
+      {activeTab === "sessions" && (
+        <SessionsTab userEmail={user.email} />
       )}
       {activeTab === "insights" && (
         <InsightsTab />
