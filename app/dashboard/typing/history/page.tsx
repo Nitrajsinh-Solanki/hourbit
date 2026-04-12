@@ -416,7 +416,7 @@ export default function TypingHistoryPage() {
     setCurrentPage(1);
     if (activeTab === "history")  fetchHistory(selectedTimer, selectedMode, 1);
     if (activeTab === "analysis") fetchAnalysis(selectedTimer);
-  }, [selectedTimer, selectedMode, activeTab]); // eslint-disable-line
+  }, [selectedTimer, selectedMode, activeTab, fetchHistory, fetchAnalysis]);
 
   // Pagination — only re-fetch when page changes (not on filter reset)
   const pageRef = React.useRef(currentPage);
@@ -424,7 +424,7 @@ export default function TypingHistoryPage() {
     if (pageRef.current === currentPage) return;
     pageRef.current = currentPage;
     if (activeTab === "history") fetchHistory(selectedTimer, selectedMode, currentPage);
-  }, [currentPage]); // eslint-disable-line
+  }, [currentPage, activeTab, fetchHistory, selectedTimer, selectedMode]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
