@@ -26,7 +26,7 @@ async function getAuthUserId(): Promise<string | null> {
 //   timer — timerDuration filter (0 = all timers, default 0)
 //
 // Returns:
-//   trendData      — last 100 test results (for WPM / accuracy line chart)
+//   trendData      — last 500 test results (for WPM / accuracy line chart)
 //   byMode         — average stats grouped by typingMode
 //   byTimer        — average stats grouped by timerDuration (always all timers)
 //   dailyAvg       — daily averages for the last 30 days
@@ -53,10 +53,10 @@ export async function GET(req: Request) {
     const matchQuery: Record<string, unknown> = { userId: userObjId };
     if (timerDuration > 0) matchQuery.timerDuration = timerDuration;
 
-    // ── 1. Trend data (last 100, oldest → newest for chart ordering) ──────
+    // ── 1. Trend data (last 500, oldest → newest for chart ordering) ──────
     const trendRaw = await TypingResult.find(matchQuery)
       .sort({ createdAt: -1 })
-      .limit(100)
+      .limit(500)
       .select("wpm accuracy createdAt timerDuration typingMode errors")
       .lean();
 
