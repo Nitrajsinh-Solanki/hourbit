@@ -1,11 +1,6 @@
 "use client";
 // app/dashboard/todo/page.tsx
-// FIXES:
-// 1. Removed all migration logic (no more auto-carry-forward of tasks)
-// 2. Fixed edit bug — no optimistic update for edit; waits for server, prevents duplicate
-// 3. Fixed delete bug — correct query param encoding + stable optimistic removal
-// 4. Full-width layout — removed max-w-2xl constraint, uses full available space
-// 5. Fully responsive for all screen sizes
+// COMPLETE VERSION WITH TOMORROW'S TASKS FEATURE
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
@@ -99,6 +94,12 @@ function getMotivationalToast(name: string): string {
 
 function todayISO(): string {
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function tomorrowISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -224,7 +225,6 @@ function TaskItem({
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  // Keep draft in sync if task.text changes externally (e.g. server refresh)
   useEffect(() => {
     if (!editing) setDraft(task.text);
   }, [task.text, editing]);
@@ -232,14 +232,13 @@ function TaskItem({
   const handleSave = async () => {
     const trimmed = draft.trim();
     if (!trimmed) { setDraft(task.text); setEditing(false); return; }
-    if (trimmed === task.text) { setEditing(false); return; } // no change
+    if (trimmed === task.text) { setEditing(false); return; }
     if (trimmed.length > MAX_CHAR) { toast.error(`Max ${MAX_CHAR} characters`); return; }
     setSaving(true);
     try {
       await onEdit(task.id, trimmed);
       setEditing(false);
     } catch {
-      // error handled in parent
     } finally {
       setSaving(false);
     }
@@ -267,7 +266,6 @@ function TaskItem({
         opacity: deleting ? 0.5 : 1,
       }}
     >
-      {/* Checkbox */}
       {!readOnly ? (
         <button
           onClick={() => !editing && onToggle(task.id)}
@@ -286,7 +284,6 @@ function TaskItem({
         </span>
       )}
 
-      {/* Text / Edit input */}
       <div className="flex-1 min-w-0">
         {editing ? (
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
@@ -346,7 +343,6 @@ function TaskItem({
         )}
       </div>
 
-      {/* Actions — always visible on mobile, hover on desktop */}
       {!readOnly && !editing && (
         <div className="flex items-center gap-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150">
           {!task.completed && (
@@ -492,12 +488,10 @@ function TodayTab({ userName }: { userName: string }) {
     }
   }, []);
 
-  // On mount: only fetch tasks — NO migration
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
 
-  // Show motivational toast when all tasks are done
   useEffect(() => {
     if (tasks.length === 0 || toastShownToday || toastFiredRef.current) return;
     const allDone = tasks.every((t) => t.completed);
@@ -522,7 +516,6 @@ function TodayTab({ userName }: { userName: string }) {
   const progress       = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
   const progressColor  = allDone ? "#22d3a0" : progress >= 50 ? "#f59e0b" : "var(--accent)";
 
-  // ── Add task ──────────────────────────────────────────────────────────────
   const handleAdd = async () => {
     const text = inputVal.trim();
     if (!text) return;
@@ -538,7 +531,7 @@ function TodayTab({ userName }: { userName: string }) {
       });
       const data = await res.json();
       if (data.success) {
-        setTasks(data.tasks); // use server state — source of truth
+        setTasks(data.tasks);
         setInputVal("");
         inputRef.current?.focus();
       } else {
@@ -551,9 +544,7 @@ function TodayTab({ userName }: { userName: string }) {
     }
   };
 
-  // ── Toggle ────────────────────────────────────────────────────────────────
   const handleToggle = async (taskId: string) => {
-    // Optimistic update
     setTasks((prev) =>
       prev.map((t) =>
         t.id === taskId
@@ -572,7 +563,7 @@ function TodayTab({ userName }: { userName: string }) {
         setTasks(data.tasks);
         setToastShownToday(data.allCompletedToastShown);
       } else {
-        fetchTasks(); // revert on error
+        fetchTasks();
       }
     } catch {
       toast.error("Failed to update task");
@@ -580,9 +571,7 @@ function TodayTab({ userName }: { userName: string }) {
     }
   };
 
-  // ── Delete — FIX: use correct query param format ──────────────────────────
   const handleDelete = async (taskId: string) => {
-    // Optimistic removal
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
 
     try {
@@ -591,19 +580,17 @@ function TodayTab({ userName }: { userName: string }) {
       const data = await res.json();
       if (!data.success) {
         toast.error(data.message || "Failed to delete task");
-        fetchTasks(); // revert
+        fetchTasks();
       }
-      // On success, server returns updated tasks — sync them
       if (data.success && data.tasks) {
         setTasks(data.tasks);
       }
     } catch {
       toast.error("Failed to delete task");
-      fetchTasks(); // revert
+      fetchTasks();
     }
   };
 
-  // ── Edit — FIX: no optimistic update; wait for server to avoid duplicates ─
   const handleEdit = async (taskId: string, text: string): Promise<void> => {
     try {
       const res  = await fetch("/api/todo", {
@@ -613,7 +600,7 @@ function TodayTab({ userName }: { userName: string }) {
       });
       const data = await res.json();
       if (data.success) {
-        setTasks(data.tasks); // server is source of truth
+        setTasks(data.tasks);
       } else {
         toast.error(data.message || "Failed to update task");
         throw new Error(data.message);
@@ -624,10 +611,8 @@ function TodayTab({ userName }: { userName: string }) {
     }
   };
 
-  // ── Mark All ──────────────────────────────────────────────────────────────
   const handleMarkAll = async () => {
     if (allDone) return;
-    // Optimistic
     setTasks((prev) =>
       prev.map((t) => ({ ...t, completed: true, completedAt: t.completedAt || new Date().toISOString() }))
     );
@@ -664,12 +649,10 @@ function TodayTab({ userName }: { userName: string }) {
   return (
     <div className="flex flex-col gap-4 w-full">
 
-      {/* Motivational Toast */}
       {toastMsg && (
         <MotivationalToast message={toastMsg} onDone={() => setToastMsg(null)} />
       )}
 
-      {/* ── Progress Card ── */}
       <div
         className="rounded-2xl px-4 sm:px-5 py-4 w-full"
         style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
@@ -724,7 +707,6 @@ function TodayTab({ userName }: { userName: string }) {
         </div>
       </div>
 
-      {/* ── Input Card ── */}
       <div
         className="rounded-2xl p-4 sm:p-5 w-full"
         style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
@@ -803,12 +785,10 @@ function TodayTab({ userName }: { userName: string }) {
         )}
       </div>
 
-      {/* ── Task List Card ── */}
       <div
         className="rounded-2xl overflow-hidden w-full"
         style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
       >
-        {/* Header */}
         <div
           className="px-4 sm:px-5 py-3.5 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap"
           style={{ borderBottom: "1px solid var(--border2)" }}
@@ -844,7 +824,6 @@ function TodayTab({ userName }: { userName: string }) {
           )}
         </div>
 
-        {/* Tasks */}
         <div className="p-3 sm:p-4 flex flex-col gap-2.5">
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
@@ -861,7 +840,6 @@ function TodayTab({ userName }: { userName: string }) {
             </div>
           ) : (
             <>
-              {/* Incomplete tasks */}
               {incompleteTasks.map((task) => (
                 <TaskItem
                   key={task.id}
@@ -872,7 +850,6 @@ function TodayTab({ userName }: { userName: string }) {
                 />
               ))}
 
-              {/* Divider between incomplete and complete */}
               {incompleteTasks.length > 0 && completedTasks.length > 0 && (
                 <div className="flex items-center gap-3 my-1">
                   <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
@@ -883,7 +860,402 @@ function TodayTab({ userName }: { userName: string }) {
                 </div>
               )}
 
-              {/* Completed tasks */}
+              {completedTasks.map((task) => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tomorrow Tab ─────────────────────────────────────────────────────────────
+
+function TomorrowTab({ userName }: { userName: string }) {
+  const [tasks, setTasks]       = useState<Task[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [inputVal, setInputVal] = useState("");
+  const [adding, setAdding]     = useState(false);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const tomorrow = tomorrowISO();
+      const res  = await fetch(`/api/todo?date=${tomorrow}`);
+      const data = await res.json();
+      if (data.success) {
+        setTasks(data.tasks);
+      }
+    } catch {
+      toast.error("Failed to load tomorrow's tasks");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  const completedCount = tasks.filter((t) => t.completed).length;
+  const progress       = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+
+  const handleAdd = async () => {
+    const text = inputVal.trim();
+    if (!text) return;
+    if (text.length > MAX_CHAR)    { toast.error(`Max ${MAX_CHAR} characters`); return; }
+    if (tasks.length >= MAX_TASKS) { toast.error(`Max ${MAX_TASKS} tasks per day`); return; }
+
+    setAdding(true);
+    try {
+      const tomorrow = tomorrowISO();
+      const res  = await fetch("/api/todo", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ text, date: tomorrow }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTasks(data.tasks);
+        setInputVal("");
+        inputRef.current?.focus();
+      } else {
+        toast.error(data.message || "Failed to add task");
+      }
+    } catch {
+      toast.error("Failed to add task");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleToggle = async (taskId: string) => {
+    const tomorrow = tomorrowISO();
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date().toISOString() : null }
+          : t
+      )
+    );
+    try {
+      const res  = await fetch("/api/todo", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ action: "toggle", taskId, date: tomorrow }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTasks(data.tasks);
+      } else {
+        fetchTasks();
+      }
+    } catch {
+      toast.error("Failed to update task");
+      fetchTasks();
+    }
+  };
+
+  const handleDelete = async (taskId: string) => {
+    const tomorrow = tomorrowISO();
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+
+    try {
+      const url = `/api/todo?taskId=${encodeURIComponent(taskId)}&date=${tomorrow}`;
+      const res = await fetch(url, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.message || "Failed to delete task");
+        fetchTasks();
+      }
+      if (data.success && data.tasks) {
+        setTasks(data.tasks);
+      }
+    } catch {
+      toast.error("Failed to delete task");
+      fetchTasks();
+    }
+  };
+
+  const handleEdit = async (taskId: string, text: string): Promise<void> => {
+    const tomorrow = tomorrowISO();
+    try {
+      const res  = await fetch("/api/todo", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ action: "edit", taskId, text, date: tomorrow }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTasks(data.tasks);
+      } else {
+        toast.error(data.message || "Failed to update task");
+        throw new Error(data.message);
+      }
+    } catch (e) {
+      toast.error("Failed to update task");
+      throw e;
+    }
+  };
+
+  const handleMarkAll = async () => {
+    const tomorrow = tomorrowISO();
+    const allDone = tasks.length > 0 && tasks.every((t) => t.completed);
+    if (allDone) return;
+    
+    setTasks((prev) =>
+      prev.map((t) => ({ ...t, completed: true, completedAt: t.completedAt || new Date().toISOString() }))
+    );
+    try {
+      const res  = await fetch("/api/todo", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ action: "mark-all", date: tomorrow }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTasks(data.tasks);
+      } else {
+        fetchTasks();
+      }
+    } catch {
+      toast.error("Failed to mark all");
+      fetchTasks();
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin" style={{ color: "var(--accent)" }} />
+      </div>
+    );
+  }
+
+  const incompleteTasks = tasks.filter((t) => !t.completed);
+  const completedTasks  = tasks.filter((t) => t.completed);
+  const allDone = tasks.length > 0 && completedCount === tasks.length;
+  const progressColor  = allDone ? "#22d3a0" : progress >= 50 ? "#f59e0b" : "var(--accent)";
+
+  return (
+    <div className="flex flex-col gap-4 w-full">
+
+      <div
+        className="rounded-2xl px-4 sm:px-5 py-4 w-full"
+        style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+      >
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <p className="text-[13px] font-semibold" style={{ color: "var(--text2)" }}>
+            {allDone
+              ? "🎯 All tomorrow's tasks planned!"
+              : tasks.length === 0
+              ? "No tasks planned for tomorrow yet"
+              : "Tomorrow's planning progress"}
+          </p>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="text-[11px] font-mono px-2.5 py-1 rounded-lg"
+              style={{ background: "var(--surface2)", color: "var(--text3)", border: "1px solid var(--border2)" }}
+            >
+              {tasks.length} total
+            </span>
+            <span
+              className="text-[11px] font-mono px-2.5 py-1 rounded-lg"
+              style={{ background: "rgba(34,211,160,0.08)", color: "#22d3a0", border: "1px solid rgba(34,211,160,0.15)" }}
+            >
+              {completedCount} done
+            </span>
+            <span
+              className="text-[11px] font-mono px-2.5 py-1 rounded-lg"
+              style={{
+                background: tasks.length - completedCount > 0 ? "rgba(245,158,11,0.08)" : "rgba(34,211,160,0.08)",
+                color:      tasks.length - completedCount > 0 ? "#f59e0b" : "#22d3a0",
+                border:     tasks.length - completedCount > 0 ? "1px solid rgba(245,158,11,0.15)" : "1px solid rgba(34,211,160,0.15)",
+              }}
+            >
+              {tasks.length - completedCount} pending
+            </span>
+            <p className="font-mono font-bold text-[13px]" style={{ color: progressColor }}>
+              {progress}%
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-full overflow-hidden" style={{ height: 7, background: "var(--surface2)" }}>
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width:      `${progress}%`,
+              background: `linear-gradient(90deg, ${progressColor}, ${progressColor}99)`,
+              minWidth:   progress > 0 ? 12 : 0,
+            }}
+          />
+        </div>
+      </div>
+
+      <div
+        className="rounded-2xl p-4 sm:p-5 w-full"
+        style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Plus size={13} style={{ color: "var(--accent)" }} />
+          <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
+            Plan for Tomorrow
+          </p>
+          <span
+            className="ml-auto text-[11px] font-mono"
+            style={{ color: tasks.length >= MAX_TASKS ? "#f87171" : "var(--text4)" }}
+          >
+            {tasks.length}/{MAX_TASKS}
+          </span>
+        </div>
+
+        <div className="flex gap-2 w-full">
+          <div className="relative flex-1 min-w-0">
+            <input
+              ref={inputRef}
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value.slice(0, MAX_CHAR))}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+              placeholder="What needs to be done tomorrow?"
+              disabled={tasks.length >= MAX_TASKS || adding}
+              className="w-full rounded-xl px-4 py-3 text-[14px] outline-none transition-all disabled:opacity-50"
+              style={{
+                background:   "var(--surface2)",
+                border:       "1px solid var(--border2)",
+                color:        "var(--text)",
+                paddingRight: "4rem",
+                boxSizing:    "border-box",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = "rgba(124,110,243,0.5)";
+                e.currentTarget.style.boxShadow   = "0 0 0 3px rgba(124,110,243,0.08)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = "var(--border2)";
+                e.currentTarget.style.boxShadow   = "none";
+              }}
+            />
+            <span
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-mono pointer-events-none"
+              style={{ color: inputVal.length > MAX_CHAR - 20 ? "#f59e0b" : "var(--text4)" }}
+            >
+              {inputVal.length}/{MAX_CHAR}
+            </span>
+          </div>
+
+          <button
+            onClick={handleAdd}
+            disabled={adding || !inputVal.trim() || tasks.length >= MAX_TASKS}
+            className="flex items-center gap-1.5 px-4 py-3 rounded-xl text-[13px] font-semibold border-none cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            style={{
+              background: "var(--accent)",
+              color:      "#fff",
+              boxShadow:  "0 0 20px rgba(124,110,243,0.25)",
+              minWidth:   "80px",
+              justifyContent: "center",
+            }}
+          >
+            {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            <span>Add</span>
+          </button>
+        </div>
+
+        {tasks.length >= MAX_TASKS && (
+          <div className="flex items-center gap-2 mt-2">
+            <AlertCircle size={13} style={{ color: "#f87171" }} />
+            <p className="text-[12px]" style={{ color: "#f87171" }}>
+              Daily limit of {MAX_TASKS} tasks reached.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div
+        className="rounded-2xl overflow-hidden w-full"
+        style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
+      >
+        <div
+          className="px-4 sm:px-5 py-3.5 flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap"
+          style={{ borderBottom: "1px solid var(--border2)" }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <CalendarDays size={15} style={{ color: "var(--accent)" }} />
+            <p className="text-[13px] font-semibold truncate" style={{ color: "var(--text)" }}>
+              Tomorrow&apos;s Tasks
+            </p>
+            <span
+              className="text-[11px] font-mono px-2 py-0.5 rounded-full shrink-0"
+              style={{ background: "rgba(124,110,243,0.10)", color: "var(--accent)" }}
+            >
+              {fmtDate(tomorrowISO()).split(",")[0]}
+            </span>
+          </div>
+
+          {tasks.length > 0 && !allDone && (
+            <button
+              onClick={handleMarkAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border-none cursor-pointer transition-all shrink-0"
+              style={{
+                background: "rgba(34,211,160,0.10)",
+                color:      "#22d3a0",
+                border:     "1px solid rgba(34,211,160,0.22)",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(34,211,160,0.20)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(34,211,160,0.10)"; }}
+            >
+              <CheckCheck size={13} />
+              Mark All Done
+            </button>
+          )}
+        </div>
+
+        <div className="p-3 sm:p-4 flex flex-col gap-2.5">
+          {tasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                style={{ background: "var(--surface2)" }}
+              >
+                <CalendarDays size={24} style={{ color: "var(--text4)" }} />
+              </div>
+              <p className="text-[14px] font-medium" style={{ color: "var(--text3)" }}>No tasks planned yet</p>
+              <p className="text-[12px] text-center max-w-xs" style={{ color: "var(--text4)" }}>
+                Plan up to {MAX_TASKS} tasks for tomorrow to get a head start.
+              </p>
+            </div>
+          ) : (
+            <>
+              {incompleteTasks.map((task) => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onToggle={handleToggle}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                />
+              ))}
+
+              {incompleteTasks.length > 0 && completedTasks.length > 0 && (
+                <div className="flex items-center gap-3 my-1">
+                  <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text4)" }}>
+                    Completed
+                  </span>
+                  <div className="flex-1 h-px" style={{ background: "var(--border)" }} />
+                </div>
+              )}
+
               {completedTasks.map((task) => (
                 <TaskItem
                   key={task.id}
@@ -951,7 +1323,6 @@ function HistoryTab() {
 
   return (
     <div className="flex flex-col gap-5 w-full">
-      {/* Summary strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: "Days Tracked", value: totalDays,        color: "var(--accent)" },
@@ -982,7 +1353,7 @@ function HistoryTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TodoPage() {
-  const [tab, setTab]           = useState<"today" | "history">("today");
+  const [tab, setTab]           = useState<"today" | "tomorrow" | "history">("today");
   const [userName, setUserName] = useState("");
 
   useEffect(() => {
@@ -993,15 +1364,14 @@ export default function TodoPage() {
   }, []);
 
   const TABS = [
-    { key: "today",   label: "Today's Tasks", icon: ListTodo },
-    { key: "history", label: "History",        icon: History  },
+    { key: "today",    label: "Today's Tasks",    icon: ListTodo     },
+    { key: "tomorrow", label: "Tomorrow's Tasks", icon: CalendarDays },
+    { key: "history",  label: "History",          icon: History      },
   ] as const;
 
   return (
-    // Full width — no max-w constraint, uses all available dashboard space
     <div className="flex flex-col gap-4 w-full px-0">
 
-      {/* ── Header: title left, tabs right ── */}
       <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
         <div className="flex items-center gap-2.5">
           <div
@@ -1023,7 +1393,6 @@ export default function TodoPage() {
           </div>
         </div>
 
-        {/* Tabs */}
         <div
           className="flex items-center gap-1 p-1 rounded-2xl"
           style={{ background: "var(--surface)", border: "1px solid var(--border2)" }}
@@ -1046,10 +1415,10 @@ export default function TodoPage() {
         </div>
       </div>
 
-      {/* ── Tab content — full width ── */}
       <div className="w-full">
-        {tab === "today"   && <TodayTab userName={userName} />}
-        {tab === "history" && <HistoryTab />}
+        {tab === "today"    && <TodayTab userName={userName} />}
+        {tab === "tomorrow" && <TomorrowTab userName={userName} />}
+        {tab === "history"  && <HistoryTab />}
       </div>
     </div>
   );

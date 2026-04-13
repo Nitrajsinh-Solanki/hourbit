@@ -1,9 +1,9 @@
-
 // app/api/todo/route.ts
+// UPDATED VERSION WITH DATE PARAMETER SUPPORT
 // GET  → fetch todo document for a given date (default: today)
-// POST → create / upsert todo document for today
-// PATCH → update task (edit text, toggle complete, reorder, mark-all)
-// DELETE → delete a single task
+// POST → create / upsert todo document for specified date (default: today)
+// PATCH → update task (edit text, toggle complete, mark-all) for specified date
+// DELETE → delete a single task from specified date
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -64,13 +64,14 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST /api/todo — add a new task ──────────────────────────────────────────
+// Now supports optional `date` field in body to add tasks for any date
 
 export async function POST(req: NextRequest) {
   const user = await getUser();
   if (!user)
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
 
-  let body: { text: string };
+  let body: { text: string; date?: string };
   try { body = await req.json(); } catch {
     return NextResponse.json({ success: false, message: "Invalid body" }, { status: 400 });
   }
@@ -83,7 +84,8 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const date = todayISO();
+  // Support custom date or default to today
+  const date = body.date || todayISO();
   const existing = await Todo.findOne({ userId: user.userId, date });
 
   if (existing && existing.tasks.length >= MAX_TASKS) {
@@ -117,6 +119,7 @@ export async function POST(req: NextRequest) {
 }
 
 // ── PATCH /api/todo — edit, toggle, mark-all, mark-toast-shown ───────────────
+// Now supports optional `date` field in body to modify tasks for any date
 
 export async function PATCH(req: NextRequest) {
   const user = await getUser();
@@ -135,6 +138,7 @@ export async function PATCH(req: NextRequest) {
 
   await connectDB();
 
+  // Support custom date or default to today
   const date = body.date || todayISO();
   const todo = await Todo.findOne({ userId: user.userId, date });
 
@@ -191,6 +195,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 // ── DELETE /api/todo?taskId=xxx&date=YYYY-MM-DD ───────────────────────────────
+// Now properly supports date parameter to delete tasks from any date
 
 export async function DELETE(req: NextRequest) {
   const user = await getUser();
