@@ -71,6 +71,82 @@ function minsToHHMM(mins: number | null): string | null {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// ---------- PROPER CALENDAR WEEK BUILDER ----------
+// Weeks are Mon–Fri calendar weeks.
+// Week 1 starts on day 1 of the month and ends on the nearest Friday (or last day of month).
+// Each subsequent week starts on the next Monday after the previous week's Friday.
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function buildCalendarWeeks(
+  dailyData: any[],
+  year: number,
+  month: number
+): {
+  weekNum: number;
+  days: any[];
+  totalProductiveH: number;
+  totalRequiredH: number;
+  startDay: number;
+  endDay: number;
+  startDate: string;
+  endDate: string;
+  label: string;
+}[] {
+  const weeks: ReturnType<typeof buildCalendarWeeks> = [];
+  const daysInMonth = dailyData.length;
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+
+  let weekStart = 1;
+  let weekNum   = 1;
+
+  while (weekStart <= daysInMonth) {
+    // Determine the day-of-week for weekStart (0=Sun,1=Mon,...,6=Sat)
+    const startDow = new Date(year, month - 1, weekStart).getDay();
+
+    // Days until Friday from weekStart (inclusive):
+    // If already Friday (5), daysToFri=0. If Saturday(6) or Sunday(0), we skip to next Monday instead.
+    const daysToFri = (5 - startDow + 7) % 7;
+    const weekEnd   = Math.min(weekStart + daysToFri, daysInMonth);
+
+    const weekDays = dailyData.filter((d: any) => d.day >= weekStart && d.day <= weekEnd);
+
+    const wReq = weekDays.reduce((a: number, d: any) => {
+      if (d.isFuture || d.isHoliday) return a;
+      if (d.isWeekend && !d.hasEntry) return a;
+      return a + d.requiredH;
+    }, 0);
+
+    const wProd = weekDays.reduce((a: number, d: any) => a + d.productiveH, 0);
+
+    const monthShort = MONTHS_SHORT[month - 1];
+    const startDateStr = `${weekStart} ${monthShort}`;
+    const endDateStr   = `${weekEnd} ${monthShort}`;
+
+    weeks.push({
+      weekNum,
+      days:             weekDays,
+      totalProductiveH: Math.round(wProd * 100) / 100,
+      totalRequiredH:   Math.round(wReq  * 100) / 100,
+      startDay:  weekStart,
+      endDay:    weekEnd,
+      startDate: startDateStr,
+      endDate:   endDateStr,
+      label:     `${startDateStr} – ${endDateStr}`,
+    });
+
+    // Next week starts the following Monday after weekEnd
+    const endDow    = new Date(year, month - 1, weekEnd).getDay();
+    // Days until the next Monday (1)
+    const daysToMon = (8 - endDow) % 7 || 7;
+    weekStart       = weekEnd + daysToMon;
+    weekNum++;
+
+    if (weekStart > daysInMonth) break;
+  }
+
+  return weeks;
+}
+
 export async function GET(req: Request) {
   try {
     const cookieStore = await cookies();
@@ -220,22 +296,8 @@ export async function GET(req: Request) {
 
     const totalWorkDays = stdWorkDays.length + weekendDays.filter(d => d.hasEntry).length;
 
-    // Weekly breakdown
-    const weeks: { weekNum: number; days: typeof dailyData; totalProductiveH: number; totalRequiredH: number }[] = [];
-    for (let i = 0; i < dailyData.length; i += 7) {
-      const slice = dailyData.slice(i, i + 7);
-      const wReq  = slice.reduce((a, d) => {
-        if (d.isFuture || d.isHoliday) return a;
-        if (d.isWeekend && !d.hasEntry) return a;
-        return a + d.requiredH;
-      }, 0);
-      weeks.push({
-        weekNum:          weeks.length + 1,
-        days:             slice,
-        totalProductiveH: Math.round(slice.reduce((a, d) => a + d.productiveH, 0) * 100) / 100,
-        totalRequiredH:   Math.round(wReq * 100) / 100,
-      });
-    }
+    // ─── Build proper calendar weeks (Mon–Fri) ─────────────────────────────
+    const weeks = buildCalendarWeeks(dailyData, year, month);
 
     // Entry/exit timing — only fully-counted days
     const entryMins: number[] = [];
@@ -317,6 +379,8 @@ export async function GET(req: Request) {
         totalWeekends:    weekendDays.length,
         totalProductiveH, totalOfficeH, totalBreakH, totalRequiredH,
         overtimeH, underworkH, consistencyScore,
+
+        // Proper calendar weeks — each with startDay, endDay, label, date range
         weeks,
 
         avgEntryTime:  minsToHHMM(avgArr(entryMins)),

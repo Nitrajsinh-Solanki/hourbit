@@ -11,7 +11,7 @@ import {
   ChevronLeft, ChevronRight, RefreshCw, AlertCircle,
   ArrowUpDown, TrendingUp, TrendingDown, CheckCircle2,
   CalendarDays, Clock, Coffee, BarChart2,
-  Zap, Target, Award, Activity,
+  Zap, Target, Award, Activity, Calendar,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,7 +22,17 @@ interface DayData {
   entryTimeLocal: string | null; exitTimeLocal: string | null;
   notes: string; breaks: { type: string; duration: number }[];
 }
-interface WeekSummary { weekNum: number; days: DayData[]; totalProductiveH: number; totalRequiredH: number; }
+interface WeekSummary {
+  weekNum: number;
+  days: DayData[];
+  totalProductiveH: number;
+  totalRequiredH: number;
+  startDay: number;
+  endDay: number;
+  startDate: string; // e.g. "1 Apr"
+  endDate: string;   // e.g. "3 Apr"
+  label: string;     // e.g. "Apr 1 – Apr 3"
+}
 interface AnalysisData {
   year: number; month: number; daysInMonth: number; dailyData: DayData[];
   totalLoggedDays: number; totalWorkDays: number; totalMissingDays: number;
@@ -49,6 +59,7 @@ type RowFilter = "all" | "logged" | "missed" | "overtime" | "underwork";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MONTHS    = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const ROWS_PER_PAGE = 8;
 const ACCENT = "#7c6ef3";
@@ -88,6 +99,158 @@ function fmtMins(m: number) {
   return `${h}:${pad2(min)}`;
 }
 
+// ─── Build Proper Calendar Weeks ──────────────────────────────────────────────
+// Weeks are Mon–Fri calendar weeks. The first week starts on day 1 of the month
+// and ends on the nearest Friday (or last day of month). Each subsequent week
+// starts on the next Monday and ends on Friday (or end of month).
+function buildCalendarWeeks(days: DayData[], year: number, month: number): WeekSummary[] {
+  const weeks: WeekSummary[] = [];
+  const daysInMonth = days.length;
+
+  // Find the day-of-week of day 1 (0=Sun,1=Mon,...,6=Sat)
+  const firstDow = new Date(year, month - 1, 1).getDay();
+
+  // Find the first Friday on or after day 1
+  // dow: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+  // Days until Friday from firstDow:
+  const daysUntilFriday = (5 - firstDow + 7) % 7;
+  // If day 1 itself is a Saturday or Sunday, we still start week 1 from day 1
+  // Week ends on the first Friday >= day 1
+
+  let weekStart = 1; // 1-indexed day
+  let weekNum   = 1;
+
+  while (weekStart <= daysInMonth) {
+    // Determine the day-of-week for weekStart
+    const startDow = new Date(year, month - 1, weekStart).getDay();
+
+    // Find the next Friday from weekStart (inclusive)
+    const daysToFri = (5 - startDow + 7) % 7;
+    let weekEnd = Math.min(weekStart + daysToFri, daysInMonth);
+
+    // Slice the days for this week
+    const weekDays = days.filter(d => d.day >= weekStart && d.day <= weekEnd);
+
+    const wReq = weekDays.reduce((a, d) => {
+      if (d.isFuture || d.isHoliday) return a;
+      if (d.isWeekend && !d.hasEntry) return a;
+      return a + d.requiredH;
+    }, 0);
+
+    const wProd = weekDays.reduce((a, d) => a + d.productiveH, 0);
+
+    const startDateStr = `${weekStart} ${MONTHS_SHORT[month - 1]}`;
+    const endDateStr   = `${weekEnd} ${MONTHS_SHORT[month - 1]}`;
+
+    weeks.push({
+      weekNum,
+      days:             weekDays,
+      totalProductiveH: Math.round(wProd * 100) / 100,
+      totalRequiredH:   Math.round(wReq  * 100) / 100,
+      startDay:  weekStart,
+      endDay:    weekEnd,
+      startDate: startDateStr,
+      endDate:   endDateStr,
+      label:     `${startDateStr} – ${endDateStr}`,
+    });
+
+    // Next week starts the following Monday
+    // Move past the weekend after weekEnd
+    const endDow = new Date(year, month - 1, weekEnd).getDay();
+    // Days until next Monday
+    const daysToMon = (8 - endDow) % 7 || 7;
+    weekStart = weekEnd + daysToMon;
+    weekNum++;
+
+    // Safety: if weekStart > daysInMonth we're done
+    if (weekStart > daysInMonth) break;
+  }
+
+  return weeks;
+}
+
+// ─── Compute slice-level stats (for week filter or full month) ────────────────
+function computeSliceStats(days: DayData[]) {
+  const loggedDays  = days.filter(d => d.hasEntry && !d.isFuture);
+  const stdWorkDays = days.filter(d => !d.isWeekend && !d.isFuture && !d.isHoliday);
+  const missingDays = stdWorkDays.filter(d => !d.hasEntry);
+
+  let totalRequiredH = 0;
+  for (const d of days) {
+    if (d.isFuture || d.isHoliday) continue;
+    if (d.isWeekend) { if (d.hasEntry) totalRequiredH += d.requiredH; }
+    else totalRequiredH += d.requiredH;
+  }
+  totalRequiredH = Math.round(totalRequiredH * 100) / 100;
+
+  const totalProductiveH = Math.round(loggedDays.reduce((a, d) => a + d.productiveH, 0) * 100) / 100;
+  const totalBreakH      = Math.round(loggedDays.reduce((a, d) => a + d.breakH, 0) * 100) / 100;
+  const overtimeH        = Math.round(Math.max(0, totalProductiveH - totalRequiredH) * 100) / 100;
+  const underworkH       = Math.round(Math.max(0, totalRequiredH - totalProductiveH) * 100) / 100;
+  const consistencyScore = totalRequiredH > 0
+    ? Math.min(100, Math.round((totalProductiveH / totalRequiredH) * 100))
+    : 0;
+  const totalWorkDays = stdWorkDays.length;
+
+  const entryMins: number[] = [];
+  const exitMins:  number[] = [];
+  for (const d of loggedDays) {
+    const e = timeToMins(d.entryTimeLocal);
+    const x = timeToMins(d.exitTimeLocal);
+    if (d.entryTimeLocal) entryMins.push(e);
+    if (d.exitTimeLocal)  exitMins.push(x);
+  }
+  const avgArr = (a: number[]) => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null;
+  const minsToHHMM = (m: number | null) => {
+    if (m === null) return null;
+    return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+  };
+
+  const sorted   = [...loggedDays].sort((a, b) => b.productiveH - a.productiveH);
+  const bestDay  = sorted[0]                 ?? null;
+  const worstDay = sorted[sorted.length - 1] ?? null;
+
+  // Break breakdown
+  let teaC = 0, lunchC = 0, customC = 0;
+  let teaS = 0, lunchS = 0, customS = 0;
+  let longestBreakMins = 0, maxBreaksInDay = 0;
+  for (const d of loggedDays) {
+    const breaks = d.breaks ?? [];
+    if (breaks.length > maxBreaksInDay) maxBreaksInDay = breaks.length;
+    for (const b of breaks) {
+      const durMins = Math.round((b.duration ?? 0) / 60);
+      if (b.type === "tea")        { teaC++;    teaS    += b.duration ?? 0; }
+      else if (b.type === "lunch") { lunchC++;  lunchS  += b.duration ?? 0; }
+      else                         { customC++; customS += b.duration ?? 0; }
+      if (durMins > longestBreakMins) longestBreakMins = durMins;
+    }
+  }
+  const totalBreakCount = teaC + lunchC + customC;
+  const avgBreakMins    = totalBreakCount > 0
+    ? Math.round(((teaS + lunchS + customS) / totalBreakCount) / 60)
+    : 0;
+
+  return {
+    loggedDays: loggedDays.length,
+    totalWorkDays,
+    missingDays: missingDays.length,
+    totalProductiveH, totalBreakH, totalRequiredH,
+    overtimeH, underworkH, consistencyScore,
+    avgEntryTime:  minsToHHMM(avgArr(entryMins)),
+    avgExitTime:   minsToHHMM(avgArr(exitMins)),
+    earliestEntry: minsToHHMM(entryMins.length ? Math.min(...entryMins) : null),
+    latestExit:    minsToHHMM(exitMins.length  ? Math.max(...exitMins)  : null),
+    bestDay:  bestDay  ? { day: bestDay.day,  productiveH: bestDay.productiveH  } : null,
+    worstDay: worstDay ? { day: worstDay.day, productiveH: worstDay.productiveH } : null,
+    breakBreakdown: {
+      tea:    { count: teaC,    totalH: Math.round((teaS    / 3600) * 100) / 100 },
+      lunch:  { count: lunchC,  totalH: Math.round((lunchS  / 3600) * 100) / 100 },
+      custom: { count: customC, totalH: Math.round((customS / 3600) * 100) / 100 },
+    },
+    longestBreakMins, maxBreaksInDay, avgBreakMins,
+  };
+}
+
 // ─── Month Nav ────────────────────────────────────────────────────────────────
 function MonthNav({ year, month, onChange }: { year: number; month: number; onChange: (y: number, m: number) => void }) {
   const now = new Date(), ty = now.getFullYear(), tm = now.getMonth() + 1;
@@ -120,6 +283,100 @@ function MonthNav({ year, month, onChange }: { year: number; month: number; onCh
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = canNext ? "var(--text3)" : "var(--text4)"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
         <ChevronRight size={14} />
       </button>
+    </div>
+  );
+}
+
+// ─── Week Selector ────────────────────────────────────────────────────────────
+function WeekSelector({
+  weeks,
+  selectedWeek,
+  onChange,
+}: {
+  weeks: WeekSummary[];
+  selectedWeek: number | null; // null = full month
+  onChange: (wNum: number | null) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {/* "All" / Month button */}
+      <button
+        onClick={() => onChange(null)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-[11px] cursor-pointer border-none transition-all"
+        style={
+          selectedWeek === null
+            ? { background: ACCENT, color: "#fff", boxShadow: `0 0 12px ${ACCENT}55` }
+            : { background: "var(--surface)", color: "var(--text3)", border: "1px solid var(--border)" }
+        }
+      >
+        <Calendar size={10} />
+        Full Month
+      </button>
+
+      {/* Week buttons */}
+      {weeks.map(w => {
+        const isActive = selectedWeek === w.weekNum;
+        return (
+          <button
+            key={w.weekNum}
+            onClick={() => onChange(w.weekNum)}
+            title={w.label}
+            className="flex flex-col items-center px-3 py-1 rounded-xl font-mono cursor-pointer border-none transition-all"
+            style={
+              isActive
+                ? { background: ACCENT, color: "#fff", boxShadow: `0 0 12px ${ACCENT}55` }
+                : { background: "var(--surface)", color: "var(--text3)", border: "1px solid var(--border)" }
+            }
+          >
+            <span className="text-[11px] font-bold leading-tight">W{w.weekNum}</span>
+            <span className="text-[8px] leading-tight opacity-80">{w.startDate.split(" ")[0]}–{w.endDate.split(" ")[0]}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Week Info Banner ─────────────────────────────────────────────────────────
+function WeekBanner({ week }: { week: WeekSummary }) {
+  const pct = week.totalRequiredH > 0
+    ? Math.min(100, Math.round((week.totalProductiveH / week.totalRequiredH) * 100))
+    : 0;
+  const color = pct >= 100 ? GREEN : pct >= 75 ? ACCENT : DANGER;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-4 px-4 py-3 rounded-2xl"
+      style={{
+        background: `linear-gradient(135deg, ${ACCENT}12, ${BLUE}08)`,
+        border: `1px solid ${ACCENT}28`,
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-xl flex items-center justify-center"
+          style={{ background: `${ACCENT}1a`, border: `1px solid ${ACCENT}28` }}>
+          <Calendar size={13} style={{ color: ACCENT }} />
+        </div>
+        <div>
+          <p className="font-mono font-black text-[13px]" style={{ color: "var(--text)" }}>
+            Week {week.weekNum} — {week.label}
+          </p>
+          <p className="font-mono text-[10px]" style={{ color: "var(--text4)" }}>
+            Showing data for this week only
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 ml-auto flex-wrap">
+        {[
+          { label: "Productive", value: fmtH(week.totalProductiveH), color: ACCENT },
+          { label: "Required",   value: fmtH(week.totalRequiredH),   color: "var(--text3)" },
+          { label: "Progress",   value: `${pct}%`,                   color },
+        ].map(({ label, value, color: c }) => (
+          <div key={label} className="text-center">
+            <p className="font-mono text-[8px] uppercase tracking-wider" style={{ color: "var(--text4)" }}>{label}</p>
+            <p className="font-mono font-bold text-[14px]" style={{ color: c }}>{value}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -234,7 +491,11 @@ function RadialProgress({ value, color, size = 84, label }: {
 }
 
 // ─── Heatmap Calendar ─────────────────────────────────────────────────────────
-function HeatmapCalendar({ days, year, month, maxH }: { days: DayData[]; year: number; month: number; maxH: number }) {
+function HeatmapCalendar({
+  days, year, month, maxH, highlightWeek,
+}: {
+  days: DayData[]; year: number; month: number; maxH: number; highlightWeek: WeekSummary | null;
+}) {
   const [hov, setHov] = useState<number | null>(null);
   const firstDow = new Date(year, month - 1, 1).getDay();
   function cellBg(d: DayData): string {
@@ -261,16 +522,21 @@ function HeatmapCalendar({ days, year, month, maxH }: { days: DayData[]; year: n
         {Array.from({ length: firstDow }, (_, i) => <div key={`e${i}`} className="h-7" />)}
         {days.map(d => {
           const isHov = hov === d.day;
+          const inHighlight = highlightWeek
+            ? d.day >= highlightWeek.startDay && d.day <= highlightWeek.endDay
+            : false;
+          const dimmed = highlightWeek && !inHighlight;
           return (
             <div key={d.day}
               className="relative flex items-center justify-center rounded-lg select-none cursor-default"
               style={{
                 height: 28, background: cellBg(d),
-                border: isHov ? `1.5px solid ${ACCENT}` : "1.5px solid transparent",
+                border: isHov ? `1.5px solid ${ACCENT}` : inHighlight ? `1.5px solid ${ACCENT}88` : "1.5px solid transparent",
                 transform: isHov ? "scale(1.18)" : "scale(1)",
-                transition: "transform 0.12s ease, box-shadow 0.12s ease",
+                transition: "transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease",
                 zIndex: isHov ? 10 : 1,
-                boxShadow: isHov ? `0 0 14px ${ACCENT}55` : "none",
+                boxShadow: isHov ? `0 0 14px ${ACCENT}55` : inHighlight ? `0 0 6px ${ACCENT}22` : "none",
+                opacity: dimmed ? 0.35 : 1,
               }}
               onMouseEnter={() => setHov(d.day)} onMouseLeave={() => setHov(null)}>
               <span className="font-mono leading-none"
@@ -502,14 +768,15 @@ function DailyLogTable({ days, year, month }: { days: DayData[]; year: number; m
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function AnalysisPage() {
   const now = new Date();
-  const [year,    setYear]    = useState(now.getFullYear());
-  const [month,   setMonth]   = useState(now.getMonth() + 1);
-  const [data,    setData]    = useState<AnalysisData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState("");
+  const [year,         setYear]         = useState(now.getFullYear());
+  const [month,        setMonth]        = useState(now.getMonth() + 1);
+  const [data,         setData]         = useState<AnalysisData | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState("");
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null); // null = full month
 
   const load = useCallback(async (y: number, m: number) => {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setSelectedWeek(null);
     try {
       const res  = await fetch(`/api/work/analysis?year=${y}&month=${m}`);
       const json = await res.json();
@@ -521,58 +788,107 @@ export default function AnalysisPage() {
 
   useEffect(() => { load(year, month); }, [year, month, load]);
 
+  // ─── Build proper calendar weeks ──────────────────────────────────────────
+  const calendarWeeks = useMemo(() => {
+    if (!data) return [];
+    return buildCalendarWeeks(data.dailyData, data.year, data.month);
+  }, [data]);
+
+  // ─── Active week object ────────────────────────────────────────────────────
+  const activeWeek = useMemo(() => {
+    if (selectedWeek === null) return null;
+    return calendarWeeks.find(w => w.weekNum === selectedWeek) ?? null;
+  }, [calendarWeeks, selectedWeek]);
+
+  // ─── Days to show: full month or filtered week ────────────────────────────
+  const activeDays = useMemo(() => {
+    if (!data) return [];
+    if (activeWeek) return activeWeek.days;
+    return data.dailyData;
+  }, [data, activeWeek]);
+
+  // ─── Computed slice stats (re-derived from activeDays) ────────────────────
+  const sliceStats = useMemo(() => {
+    if (!data) return null;
+    if (activeWeek) {
+      return computeSliceStats(activeWeek.days);
+    }
+    // Full month — use server-computed values
+    return {
+      loggedDays:      data.totalLoggedDays,
+      totalWorkDays:   data.totalWorkDays,
+      missingDays:     data.totalMissingDays,
+      totalProductiveH: data.totalProductiveH,
+      totalBreakH:     data.totalBreakH,
+      totalRequiredH:  data.totalRequiredH,
+      overtimeH:       data.overtimeH,
+      underworkH:      data.underworkH,
+      consistencyScore: data.consistencyScore,
+      avgEntryTime:    data.avgEntryTime,
+      avgExitTime:     data.avgExitTime,
+      earliestEntry:   data.earliestEntry,
+      latestExit:      data.latestExit,
+      bestDay:         data.bestDay,
+      worstDay:        data.worstDay,
+      breakBreakdown:  data.breakBreakdown,
+      longestBreakMins: data.longestBreakMins,
+      avgBreakMins:    data.avgBreakMins,
+      maxBreaksInDay:  data.maxBreaksInDay,
+    };
+  }, [data, activeWeek]);
+
   const maxH = useMemo(() => {
     if (!data) return 10;
     return Math.max(...data.dailyData.map(d => Math.max(d.productiveH, d.requiredH)), 1);
   }, [data]);
 
-  // Chart data
+  // ─── Chart data derived from activeDays ───────────────────────────────────
   const dailyChartData = useMemo(() => {
-    if (!data) return [];
-    return data.dailyData.filter(d => !d.isWeekend && !d.isFuture && !d.isHoliday).map(d => ({
-      name: `${DOW_SHORT[d.dow]} ${d.day}`,
-      productive: Math.round(d.productiveH * 100) / 100,
-      required: Math.round(d.requiredH * 100) / 100,
-      break: Math.round(d.breakH * 100) / 100,
-      status: !d.hasEntry ? "missed" : d.productiveH >= d.requiredH ? "over" : "under",
-    }));
-  }, [data]);
+    return activeDays
+      .filter(d => !d.isWeekend && !d.isFuture && !d.isHoliday)
+      .map(d => ({
+        name: `${DOW_SHORT[d.dow]} ${d.day}`,
+        productive: Math.round(d.productiveH * 100) / 100,
+        required:   Math.round(d.requiredH   * 100) / 100,
+        break:      Math.round(d.breakH      * 100) / 100,
+        status: !d.hasEntry ? "missed" : d.productiveH >= d.requiredH ? "over" : "under",
+      }));
+  }, [activeDays]);
 
+  // Weekly chart: always show all calendar weeks for context, highlight active
   const weeklyChartData = useMemo(() => {
-    if (!data) return [];
-    const weeks = data.weeks?.length ? data.weeks : buildWeeks(data.dailyData);
-    return weeks.map(w => ({
-      name: `W${w.weekNum}`,
+    return calendarWeeks.map(w => ({
+      name:       `W${w.weekNum}`,
+      label:      w.label,
       productive: Math.round(w.totalProductiveH * 100) / 100,
-      required: Math.round(w.totalRequiredH * 100) / 100,
-      pct: w.totalRequiredH > 0 ? Math.round((w.totalProductiveH / w.totalRequiredH) * 100) : 0,
+      required:   Math.round(w.totalRequiredH   * 100) / 100,
+      pct:        w.totalRequiredH > 0
+        ? Math.round((w.totalProductiveH / w.totalRequiredH) * 100)
+        : 0,
+      isActive:   selectedWeek === w.weekNum,
     }));
-  }, [data]);
+  }, [calendarWeeks, selectedWeek]);
 
   const timingData = useMemo(() => {
-    if (!data) return [];
-    return data.dailyData.filter(d => d.hasEntry && !d.isHoliday && !d.isFuture).map(d => ({
-      name: `${DOW_SHORT[d.dow]} ${d.day}`,
-      entry: timeToMins(d.entryTimeLocal),
-      exit: timeToMins(d.exitTimeLocal),
-    }));
-  }, [data]);
+    return activeDays
+      .filter(d => d.hasEntry && !d.isHoliday && !d.isFuture)
+      .map(d => ({
+        name:  `${DOW_SHORT[d.dow]} ${d.day}`,
+        entry: timeToMins(d.entryTimeLocal),
+        exit:  timeToMins(d.exitTimeLocal),
+      }));
+  }, [activeDays]);
 
-  function buildWeeks(days: DayData[]): WeekSummary[] {
-    const wks: WeekSummary[] = [];
-    for (let i = 0; i < days.length; i += 7) {
-      const slice = days.slice(i, i + 7);
-      const wReq = slice.reduce((a, d) => {
-        if (d.isFuture || d.isHoliday || (d.isWeekend && !d.hasEntry)) return a;
-        return a + d.requiredH;
-      }, 0);
-      wks.push({ weekNum: wks.length + 1, days: slice, totalProductiveH: Math.round(slice.reduce((a,d)=>a+d.productiveH,0)*100)/100, totalRequiredH: Math.round(wReq*100)/100 });
-    }
-    return wks;
-  }
+  const attendancePct = sliceStats?.totalWorkDays
+    ? Math.round((sliceStats.loggedDays / sliceStats.totalWorkDays) * 100)
+    : 0;
 
-  const attendancePct = data?.totalWorkDays ? Math.round((data.totalLoggedDays / data.totalWorkDays) * 100) : 0;
-  const scoreColor = !data ? "var(--text)" : data.consistencyScore >= 90 ? GREEN : data.consistencyScore >= 75 ? ACCENT : data.consistencyScore >= 60 ? AMBER : DANGER;
+  const scoreColor = !sliceStats ? "var(--text)"
+    : sliceStats.consistencyScore >= 90 ? GREEN
+    : sliceStats.consistencyScore >= 75 ? ACCENT
+    : sliceStats.consistencyScore >= 60 ? AMBER
+    : DANGER;
+
   const isEmpty = !loading && !error && data && data.totalLoggedDays === 0;
 
   return (
@@ -586,7 +902,7 @@ export default function AnalysisPage() {
       `}</style>
 
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ana-fade">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between ana-fade">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl flex items-center justify-center"
             style={{ background:`${ACCENT}18`, border:`1px solid ${ACCENT}28` }}>
@@ -600,15 +916,26 @@ export default function AnalysisPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <MonthNav year={year} month={month} onChange={(y,m)=>{ setYear(y); setMonth(m); }} />
-          <button onClick={()=>load(year,month)} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-mono text-[12px] cursor-pointer transition-all border-none"
-            style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--text3)" }}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=ACCENT;(e.currentTarget as HTMLElement).style.color=ACCENT;}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor="var(--border)";(e.currentTarget as HTMLElement).style.color="var(--text3)";}}>
-            <RefreshCw size={11} className={loading?"animate-spin":""} />Refresh
-          </button>
+        <div className="flex flex-col gap-2 items-end">
+          {/* Month nav + Refresh */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <MonthNav year={year} month={month} onChange={(y,m)=>{ setYear(y); setMonth(m); }} />
+            <button onClick={()=>load(year,month)} disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-mono text-[12px] cursor-pointer transition-all border-none"
+              style={{ background:"var(--surface)", border:"1px solid var(--border)", color:"var(--text3)" }}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=ACCENT;(e.currentTarget as HTMLElement).style.color=ACCENT;}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor="var(--border)";(e.currentTarget as HTMLElement).style.color="var(--text3)";}}>
+              <RefreshCw size={11} className={loading?"animate-spin":""} />Refresh
+            </button>
+          </div>
+          {/* Week Selector — shown when data is ready */}
+          {!loading && !error && data && data.totalLoggedDays > 0 && calendarWeeks.length > 0 && (
+            <WeekSelector
+              weeks={calendarWeeks}
+              selectedWeek={selectedWeek}
+              onChange={setSelectedWeek}
+            />
+          )}
         </div>
       </div>
 
@@ -637,62 +964,80 @@ export default function AnalysisPage() {
         </div>
       )}
 
-      {!loading && !error && data && data.totalLoggedDays > 0 && (
+      {!loading && !error && data && data.totalLoggedDays > 0 && sliceStats && (
         <>
+          {/* Week Banner — shown when a week is selected */}
+          {activeWeek && (
+            <div className="ana-fade">
+              <WeekBanner week={activeWeek} />
+            </div>
+          )}
+
           {/* KPI Row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 ana-fade ana-d1">
-            <KpiCard label="Attendance" value={`${attendancePct}%`}
-              sub={`${data.totalLoggedDays} of ${data.totalWorkDays} days · ${data.totalMissingDays} missed`}
-              color={attendancePct===100?GREEN:attendancePct>=80?ACCENT:DANGER} icon={CalendarDays} />
-            <KpiCard label="Productive Hours" value={fmtH(data.totalProductiveH)}
-              sub={`of ${fmtH(data.totalRequiredH)} required`} color={ACCENT} icon={Zap} />
-            <KpiCard label="Consistency Score" value={`${data.consistencyScore}%`}
-              sub={data.consistencyScore>=90?"Excellent ✦":data.consistencyScore>=75?"Good":data.consistencyScore>=60?"Needs work":"Below target"}
-              color={scoreColor} icon={CheckCircle2} />
-           
-
-<KpiCard
-  label={
-    data.overtimeH > 0
-      ? "Overtime Banked"
-      : data.underworkH > 0
-      ? "Hours Shortfall"
-      : "On Target"
-  }
-  value={
-    data.overtimeH > 0
-      ? fmtH(data.overtimeH)
-      : data.underworkH > 0
-      ? fmtH(data.underworkH)
-      : "✓"
-  }
-  sub={
-    data.overtimeH > 0
-      ? "extra hours this month"
-      : data.underworkH > 0
-      ? "below target this month"
-      : "productive hours match target"
-  }
-  color={
-    data.overtimeH > 0
-      ? GREEN
-      : data.underworkH > 0
-      ? (data.underworkH > 10 ? DANGER : AMBER)
-      : GREEN
-  }
-  icon={
-    data.overtimeH > 0
-      ? TrendingUp
-      : data.underworkH > 0
-      ? TrendingDown
-      : CheckCircle2
-  }
-/>
+            <KpiCard
+              label="Attendance"
+              value={`${attendancePct}%`}
+              sub={`${sliceStats.loggedDays} of ${sliceStats.totalWorkDays} days · ${sliceStats.missingDays} missed`}
+              color={attendancePct===100?GREEN:attendancePct>=80?ACCENT:DANGER}
+              icon={CalendarDays}
+            />
+            <KpiCard
+              label="Productive Hours"
+              value={fmtH(sliceStats.totalProductiveH)}
+              sub={`of ${fmtH(sliceStats.totalRequiredH)} required`}
+              color={ACCENT}
+              icon={Zap}
+            />
+            <KpiCard
+              label="Consistency Score"
+              value={`${sliceStats.consistencyScore}%`}
+              sub={
+                sliceStats.consistencyScore>=90 ? "Excellent ✦"
+                : sliceStats.consistencyScore>=75 ? "Good"
+                : sliceStats.consistencyScore>=60 ? "Needs work"
+                : "Below target"
+              }
+              color={scoreColor}
+              icon={CheckCircle2}
+            />
+            <KpiCard
+              label={
+                sliceStats.overtimeH > 0 ? "Overtime Banked"
+                : sliceStats.underworkH > 0 ? "Hours Shortfall"
+                : "On Target"
+              }
+              value={
+                sliceStats.overtimeH > 0 ? fmtH(sliceStats.overtimeH)
+                : sliceStats.underworkH > 0 ? fmtH(sliceStats.underworkH)
+                : "✓"
+              }
+              sub={
+                sliceStats.overtimeH > 0 ? "extra hours this period"
+                : sliceStats.underworkH > 0 ? "below target this period"
+                : "productive hours match target"
+              }
+              color={
+                sliceStats.overtimeH > 0 ? GREEN
+                : sliceStats.underworkH > 0
+                  ? (sliceStats.underworkH > 10 ? DANGER : AMBER)
+                : GREEN
+              }
+              icon={
+                sliceStats.overtimeH > 0 ? TrendingUp
+                : sliceStats.underworkH > 0 ? TrendingDown
+                : CheckCircle2
+              }
+            />
           </div>
 
           {/* Daily Area Chart */}
           <Panel className="ana-fade ana-d2">
-            <SectionHeader icon={BarChart2} title="Daily Productive Hours" sub="Each work day vs your required target" />
+            <SectionHeader
+              icon={BarChart2}
+              title={activeWeek ? `Daily Hours — Week ${activeWeek.weekNum} (${activeWeek.label})` : "Daily Productive Hours"}
+              sub={activeWeek ? "This week's days vs your required target" : "Each work day vs your required target"}
+            />
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={dailyChartData} margin={{ top:10, right:8, left:-20, bottom:0 }}>
                 <defs>
@@ -707,7 +1052,7 @@ export default function AnalysisPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis dataKey="name" tick={{ fill:"var(--text4)", fontSize:9, fontFamily:"monospace" }}
-                  axisLine={false} tickLine={false} interval={Math.floor(dailyChartData.length/8)} />
+                  axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(dailyChartData.length/8))} />
                 <YAxis tick={{ fill:"var(--text4)", fontSize:9, fontFamily:"monospace" }}
                   axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`} />
                 <Tooltip content={<ChartTooltip formatter={(v:number)=>`${v}h`} />} />
@@ -736,24 +1081,72 @@ export default function AnalysisPage() {
           {/* Mid Row: Weekly + Radials + Heatmap */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 ana-fade ana-d3">
 
-            {/* Weekly bars */}
+            {/* Weekly bars — always shows all calendar weeks */}
             <Panel>
-              <SectionHeader icon={Target} title="Weekly Summary" sub="Productive vs required per week" color={BLUE} />
+              <SectionHeader icon={Target} title="Weekly Summary" sub="Proper Mon–Fri calendar weeks" color={BLUE} />
               {weeklyChartData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={weeklyChartData} margin={{ top:5, right:5, left:-24, bottom:0 }} barGap={3}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill:"var(--text4)", fontSize:10, fontFamily:"monospace" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill:"var(--text4)", fontSize:9, fontFamily:"monospace" }} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`} />
-                    <Tooltip content={<ChartTooltip formatter={(v:number)=>`${v}h`} />} />
-                    <Bar dataKey="required" name="Required" fill="rgba(255,255,255,0.05)" radius={[4,4,0,0]} />
-                    <Bar dataKey="productive" name="Productive" radius={[4,4,0,0]}>
-                      {weeklyChartData.map((entry,i)=>(
-                        <Cell key={i} fill={entry.pct>=100?GREEN:entry.pct>=75?ACCENT:DANGER}/>
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={weeklyChartData} margin={{ top:5, right:5, left:-24, bottom:0 }} barGap={3}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fill:"var(--text4)", fontSize:10, fontFamily:"monospace" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill:"var(--text4)", fontSize:9, fontFamily:"monospace" }} axisLine={false} tickLine={false} tickFormatter={v=>`${v}h`} />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const wk = calendarWeeks.find(w => `W${w.weekNum}` === label);
+                          return (
+                            <div className="rounded-xl px-3 py-2.5" style={{
+                              background:"var(--surface)", border:"1px solid var(--border2)",
+                              boxShadow:"0 8px 32px rgba(0,0,0,0.4)",
+                            }}>
+                              <p className="font-mono text-[11px] font-bold mb-1" style={{ color:"var(--text)" }}>{label}</p>
+                              {wk && <p className="font-mono text-[9px] mb-1.5" style={{ color:"var(--text4)" }}>{wk.label}</p>}
+                              {payload.map((p:any,i:number)=>(
+                                <div key={i} className="flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full" style={{ background:p.fill }}/>
+                                  <span className="font-mono text-[11px]" style={{ color:"var(--text2)" }}>
+                                    <span style={{ color:"var(--text3)" }}>{p.name}: </span>
+                                    <span style={{ fontWeight:700 }}>{p.value}h</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="required" name="Required" fill="rgba(255,255,255,0.05)" radius={[4,4,0,0]} />
+                      <Bar dataKey="productive" name="Productive" radius={[4,4,0,0]}>
+                        {weeklyChartData.map((entry,i)=>(
+                          <Cell
+                            key={i}
+                            fill={entry.isActive
+                              ? "#fff"
+                              : entry.pct>=100?GREEN:entry.pct>=75?ACCENT:DANGER
+                            }
+                            opacity={entry.isActive ? 1 : selectedWeek !== null ? 0.55 : 1}
+                            stroke={entry.isActive ? ACCENT : "none"}
+                            strokeWidth={entry.isActive ? 2 : 0}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  {/* Week date range legend */}
+                  <div className="mt-2 pt-2" style={{ borderTop:"1px solid var(--border)" }}>
+                    {calendarWeeks.map(w => (
+                      <div key={w.weekNum} className="flex items-center justify-between py-0.5">
+                        <span className="font-mono text-[9px] font-bold" style={{ color: selectedWeek===w.weekNum?ACCENT:"var(--text3)" }}>
+                          W{w.weekNum}
+                        </span>
+                        <span className="font-mono text-[9px]" style={{ color:"var(--text4)" }}>{w.label}</span>
+                        <span className="font-mono text-[9px]" style={{ color: w.totalProductiveH>=w.totalRequiredH?GREEN:DANGER }}>
+                          {fmtH(w.totalProductiveH)} / {fmtH(w.totalRequiredH)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <div className="h-40 flex items-center justify-center">
                   <p className="font-mono text-[11px]" style={{ color:"var(--text4)" }}>No week data</p>
@@ -765,28 +1158,54 @@ export default function AnalysisPage() {
             <Panel>
               <SectionHeader icon={Award} title="Performance" sub="Key scores at a glance" color={GREEN} />
               <div className="flex items-center justify-around py-2">
-                <RadialProgress value={data.consistencyScore} color={scoreColor} label="Consistency" />
+                <RadialProgress value={sliceStats.consistencyScore} color={scoreColor} label="Consistency" />
                 <RadialProgress value={attendancePct} color={attendancePct>=90?GREEN:attendancePct>=75?ACCENT:DANGER} label="Attendance" />
-                <RadialProgress value={data.totalRequiredH>0?Math.min(100,Math.round((data.totalProductiveH/data.totalRequiredH)*100)):0} color={BLUE} label="Hours met" />
+                <RadialProgress
+                  value={sliceStats.totalRequiredH>0
+                    ? Math.min(100, Math.round((sliceStats.totalProductiveH/sliceStats.totalRequiredH)*100))
+                    : 0
+                  }
+                  color={BLUE}
+                  label="Hours met"
+                />
               </div>
-              <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop:"1px solid var(--border)" }}>
-                {[
-                  { label:"Current Streak", val:data.currentStreak, color:DANGER, bg:"rgba(248,113,113,0.08)", bdr:"rgba(248,113,113,0.15)" },
-                  { label:"Best Streak",    val:data.longestStreak,  color:AMBER,  bg:"rgba(245,158,11,0.08)",  bdr:"rgba(245,158,11,0.15)"  },
-                ].map(({label,val,color,bg,bdr})=>(
-                  <div key={label} className="flex-1 rounded-xl px-3 py-2.5 text-center" style={{ background:bg, border:`1px solid ${bdr}` }}>
-                    <p className="font-mono text-[9px] uppercase tracking-widest mb-0.5" style={{ color:"var(--text4)" }}>{label}</p>
-                    <p className="font-mono font-black text-[22px]" style={{ color }}>{val}</p>
-                    <p className="font-mono text-[9px]" style={{ color:"var(--text4)" }}>days</p>
-                  </div>
-                ))}
-              </div>
+              {/* Only show streaks in full-month view */}
+              {!activeWeek && (
+                <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop:"1px solid var(--border)" }}>
+                  {[
+                    { label:"Current Streak", val:data.currentStreak, color:DANGER, bg:"rgba(248,113,113,0.08)", bdr:"rgba(248,113,113,0.15)" },
+                    { label:"Best Streak",    val:data.longestStreak,  color:AMBER,  bg:"rgba(245,158,11,0.08)",  bdr:"rgba(245,158,11,0.15)"  },
+                  ].map(({label,val,color,bg,bdr})=>(
+                    <div key={label} className="flex-1 rounded-xl px-3 py-2.5 text-center" style={{ background:bg, border:`1px solid ${bdr}` }}>
+                      <p className="font-mono text-[9px] uppercase tracking-widest mb-0.5" style={{ color:"var(--text4)" }}>{label}</p>
+                      <p className="font-mono font-black text-[22px]" style={{ color }}>{val}</p>
+                      <p className="font-mono text-[9px]" style={{ color:"var(--text4)" }}>days</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {activeWeek && (
+                <div className="mt-3 pt-3 rounded-xl px-3 py-2.5 text-center"
+                  style={{ borderTop:"1px solid var(--border)", background:"rgba(124,110,243,0.06)", border:`1px solid ${ACCENT}22` }}>
+                  <p className="font-mono text-[9px] uppercase tracking-widest mb-1" style={{ color:"var(--text4)" }}>Week Range</p>
+                  <p className="font-mono font-bold text-[12px]" style={{ color:ACCENT }}>{activeWeek.label}</p>
+                  <p className="font-mono text-[9px] mt-0.5" style={{ color:"var(--text4)" }}>
+                    {activeWeek.days.filter(d=>!d.isWeekend&&!d.isFuture&&!d.isHoliday).length} work day(s)
+                  </p>
+                </div>
+              )}
             </Panel>
 
             {/* Heatmap */}
             <Panel>
-              <SectionHeader icon={CalendarDays} title="Month Heatmap" sub="Intensity by calendar day" color={AMBER} />
-              <HeatmapCalendar days={data.dailyData} year={year} month={month} maxH={maxH} />
+              <SectionHeader icon={CalendarDays} title="Month Heatmap" sub={activeWeek ? `Week ${activeWeek.weekNum} highlighted` : "Intensity by calendar day"} color={AMBER} />
+              <HeatmapCalendar
+                days={data.dailyData}
+                year={year}
+                month={month}
+                maxH={maxH}
+                highlightWeek={activeWeek}
+              />
             </Panel>
           </div>
 
@@ -795,14 +1214,19 @@ export default function AnalysisPage() {
 
             {/* Entry/Exit Line */}
             <Panel>
-              <SectionHeader icon={Clock} title="Entry & Exit Timing" sub="When you start and finish each day" color={BLUE} />
+              <SectionHeader
+                icon={Clock}
+                title="Entry & Exit Timing"
+                sub={activeWeek ? `Week ${activeWeek.weekNum} — ${activeWeek.label}` : "When you start and finish each day"}
+                color={BLUE}
+              />
               {timingData.length > 1 ? (
                 <>
                   <ResponsiveContainer width="100%" height={180}>
                     <LineChart data={timingData} margin={{ top:5, right:8, left:-20, bottom:0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                       <XAxis dataKey="name" tick={{ fill:"var(--text4)", fontSize:8, fontFamily:"monospace" }}
-                        axisLine={false} tickLine={false} interval={Math.floor(timingData.length/6)} />
+                        axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(timingData.length/6))} />
                       <YAxis tick={{ fill:"var(--text4)", fontSize:9, fontFamily:"monospace" }}
                         axisLine={false} tickLine={false} domain={["dataMin - 30","dataMax + 30"]} tickFormatter={fmtMins} />
                       <Tooltip content={<ChartTooltip formatter={(v:number)=>fmtMins(v)} />} />
@@ -812,10 +1236,10 @@ export default function AnalysisPage() {
                   </ResponsiveContainer>
                   <div className="grid grid-cols-4 gap-2 mt-3 pt-3" style={{ borderTop:"1px solid var(--border)" }}>
                     {[
-                      { label:"Avg Entry",   value:to12h(data.avgEntryTime),  color:ACCENT },
-                      { label:"Avg Exit",    value:to12h(data.avgExitTime),   color:GREEN  },
-                      { label:"Earliest In", value:to12h(data.earliestEntry), color:AMBER  },
-                      { label:"Latest Out",  value:to12h(data.latestExit),    color:DANGER },
+                      { label:"Avg Entry",   value:to12h(sliceStats.avgEntryTime),  color:ACCENT },
+                      { label:"Avg Exit",    value:to12h(sliceStats.avgExitTime),   color:GREEN  },
+                      { label:"Earliest In", value:to12h(sliceStats.earliestEntry), color:AMBER  },
+                      { label:"Latest Out",  value:to12h(sliceStats.latestExit),    color:DANGER },
                     ].map(({label,value,color})=>(
                       <div key={label} className="rounded-xl p-2.5 text-center" style={{ background:"var(--surface2)", border:"1px solid var(--border)" }}>
                         <p className="font-mono text-[8px] uppercase tracking-wider mb-1" style={{ color:"var(--text4)" }}>{label}</p>
@@ -833,14 +1257,19 @@ export default function AnalysisPage() {
 
             {/* Breaks */}
             <Panel>
-              <SectionHeader icon={Coffee} title="Break Breakdown" sub="Rest time distribution this month" color={AMBER} />
+              <SectionHeader
+                icon={Coffee}
+                title="Break Breakdown"
+                sub={activeWeek ? `Week ${activeWeek.weekNum} — ${activeWeek.label}` : "Rest time distribution this month"}
+                color={AMBER}
+              />
               <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
                 {[
-                  { label:"Tea / Coffee", count:data.breakBreakdown.tea.count,    h:data.breakBreakdown.tea.totalH,    color:AMBER  },
-                  { label:"Lunch",        count:data.breakBreakdown.lunch.count,  h:data.breakBreakdown.lunch.totalH,  color:GREEN  },
-                  { label:"Custom",       count:data.breakBreakdown.custom.count, h:data.breakBreakdown.custom.totalH, color:ACCENT },
+                  { label:"Tea / Coffee", count:sliceStats.breakBreakdown.tea.count,    h:sliceStats.breakBreakdown.tea.totalH,    color:AMBER  },
+                  { label:"Lunch",        count:sliceStats.breakBreakdown.lunch.count,  h:sliceStats.breakBreakdown.lunch.totalH,  color:GREEN  },
+                  { label:"Custom",       count:sliceStats.breakBreakdown.custom.count, h:sliceStats.breakBreakdown.custom.totalH, color:ACCENT },
                 ].map(b => {
-                  const total = (data.breakBreakdown.tea.count + data.breakBreakdown.lunch.count + data.breakBreakdown.custom.count) || 1;
+                  const total = (sliceStats.breakBreakdown.tea.count + sliceStats.breakBreakdown.lunch.count + sliceStats.breakBreakdown.custom.count) || 1;
                   const pct = Math.round((b.count / total) * 100);
                   return (
                     <div key={b.label}>
@@ -862,9 +1291,9 @@ export default function AnalysisPage() {
               </div>
               <div className="grid grid-cols-3 gap-2 mt-4 pt-3" style={{ borderTop:"1px solid var(--border)" }}>
                 {[
-                  { label:"Total Break", value:fmtH(data.totalBreakH), color:AMBER },
-                  { label:"Avg Break",   value:`${data.avgBreakMins}m`, color:"var(--text2)" },
-                  { label:"Longest",     value:`${data.longestBreakMins}m`, color:DANGER },
+                  { label:"Total Break", value:fmtH(sliceStats.totalBreakH),      color:AMBER },
+                  { label:"Avg Break",   value:`${sliceStats.avgBreakMins}m`,      color:"var(--text2)" },
+                  { label:"Longest",     value:`${sliceStats.longestBreakMins}m`,  color:DANGER },
                 ].map(({label,value,color})=>(
                   <div key={label} className="rounded-xl p-2.5 text-center" style={{ background:"var(--surface2)", border:"1px solid var(--border)" }}>
                     <p className="font-mono text-[8px] uppercase tracking-wider mb-1" style={{ color:"var(--text4)" }}>{label}</p>
@@ -874,8 +1303,8 @@ export default function AnalysisPage() {
               </div>
               <div className="grid grid-cols-2 gap-2 mt-2">
                 {[
-                  { label:"🏆 Best Day",  day:data.bestDay,  color:GREEN  },
-                  { label:"📉 Worst Day", day:data.worstDay, color:DANGER },
+                  { label:"🏆 Best Day",  day:sliceStats.bestDay,  color:GREEN  },
+                  { label:"📉 Worst Day", day:sliceStats.worstDay, color:DANGER },
                 ].map(({label,day,color})=>(
                   <div key={label} className="rounded-xl px-3 py-2.5 flex items-center justify-between"
                     style={{ background:"var(--surface2)", border:"1px solid var(--border)" }}>
@@ -892,8 +1321,12 @@ export default function AnalysisPage() {
 
           {/* Daily Log Table */}
           <Panel className="ana-fade ana-d5">
-            <SectionHeader icon={BarChart2} title="Daily Log" sub="Sortable · filterable · 8 rows per page" />
-            <DailyLogTable days={data.dailyData} year={year} month={month} />
+            <SectionHeader
+              icon={BarChart2}
+              title={activeWeek ? `Daily Log — Week ${activeWeek.weekNum} (${activeWeek.label})` : "Daily Log"}
+              sub="Sortable · filterable · 8 rows per page"
+            />
+            <DailyLogTable days={activeDays} year={year} month={month} />
           </Panel>
         </>
       )}
