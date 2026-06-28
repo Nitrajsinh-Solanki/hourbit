@@ -523,7 +523,7 @@ function DashFooter({ sidebarCollapsed }: { sidebarCollapsed: boolean }) {
 
       <p className="text-[12px] whitespace-nowrap" style={{ color: "var(--text3)" }}>
         Made with <span style={{ color: "#e05252" }}>♥</span> —{" "}
-        <span style={{ color: "var(--text2)" }}>Nitrajsinh Solanki</span>
+        <span style={{ color: "var(--text2)" }}>Nikulsinh Solanki</span>
       </p>
 
       <div className="flex items-center gap-4 sm:gap-5">
